@@ -39,7 +39,9 @@
   - Shared actions: place in `src/components/actions/`
 - **Ministry Platform Structure**:
   - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
+  - Zod schemas (generated): `src/lib/providers/ministry-platform/models/*Schema.ts` - for optional runtime validation
   - DTOs/ViewModels (hand-written): `src/lib/dto/` - application-level data transfer objects
+- **Validation**: Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
 
 ## Component Organization
 ```
@@ -63,6 +65,9 @@ import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
 
 // Ministry Platform models (generated)
 import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
+
+// Ministry Platform Zod schemas (for validation)
+import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
 
 // Ministry Platform helper
 import { MPHelper } from '@/lib/providers/ministry-platform';

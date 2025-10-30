@@ -24,7 +24,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - ⚡ **Next.js 15**: App Router with React Server Components
 - 🔄 **REST API Client**: Comprehensive Ministry Platform REST API integration
 - 🛠️ **Type Generation**: CLI tool to generate TypeScript interfaces and Zod schemas from MP database
-- ✅ **Validation**: Zod schemas for runtime type validation
+- ✅ **Validation**: Optional Zod schema validation in MPHelper for runtime data validation before API calls
 
 ## Architecture
 
@@ -373,6 +373,7 @@ The main entry point for interacting with Ministry Platform:
 
 ```typescript
 import { MPHelper } from '@/lib/providers/ministry-platform';
+import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
 
 const mp = new MPHelper();
 
@@ -383,13 +384,24 @@ const contacts = await mp.getTableRecords({
   select: 'Contact_ID,Display_Name,Email_Address'
 });
 
-// Create records
+// Create records (without validation - backward compatible)
 await mp.createTableRecords('Contact_Log', [{
   Contact_ID: 12345,
   Contact_Date: new Date().toISOString(),
   Made_By: 1,
   Notes: 'Follow-up call completed'
 }]);
+
+// Create records with Zod validation (recommended)
+await mp.createTableRecords('Contact_Log', [{
+  Contact_ID: 12345,
+  Contact_Date: new Date().toISOString(),
+  Made_By: 1,
+  Notes: 'Follow-up call completed'
+}], {
+  schema: ContactLogSchema,  // Validates data before API call
+  $userId: 1
+});
 ```
 
 ### Available Services
@@ -559,7 +571,15 @@ import { sharedAction } from '@/components/actions/shared';
 1. **Regenerate types** after Ministry Platform schema changes: `npm run mp:generate:models`
 2. Always use TypeScript generics for type-safe API calls
 3. Handle errors with try-catch blocks
-4. Use Zod schemas for runtime validation
+4. **Use Zod schemas for runtime validation** - Pass the optional `schema` parameter to `createTableRecords()` and `updateTableRecords()` to validate data before API calls:
+   ```typescript
+   import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
+   
+   await mp.createTableRecords('Contact_Log', records, {
+     schema: ContactLogSchema,  // Catch validation errors before API call
+     $userId: 1
+   });
+   ```
 5. Keep Ministry Platform structure organized:
    - Generated database models: `src/lib/providers/ministry-platform/models/` (auto-generated, don't edit manually)
    - Application-level DTOs/ViewModels: `src/lib/dto/` (hand-written)
