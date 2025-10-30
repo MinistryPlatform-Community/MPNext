@@ -10,30 +10,30 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { handleSignOut } from "./actions";
 
 interface UserMenuProps {
   onClose?: () => void;
   userProfile: MPUserProfile;
-  children: React.ReactNode; // This will be the trigger element (e.g., user avatar/button)
+  children: React.ReactNode;
 }
 
 const userMenuItems = [
-  // { name: 'Profile', href: '/profile', icon: UserIcon },
-  // { name: 'Settings', href: '/settings', icon: CogIcon },
   {
     name: "Sign out",
-    href: "/api/auth/signout",
+    action: "signout",
     icon: ArrowRightOnRectangleIcon,
   },
 ];
 
 export function UserMenu({ onClose, userProfile, children }: UserMenuProps) {
-  const handleItemClick = (href: string) => {
+  const handleItemClick = async (action: string) => {
     if (onClose) {
       onClose();
     }
-    // Navigate to the href
-    window.location.href = href;
+    if (action === "signout") {
+      await handleSignOut();
+    }
   };
 
   return (
@@ -56,7 +56,7 @@ export function UserMenu({ onClose, userProfile, children }: UserMenuProps) {
         {userMenuItems.map((item) => (
           <DropdownMenuItem
             key={item.name}
-            onClick={() => handleItemClick(item.href)}
+            onClick={() => handleItemClick(item.action)}
             className="cursor-pointer text-white hover:bg-[#2d3a5f] focus:bg-[#2d3a5f]"
           >
             <item.icon className="mr-2 h-4 w-4 text-white" />
