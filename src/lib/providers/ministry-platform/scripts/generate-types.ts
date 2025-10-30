@@ -36,8 +36,9 @@ interface ColumnMetadata {
   HasDefault?: boolean;
 }
 
-// Extend TableMetadata to include actual API response fields
-interface TableMetadataWithName extends TableMetadata {
+// API returns 'Name' but TableMetadata type defines 'Table_Name'
+// Use Omit to avoid type conflict and support both
+interface TableMetadataWithName extends Omit<TableMetadata, 'Table_Name'> {
   Name?: string;
   Table_Name?: string;
 }
