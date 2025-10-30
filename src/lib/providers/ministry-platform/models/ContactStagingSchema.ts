@@ -44,7 +44,7 @@ export const ContactStagingSchema = z.object({
   Address_Line_1: z.string().max(75).nullable(),
   Address_Line_2: z.string().max(75).nullable(),
   City: z.string().max(50).nullable(),
-  State/Region: z.string().max(50).nullable(),
+  "State/Region": z.string().max(50).nullable(),
   Postal_Code: z.string().max(15).nullable(),
   Foreign_Country: z.string().max(50).nullable(),
   ID_Card: z.string().max(50).nullable(),

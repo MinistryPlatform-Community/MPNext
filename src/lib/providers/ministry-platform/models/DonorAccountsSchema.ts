@@ -6,7 +6,7 @@ export const DonorAccountsSchema = z.object({
   Account_Number: z.string().max(50),
   Routing_Number: z.string().max(50).nullable(),
   Donor_ID: z.number().int(),
-  Non-Assignable: z.boolean(),
+  "Non-Assignable": z.boolean(),
   Account_Type_ID: z.number().int(),
   Closed: z.boolean(),
   Bank_ID: z.number().int().nullable(),

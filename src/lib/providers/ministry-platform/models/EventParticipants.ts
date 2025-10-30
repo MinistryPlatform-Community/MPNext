@@ -31,7 +31,7 @@ export interface EventParticipants {
   /**
    * Max length: 50 characters
    */
-  Check-in_Station?: string /* max 50 chars */ | null;
+  "Check-in_Station"?: string /* max 50 chars */ | null;
 
   _Setup_Date?: string /* ISO datetime */ | null; // Read Only, Has Default
 

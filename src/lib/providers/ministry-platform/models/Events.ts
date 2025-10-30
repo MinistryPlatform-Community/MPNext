@@ -70,7 +70,7 @@ export interface Events {
 
   Force_Login: boolean; // Has Default
 
-  Allow_Check-in: boolean; // Has Default
+  "Allow_Check-in": boolean; // Has Default
 
   Ignore_Program_Groups: boolean; // Has Default
 
@@ -78,9 +78,9 @@ export interface Events {
 
   Search_Results: number /* 32-bit integer */; // Foreign Key -> Checkin_Search_Results_Types.Checkin_Search_Results_Type_ID, Has Default
 
-  Early_Check-in_Period?: number /* 16-bit integer */ | null;
+  "Early_Check-in_Period"?: number /* 16-bit integer */ | null;
 
-  Late_Check-in_Period?: number /* 16-bit integer */ | null;
+  "Late_Check-in_Period"?: number /* 16-bit integer */ | null;
 
   Registrant_Message?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
 

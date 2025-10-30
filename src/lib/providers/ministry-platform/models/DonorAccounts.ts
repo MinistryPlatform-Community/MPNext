@@ -26,7 +26,7 @@ export interface DonorAccounts {
 
   Donor_ID: number /* 32-bit integer */; // Foreign Key -> Donors.Donor_ID
 
-  Non-Assignable: boolean;
+  "Non-Assignable": boolean;
 
   Account_Type_ID: number /* 32-bit integer */; // Foreign Key -> Account_Types.Account_Type_ID
 

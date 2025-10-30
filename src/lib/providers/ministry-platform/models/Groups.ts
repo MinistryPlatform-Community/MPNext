@@ -67,7 +67,7 @@ export interface Groups {
 
   _Last_Group_Member_Changed?: string /* ISO datetime */ | null; // Read Only
 
-  Secure_Check-in: boolean; // Has Default
+  "Secure_Check-in": boolean; // Has Default
 
   Suppress_Nametag: boolean; // Has Default
 

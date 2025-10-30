@@ -31,7 +31,7 @@ export interface VwMpContactDetails {
   /**
    * Max length: 2147483647 characters
    */
-  Allergies/Special_Needs?: string /* max 2147483647 chars */ | null;
+  "Allergies/Special_Needs"?: string /* max 2147483647 chars */ | null;
 }
 
 export type VwMpContactDetailsRecord = VwMpContactDetails;

@@ -132,6 +132,18 @@ function sanitizeTypeName(name: string): string {
     .replace(/[^a-zA-Z0-9]/g, "");
 }
 
+function isValidIdentifier(name: string): boolean {
+  // Check if the name is a valid JavaScript identifier
+  // Must start with letter, underscore, or dollar sign
+  // Can contain letters, digits, underscores, or dollar signs
+  return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+}
+
+function formatFieldName(name: string): string {
+  // Quote field names that aren't valid JavaScript identifiers
+  return isValidIdentifier(name) ? name : `"${name}"`;
+}
+
 function mapDataTypeToTypeScript(dataType: ParameterDataType, isRequired: boolean, size?: number): string {
   const baseType = (() => {
     switch (dataType) {
@@ -265,7 +277,8 @@ function generateZodSchema(table: TableMetadata, tableName: string): string {
     .filter(col => col.DataType !== "Separator")
     .map(col => {
       const zodType = mapDataTypeToZod(col);
-      return `  ${col.Name}: ${zodType},`;
+      const fieldName = formatFieldName(col.Name);
+      return `  ${fieldName}: ${zodType},`;
     });
   
   return `import { z } from 'zod';
@@ -337,8 +350,9 @@ function generateDetailedTypeDefinition(
         }
         
         const inlineComment = commentParts.length > 0 ? ` // ${commentParts.join(", ")}` : "";
+        const fieldName = formatFieldName(col.Name);
         
-        return `${jsDocComment}\n  ${col.Name}${optionalMarker}: ${fieldType};${inlineComment}`;
+        return `${jsDocComment}\n  ${fieldName}${optionalMarker}: ${fieldType};${inlineComment}`;
       });
     
     fieldsDefinition = fields.join("\n");
@@ -362,7 +376,8 @@ function generateDetailedTypeDefinition(
         const isOptional = sampleRecords.some(record => 
           record[fieldName] === null || record[fieldName] === undefined
         );
-        return `  ${fieldName}${isOptional ? "?" : ""}: ${typeUnion};`;
+        const formattedFieldName = formatFieldName(fieldName);
+        return `  ${formattedFieldName}${isOptional ? "?" : ""}: ${typeUnion};`;
       });
     
     fieldsDefinition = fields.join("\n");

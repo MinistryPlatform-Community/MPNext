@@ -5,7 +5,7 @@ export const AddressesSchema = z.object({
   Address_Line_1: z.string().max(75),
   Address_Line_2: z.string().max(75).nullable(),
   City: z.string().max(50).nullable(),
-  State/Region: z.string().max(50).nullable(),
+  "State/Region": z.string().max(50).nullable(),
   Postal_Code: z.string().max(15).nullable(),
   Foreign_Country: z.string().max(255).nullable(),
   Country_Code: z.string().max(25).nullable(),

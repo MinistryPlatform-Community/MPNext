@@ -10,7 +10,7 @@ export const EventParticipantsSchema = z.object({
   Time_Out: z.string().datetime().nullable(),
   Notes: z.string().max(4000).nullable(),
   Group_Participant_ID: z.number().int().nullable(),
-  Check-in_Station: z.string().max(50).nullable(),
+  "Check-in_Station": z.string().max(50).nullable(),
   _Setup_Date: z.string().datetime().nullable(),
   Group_ID: z.number().int().nullable(),
   Room_ID: z.number().int().nullable(),

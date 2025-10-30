@@ -27,7 +27,7 @@ export interface Addresses {
   /**
    * Max length: 50 characters
    */
-  State/Region?: string /* max 50 chars */ | null;
+  "State/Region"?: string /* max 50 chars */ | null;
 
   /**
    * Max length: 15 characters

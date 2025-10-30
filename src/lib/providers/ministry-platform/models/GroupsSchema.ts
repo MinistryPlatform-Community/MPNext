@@ -28,7 +28,7 @@ export const GroupsSchema = z.object({
   Reason_Ended: z.number().int().nullable(),
   _Last_Attendance_Posted: z.string().datetime().nullable(),
   _Last_Group_Member_Changed: z.string().datetime().nullable(),
-  Secure_Check-in: z.boolean(),
+  "Secure_Check-in": z.boolean(),
   Suppress_Nametag: z.boolean(),
   Suppress_Care_Note: z.boolean(),
   On_Classroom_Manager: z.boolean(),
