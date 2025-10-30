@@ -36,6 +36,12 @@ interface ColumnMetadata {
   HasDefault?: boolean;
 }
 
+// Extend TableMetadata to include actual API response fields
+interface TableMetadataWithName extends TableMetadata {
+  Name?: string;
+  Table_Name?: string;
+}
+
 interface CLIOptions {
   outputDir: string;
   search?: string;
@@ -126,7 +132,8 @@ Examples:
 
 function getTableName(table: TableMetadata): string | undefined {
   // API returns 'Name' but types define 'Table_Name' - support both
-  return (table as any).Name ?? (table as any).Table_Name;
+  const extendedTable = table as TableMetadataWithName;
+  return extendedTable.Name ?? extendedTable.Table_Name;
 }
 
 function sanitizeTypeName(name: string): string {
