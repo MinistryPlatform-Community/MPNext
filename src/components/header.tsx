@@ -1,21 +1,21 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Bars3Icon } from '@heroicons/react/24/outline';
-import { UserCircleIcon } from '@heroicons/react/24/solid';
-import Sidebar from '@/components/Sidebar';
-import UserMenu from '@/components/UserMenu/UserMenu';
-import { useSession } from '@/components/SessionProvider';
-import { getCurrentUserProfile } from '@/components/UserMenu/actions';
-import { MPUserProfile } from '@/lib/providers/ministry-platform/types';
+import { useState, useEffect } from "react";
+import { Bars3Icon } from "@heroicons/react/24/outline";
+import { UserCircleIcon } from "@heroicons/react/24/solid";
+import { Sidebar } from "@/components/sidebar";
+import { UserMenu } from "@/components/user-menu/user-menu";
+import { useSession } from "@/components/session-provider";
+import { getCurrentUserProfile } from "@/components/user-menu/actions";
+import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 
-export default function Header() {
+export function Header() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userProfile, setUserProfile] = useState<MPUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const session = useSession();
 
-  console.log('Header rendered session: ', session);
+  console.log("Header rendered session: ", session);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -28,7 +28,7 @@ export default function Header() {
         const profile = await getCurrentUserProfile(session.user.id);
         setUserProfile(profile);
       } catch (error) {
-        console.error('Failed to fetch user profile:', error);
+        console.error("Failed to fetch user profile:", error);
       } finally {
         setLoading(false);
       }
@@ -52,7 +52,7 @@ export default function Header() {
 
           {/* Center - App title */}
           <h1 className="text-lg font-semibold text-white truncate">
-            {process.env.NEXT_PUBLIC_APP_NAME || 'Pastor App'}
+            {process.env.NEXT_PUBLIC_APP_NAME || "Pastor App"}
           </h1>
 
           {/* Right side - User avatar */}
@@ -62,16 +62,22 @@ export default function Header() {
                 <button
                   className="p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
                   aria-label="User menu"
-                  title={userProfile?.First_Name && userProfile?.Last_Name 
-                    ? `${userProfile.First_Name} ${userProfile.Last_Name}` 
-                    : session?.user?.name || session?.user?.email || 'User menu'}
+                  title={
+                    userProfile?.First_Name && userProfile?.Last_Name
+                      ? `${userProfile.First_Name} ${userProfile.Last_Name}`
+                      : session?.user?.name ||
+                        session?.user?.email ||
+                        "User menu"
+                  }
                 >
                   {userProfile?.Image_GUID ? (
-                    <img 
+                    <img
                       src={`${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${userProfile.Image_GUID}?$thumbnail=true`}
-                      alt={userProfile.First_Name && userProfile.Last_Name 
-                        ? `${userProfile.First_Name} ${userProfile.Last_Name}` 
-                        : 'User avatar'}
+                      alt={
+                        userProfile.First_Name && userProfile.Last_Name
+                          ? `${userProfile.First_Name} ${userProfile.Last_Name}`
+                          : "User avatar"
+                      }
                       className="h-8 w-8 rounded-full object-cover border-2 border-white"
                     />
                   ) : (
@@ -93,17 +99,14 @@ export default function Header() {
       </header>
 
       {/* Sidebar */}
-      <Sidebar 
-        isOpen={sidebarOpen} 
-        onClose={() => setSidebarOpen(false)} 
-      />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Animated backdrop for sidebar */}
-      <div 
+      <div
         className={`fixed inset-0 bg-black transition-opacity duration-300 ease-in-out z-40 ${
-          sidebarOpen 
-            ? 'opacity-30 pointer-events-auto' 
-            : 'opacity-0 pointer-events-none'
+          sidebarOpen
+            ? "opacity-30 pointer-events-auto"
+            : "opacity-0 pointer-events-none"
         }`}
         onClick={() => setSidebarOpen(false)}
       />

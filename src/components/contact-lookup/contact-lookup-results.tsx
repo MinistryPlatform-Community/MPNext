@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { useRouter } from 'next/navigation';
-import { ContactSearch } from '@/lib/providers/ministry-platform/models';
+import React from "react";
+import { useRouter } from "next/navigation";
+import { ContactSearch } from "@/lib/providers/ministry-platform/models";
 
 interface ContactLookupResultsProps {
   results: ContactSearch[];
@@ -15,14 +15,14 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
   results,
   loading = false,
   error,
-  onContactSelect
+  onContactSelect,
 }) => {
   const router = useRouter();
 
   const handleContactClick = (contact: ContactSearch) => {
     // Call the optional callback first
     onContactSelect?.(contact);
-    
+
     // Navigate to the contact detail page
     if (contact.Contact_GUID) {
       router.push(`/contactlookup/${contact.Contact_GUID}`);
@@ -31,9 +31,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
 
   if (loading) {
     return (
-      <div className="p-4 text-center text-gray-500">
-        Searching contacts...
-      </div>
+      <div className="p-4 text-center text-gray-500">Searching contacts...</div>
     );
   }
 
@@ -47,9 +45,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
 
   if (results.length === 0) {
     return (
-      <div className="p-4 text-center text-gray-500">
-        No contacts found
-      </div>
+      <div className="p-4 text-center text-gray-500">No contacts found</div>
     );
   }
 
@@ -57,10 +53,14 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
     return nickname && nickname.trim() ? nickname : firstName;
   };
 
-  const getInitials = (firstName?: string, nickname?: string, lastName?: string) => {
+  const getInitials = (
+    firstName?: string,
+    nickname?: string,
+    lastName?: string
+  ) => {
     const displayFirstName = getDisplayName(firstName, nickname);
-    const first = displayFirstName?.charAt(0)?.toUpperCase() || '';
-    const last = lastName?.charAt(0)?.toUpperCase() || '';
+    const first = displayFirstName?.charAt(0)?.toUpperCase() || "";
+    const last = lastName?.charAt(0)?.toUpperCase() || "";
     return first + last;
   };
 
@@ -71,7 +71,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
   return (
     <div className="border rounded-md bg-white shadow-sm">
       <div className="p-2 bg-gray-50 border-b text-sm font-medium text-gray-700">
-        {results.length} contact{results.length !== 1 ? 's' : ''} found
+        {results.length} contact{results.length !== 1 ? "s" : ""} found
       </div>
       <div className="max-h-96 overflow-y-auto">
         {results.map((contact) => (
@@ -85,17 +85,24 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
                 {contact.Image_GUID ? (
                   <img
                     src={getImageUrl(contact.Image_GUID)}
-                    alt={`${getDisplayName(contact.First_Name, contact.Nickname)} ${contact.Last_Name}`}
+                    alt={`${getDisplayName(
+                      contact.First_Name,
+                      contact.Nickname
+                    )} ${contact.Last_Name}`}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       // Fallback to initials if image fails to load
                       const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
+                      target.style.display = "none";
                       const parent = target.parentElement;
                       if (parent) {
                         parent.innerHTML = `
                           <div class="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium">
-                            ${getInitials(contact.First_Name, contact.Nickname, contact.Last_Name)}
+                            ${getInitials(
+                              contact.First_Name,
+                              contact.Nickname,
+                              contact.Last_Name
+                            )}
                           </div>
                         `;
                       }
@@ -103,13 +110,18 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
                   />
                 ) : (
                   <div className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium">
-                    {getInitials(contact.First_Name, contact.Nickname, contact.Last_Name)}
+                    {getInitials(
+                      contact.First_Name,
+                      contact.Nickname,
+                      contact.Last_Name
+                    )}
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-gray-900">
-                  {getDisplayName(contact.First_Name, contact.Nickname)} {contact.Last_Name}
+                  {getDisplayName(contact.First_Name, contact.Nickname)}{" "}
+                  {contact.Last_Name}
                 </div>
                 {contact.Email_Address && (
                   <div className="text-sm text-gray-600 truncate">
@@ -129,5 +141,3 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
     </div>
   );
 };
-
-export default ContactLookupResults;

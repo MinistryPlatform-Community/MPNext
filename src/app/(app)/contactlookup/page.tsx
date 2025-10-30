@@ -1,8 +1,6 @@
-'use client';
+"use client";
 
-import ContactLookup from "@/components/contactLookup/contactLookup";
-
-
+import { ContactLookup } from "@/components/contact-lookup/contact-lookup";
 
 export default function ContactLookupPage() {
   return (

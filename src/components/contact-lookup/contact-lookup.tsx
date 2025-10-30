@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { ContactLookupSearch } from './contactLookupSearch';
-import { ContactLookupResults } from './contactLookupResults';
-import { ContactSearch } from '@/lib/providers/ministry-platform/models';
+import React, { useState } from "react";
+import { ContactLookupSearch } from "./contact-lookup-search";
+import { ContactLookupResults } from "./contact-lookup-results";
+import { ContactSearch } from "@/lib/providers/ministry-platform/models";
 
 interface ContactLookupProps {
   placeholder?: string;
@@ -16,17 +16,17 @@ export const ContactLookup: React.FC<ContactLookupProps> = ({
   placeholder,
   disabled,
   onContactSelect,
-  showResultsImmediately = true
+  showResultsImmediately = true,
 }) => {
   const [searchResults, setSearchResults] = useState<ContactSearch[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string>('');
+  const [searchError, setSearchError] = useState<string>("");
   const [hasSearched, setHasSearched] = useState(false);
 
   const handleSearchResults = (results: ContactSearch[]) => {
     setSearchResults(results);
     setIsSearching(false);
-    setSearchError('');
+    setSearchError("");
     setHasSearched(true);
   };
 
@@ -39,7 +39,7 @@ export const ContactLookup: React.FC<ContactLookupProps> = ({
 
   const handleSearchStart = () => {
     setIsSearching(true);
-    setSearchError('');
+    setSearchError("");
     setHasSearched(false);
   };
 
@@ -59,8 +59,8 @@ export const ContactLookup: React.FC<ContactLookupProps> = ({
         onSearchError={handleSearchError}
         onSearchStart={handleSearchStart}
       />
-      
-      {(showResultsImmediately && (hasSearched || isSearching)) && (
+
+      {showResultsImmediately && (hasSearched || isSearching) && (
         <ContactLookupResults
           results={searchResults}
           loading={isSearching}
@@ -71,5 +71,3 @@ export const ContactLookup: React.FC<ContactLookupProps> = ({
     </div>
   );
 };
-
-export default ContactLookup;

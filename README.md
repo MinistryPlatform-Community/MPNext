@@ -116,15 +116,28 @@ MPNext/
 ├── src/
 │   ├── app/                          # Next.js App Router pages
 │   ├── components/                   # React components
+│   │   ├── actions/                  # Shared server actions
+│   │   │   └── README.md             # Actions organization guide
 │   │   ├── ui/                       # shadcn/ui components
-│   │   ├── contactLookup/            # Contact lookup feature
-│   │   ├── contactLookupDetails/     # Contact details feature
-│   │   ├── UserMenu/                 # User menu component
-│   │   ├── AuthWrapper.tsx           # Authentication wrapper
-│   │   ├── DynamicBreadcrumb.tsx     # Breadcrumb navigation
-│   │   ├── Header.tsx                # App header
-│   │   ├── SessionProvider.tsx       # NextAuth session provider
-│   │   └── Sidebar.tsx               # App sidebar
+│   │   ├── contact-lookup/           # Contact lookup feature
+│   │   │   ├── contact-lookup.tsx
+│   │   │   ├── contact-lookup-search.tsx
+│   │   │   ├── contact-lookup-results.tsx
+│   │   │   ├── actions.ts            # Feature-specific actions
+│   │   │   └── index.ts              # Barrel exports
+│   │   ├── contact-lookup-details/   # Contact details feature
+│   │   │   ├── contact-lookup-details.tsx
+│   │   │   ├── actions.ts            # Feature-specific actions
+│   │   │   └── index.ts              # Barrel exports
+│   │   ├── user-menu/                # User menu component
+│   │   │   ├── user-menu.tsx
+│   │   │   ├── actions.ts            # Feature-specific actions
+│   │   │   └── index.ts              # Barrel exports
+│   │   ├── auth-wrapper.tsx          # Authentication wrapper
+│   │   ├── dynamic-breadcrumb.tsx    # Breadcrumb navigation
+│   │   ├── header.tsx                # App header
+│   │   ├── session-provider.tsx      # NextAuth session provider
+│   │   └── sidebar.tsx               # App sidebar
 │   ├── lib/                          # Shared libraries
 │   │   └── providers/
 │   │       └── ministry-platform/    # Ministry Platform provider
@@ -215,13 +228,15 @@ Built with Radix UI primitives and styled with Tailwind CSS. Located in `src/com
 - And more...
 
 ### Application Components
-- **AuthWrapper**: Protects routes requiring authentication
-- **Header**: Application header with navigation
-- **Sidebar**: Application sidebar navigation
-- **UserMenu**: User profile and logout menu
-- **DynamicBreadcrumb**: Automatic breadcrumb generation
-- **ContactLookup**: Contact search and selection
-- **ContactLookupDetails**: Detailed contact information
+- **auth-wrapper**: Protects routes requiring authentication
+- **header**: Application header with navigation
+- **sidebar**: Application sidebar navigation
+- **user-menu**: User profile and logout menu
+- **dynamic-breadcrumb**: Automatic breadcrumb generation
+- **contact-lookup**: Contact search and selection
+- **contact-lookup-details**: Detailed contact information
+
+All components follow kebab-case naming and use named exports for consistency.
 
 ## Development
 
@@ -274,11 +289,42 @@ import { Button } from '@/components/ui/button';
 - Add `"use client"` only when needed for interactivity
 - Keep UI components in `src/components/ui/`
 - Follow shadcn/ui conventions
+- Use named exports (no default exports)
+- Organize feature components in folders with barrel exports
 
 ### Naming Conventions
-- **PascalCase**: Components, types, interfaces
+- **PascalCase**: Component names, types, interfaces
 - **camelCase**: Functions, variables
+- **kebab-case**: All component files and folders
 - **snake_case**: Ministry Platform API fields
+
+### Component Organization
+```
+src/components/
+├── actions/              # Shared actions (cross-feature)
+├── ui/                   # shadcn/ui components
+├── feature-name/         # Feature folder (kebab-case)
+│   ├── feature-name.tsx  # Main component
+│   ├── actions.ts        # Feature-specific server actions
+│   └── index.ts          # Barrel exports
+└── shared-component.tsx  # Shared/layout components
+```
+
+### Import Examples
+```typescript
+// Import feature components via barrel exports
+import { ContactLookup } from '@/components/contact-lookup';
+import { UserMenu } from '@/components/user-menu';
+
+// Import feature-specific actions (within same folder)
+import { searchContacts } from './actions';
+
+// Import cross-feature actions
+import { getCurrentUserProfile } from '@/components/user-menu/actions';
+
+// Import shared actions
+import { sharedAction } from '@/components/actions/shared';
+```
 
 ### TypeScript
 - Strict mode enabled

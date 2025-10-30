@@ -1,10 +1,7 @@
-'use client';
+"use client";
 
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import { 
-  HomeIcon, 
-  UsersIcon,
-} from '@heroicons/react/24/outline';
+import { XMarkIcon } from "@heroicons/react/24/outline";
+import { HomeIcon, UsersIcon } from "@heroicons/react/24/outline";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -12,17 +9,17 @@ interface SidebarProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Contact Lookup', href: '/contactlookup', icon: UsersIcon },
+  { name: "Dashboard", href: "/", icon: HomeIcon },
+  { name: "Contact Lookup", href: "/contactlookup", icon: UsersIcon },
   // { name: 'Calendar', href: '/calendar', icon: CalendarIcon },
   // { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
 
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <div
       className={`fixed top-0 left-0 z-50 h-full w-64 bg-[#344767] shadow-lg transform transition-transform duration-300 ease-in-out ${
-        isOpen ? 'translate-x-0' : '-translate-x-full'
+        isOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
       <div className="flex items-center justify-between h-16 px-4 border-b border-[#2d3a5f]">

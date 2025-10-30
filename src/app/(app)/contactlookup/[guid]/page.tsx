@@ -1,4 +1,4 @@
-import { ContactLookupDetails } from '@/components/contactLookupDetails/contactLookupDetails';
+import { ContactLookupDetails } from "@/components/contact-lookup-details/contact-lookup-details";
 
 interface ContactLookupDetailPageProps {
   params: Promise<{
@@ -6,9 +6,11 @@ interface ContactLookupDetailPageProps {
   }>;
 }
 
-export default async function ContactLookupDetailPage({ params }: ContactLookupDetailPageProps) {
+export default async function ContactLookupDetailPage({
+  params,
+}: ContactLookupDetailPageProps) {
   const { guid } = await params;
-  
+
   return (
     <div className="container mx-auto p-4">
       <ContactLookupDetails guid={guid} />

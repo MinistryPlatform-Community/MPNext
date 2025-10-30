@@ -2,13 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { 
-  Breadcrumb, 
-  BreadcrumbList, 
-  BreadcrumbItem, 
-  BreadcrumbLink, 
-  BreadcrumbPage, 
-  BreadcrumbSeparator 
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
 interface BreadcrumbSegment {
@@ -20,12 +20,12 @@ interface DynamicBreadcrumbProps {
   customSegments?: BreadcrumbSegment[];
 }
 
-export default function DynamicBreadcrumb({ customSegments }: DynamicBreadcrumbProps) {
+export function DynamicBreadcrumb({ customSegments }: DynamicBreadcrumbProps) {
   const pathname = usePathname();
-  
+
   // Generate breadcrumbs from pathname if no custom segments provided
   const segments = customSegments || generateSegmentsFromPath(pathname);
-  
+
   return (
     <Breadcrumb>
       <BreadcrumbList>
@@ -34,7 +34,7 @@ export default function DynamicBreadcrumb({ customSegments }: DynamicBreadcrumbP
             <Link href="/">Home</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        
+
         {segments.map((segment, index) => (
           <div key={index} className="flex items-center">
             <BreadcrumbSeparator />
@@ -55,15 +55,16 @@ export default function DynamicBreadcrumb({ customSegments }: DynamicBreadcrumbP
 }
 
 function generateSegmentsFromPath(pathname: string): BreadcrumbSegment[] {
-  const pathSegments = pathname.split('/').filter(Boolean);
-  
+  const pathSegments = pathname.split("/").filter(Boolean);
+
   return pathSegments.map((segment, index) => {
-    const href = '/' + pathSegments.slice(0, index + 1).join('/');
-    const label = segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, ' ');
-    
+    const href = "/" + pathSegments.slice(0, index + 1).join("/");
+    const label =
+      segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " ");
+
     return {
       label,
-      href: index < pathSegments.length - 1 ? href : undefined
+      href: index < pathSegments.length - 1 ? href : undefined,
     };
   });
 }

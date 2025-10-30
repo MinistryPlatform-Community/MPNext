@@ -1,14 +1,16 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { getContactDetails } from './actions';
-import { ContactLookupDetails as ContactLookupDetailsType } from '@/lib/providers/ministry-platform/models';
+import React, { useState, useEffect } from "react";
+import { getContactDetails } from "./actions";
+import { ContactLookupDetails as ContactLookupDetailsType } from "@/lib/providers/ministry-platform/models";
 
 interface ContactLookupDetailsProps {
   guid: string;
 }
 
-export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid }) => {
+export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
+  guid,
+}) => {
   const [contact, setContact] = useState<ContactLookupDetailsType | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,12 +20,15 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
       try {
         setLoading(true);
         setError(null);
-        
+
         const contactDetails = await getContactDetails(guid);
         setContact(contactDetails);
       } catch (err) {
-        console.error('Error loading contact details:', err);
-        const errorMessage = err instanceof Error ? err.message : 'An error occurred while loading contact details';
+        console.error("Error loading contact details:", err);
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : "An error occurred while loading contact details";
         setError(errorMessage);
       } finally {
         setLoading(false);
@@ -39,10 +44,14 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
     return nickname && nickname.trim() ? nickname : firstName;
   };
 
-  const getInitials = (firstName?: string, nickname?: string, lastName?: string) => {
+  const getInitials = (
+    firstName?: string,
+    nickname?: string,
+    lastName?: string
+  ) => {
     const displayFirstName = getDisplayName(firstName, nickname);
-    const first = displayFirstName?.charAt(0)?.toUpperCase() || '';
-    const last = lastName?.charAt(0)?.toUpperCase() || '';
+    const first = displayFirstName?.charAt(0)?.toUpperCase() || "";
+    const last = lastName?.charAt(0)?.toUpperCase() || "";
     return first + last;
   };
 
@@ -81,7 +90,9 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
       <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
         <div className="flex">
           <div className="ml-3">
-            <h3 className="text-sm font-medium text-yellow-800">No Contact Found</h3>
+            <h3 className="text-sm font-medium text-yellow-800">
+              No Contact Found
+            </h3>
             <div className="mt-2 text-sm text-yellow-700">
               <p>No contact details found for the provided GUID.</p>
             </div>
@@ -107,12 +118,16 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
                   onError={(e) => {
                     // Fallback to initials if image fails to load
                     const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
+                    target.style.display = "none";
                     const parent = target.parentElement;
                     if (parent) {
                       parent.innerHTML = `
                         <div class="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xl font-medium">
-                          ${getInitials(contact.First_Name, contact.Nickname, contact.Last_Name)}
+                          ${getInitials(
+                            contact.First_Name,
+                            contact.Nickname,
+                            contact.Last_Name
+                          )}
                         </div>
                       `;
                     }
@@ -120,7 +135,11 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
                 />
               ) : (
                 <div className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xl font-medium">
-                  {getInitials(contact.First_Name, contact.Nickname, contact.Last_Name)}
+                  {getInitials(
+                    contact.First_Name,
+                    contact.Nickname,
+                    contact.Last_Name
+                  )}
                 </div>
               )}
             </div>
@@ -139,49 +158,59 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({ guid
           <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
             <div>
               <dt className="text-sm font-medium text-gray-500">First Name</dt>
-              <dd className="mt-1 text-sm text-gray-900">{contact.First_Name || 'N/A'}</dd>
+              <dd className="mt-1 text-sm text-gray-900">
+                {contact.First_Name || "N/A"}
+              </dd>
             </div>
-            
+
             {contact.Nickname && (
               <div>
                 <dt className="text-sm font-medium text-gray-500">Nickname</dt>
-                <dd className="mt-1 text-sm text-gray-900">{contact.Nickname}</dd>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {contact.Nickname}
+                </dd>
               </div>
             )}
-            
+
             <div>
               <dt className="text-sm font-medium text-gray-500">Last Name</dt>
-              <dd className="mt-1 text-sm text-gray-900">{contact.Last_Name || 'N/A'}</dd>
+              <dd className="mt-1 text-sm text-gray-900">
+                {contact.Last_Name || "N/A"}
+              </dd>
             </div>
-            
+
             <div>
-              <dt className="text-sm font-medium text-gray-500">Email Address</dt>
+              <dt className="text-sm font-medium text-gray-500">
+                Email Address
+              </dt>
               <dd className="mt-1 text-sm text-gray-900">
                 {contact.Email_Address ? (
-                  <a 
+                  <a
                     href={`mailto:${contact.Email_Address}`}
                     className="text-blue-600 hover:text-blue-500"
                   >
                     {contact.Email_Address}
                   </a>
                 ) : (
-                  'N/A'
+                  "N/A"
                 )}
               </dd>
             </div>
-            
+
             <div>
-              <dt className="text-sm font-medium text-gray-500">Mobile Phone</dt>
+              <dt className="text-sm font-medium text-gray-500">
+                Mobile Phone
+              </dt>
               <dd className="mt-1 text-sm text-gray-900">
                 {contact.Mobile_Phone ? (
-                  <a 
+                  <a
                     href={`tel:${contact.Mobile_Phone}`}
                     className="text-blue-600 hover:text-blue-500"
                   >
                     {contact.Mobile_Phone}
                   </a>
                 ) : (
-                  'N/A'
+                  "N/A"
                 )}
               </dd>
             </div>

@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState, useTransition } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { searchContacts } from './actions';
-import { ContactSearch } from '@/lib/providers/ministry-platform/models';
+import React, { useState, useTransition } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { searchContacts } from "./actions";
+import { ContactSearch } from "@/lib/providers/ministry-platform/models";
 
 interface ContactLookupSearchProps {
   placeholder?: string;
@@ -19,9 +19,9 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
   disabled = false,
   onSearchResults,
   onSearchError,
-  onSearchStart
+  onSearchStart,
 }) => {
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [isPending, startTransition] = useTransition();
 
   const handleSearch = async (query: string) => {
@@ -37,8 +37,11 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
         const results = await searchContacts(query);
         onSearchResults?.(results);
       } catch (error) {
-        console.error('Search error:', error);
-        const errorMessage = error instanceof Error ? error.message : 'An error occurred while searching';
+        console.error("Search error:", error);
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "An error occurred while searching";
         onSearchError?.(errorMessage);
       }
     });
@@ -51,7 +54,7 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       performSearch();
     }
   };
@@ -63,7 +66,7 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
   const isDisabled = disabled || isPending;
 
   return (
-    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
       <Input
         type="text"
         value={searchTerm}
@@ -77,10 +80,8 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
         onClick={performSearch}
         disabled={isDisabled || !searchTerm.trim()}
       >
-        {isPending ? 'Searching...' : 'Search'}
+        {isPending ? "Searching..." : "Search"}
       </Button>
     </div>
   );
 };
-
-export default ContactLookupSearch;
