@@ -1,110 +1,140 @@
-import { z } from 'zod';
+/**
+ * Interface for Congregations
+* Table: Congregations
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
+ * Generated from column metadata
+ */
+export interface Congregations {
 
-export interface CongregationsRecord {
-  Congregation_ID: number;
-  Congregation_Name: string;
-  Start_Date: string;
-  Description?: string | null;
-  Location_ID?: number | null;
+  Congregation_ID: number /* 32-bit integer */; // Primary Key
+
+  /**
+   * Max length: 50 characters
+   */
+  Congregation_Name: string /* max 50 chars */;
+
+  /**
+   * Max length: 255 characters
+   */
+  Description?: string /* max 255 chars */ | null;
+
+  Start_Date: string /* ISO datetime */;
+
+  End_Date?: string /* ISO datetime */ | null;
+
+  Accounting_Company_ID: number /* 32-bit integer */; // Foreign Key -> Accounting_Companies.Accounting_Company_ID, Has Default
+
+  Available_Online: boolean; // Has Default
+
+  Location_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Locations.Location_ID
+
   Time_Zone: unknown;
-  Contact_ID: number;
-  Pastor: number;
-  End_Date?: string | null;
-  Home_Page?: string | null;
-  Available_Online: boolean;
-  Web_Template_Name?: string | null;
-  Accounting_Company_ID: number;
-  Default_Giving_Program?: number | null;
-  Online_Sort_Order?: number | null;
-  Front_Desk_SMS_Phone?: string | null;
-  Childcare_Size: number;
-  Monday_Childcare_Size: number;
-  Tuesday_Childcare_Size: number;
-  Wednesday_Childcare_Size: number;
-  Thursday_Childcare_Size: number;
-  Friday_Childcare_Size: number;
-  Plan_A_Visit_Template?: number | null;
-  Plan_A_Visit_Contact?: number | null;
-  Plan_A_Visit_User?: number | null;
-  Discipleship_Admin?: number | null;
-  Coming_Soon: boolean;
-  Giving_URL?: string | null;
-  Logo_URL?: string | null;
-  Giving_Image_URL?: string | null;
-  JWT_Signing_Key?: Blob | string | null;
-  Certifications_Provider?: string | null;
-  Certifications_API_Key?: Blob | string | null;
-  Certifications_API_Address?: string | null;
-  Certification_Callback_Username?: string | null;
-  Certification_Callback_Password?: Blob | string | null;
-  Background_Check_Provider?: string | null;
-  Background_Check_Username?: string | null;
-  Background_Check_Password?: Blob | string | null;
-  Background_Check_Callback_Username?: string | null;
-  Background_Check_Callback_Password?: Blob | string | null;
-  Event_Registration_Handoff_URL?: string | null;
-  Vanco_Tenant?: string | null;
-  Vanco_Giving_PCCT?: string | null;
-  Vanco_Signing_Key?: string | null;
-  Organization_Code?: string | null;
-  Sacrament_Place_ID?: number | null;
-  Dark_Mode_Logo_URL?: string | null;
-  Site_Number?: string | null;
-  App_ID?: number | null;
+
+  Contact_ID: number /* 32-bit integer */; // Foreign Key -> Contacts.Contact_ID
+
+  Pastor: number /* 32-bit integer */; // Foreign Key -> dp_Users.User_ID
+
+  Online_Sort_Order?: number /* 32-bit integer */ | null;
+
+  Front_Desk_SMS_Phone?: string /* phone number */ | null;
+
+  Plan_A_Visit_Template?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
+
+  Plan_A_Visit_User?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Users.User_ID
+
+  /**
+   * Max length: 500 characters
+   */
+  Giving_URL?: string /* max 500 chars */ | null;
+
+  /**
+   * Max length: 500 characters
+   */
+  Logo_URL?: string /* max 500 chars */ | null;
+
+  Coming_Soon: boolean; // Has Default
+
+  /**
+   * Max length: 500 characters
+   */
+  Giving_Image_URL?: string /* max 500 chars */ | null;
+
+  JWT_Signing_Key?: Blob | string /* binary data */ | null;
+
+  /**
+   * Max length: 25 characters
+   */
+  Certifications_Provider?: string /* max 25 chars */ | null;
+
+  Certifications_API_Key?: Blob | string /* binary data */ | null;
+
+  /**
+   * Max length: 100 characters
+   */
+  Certifications_API_Address?: string /* max 100 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Certification_Callback_Username?: string /* max 50 chars */ | null;
+
+  Certification_Callback_Password?: Blob | string /* binary data */ | null;
+
+  /**
+   * Max length: 25 characters
+   */
+  Background_Check_Provider?: string /* max 25 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Background_Check_Username?: string /* max 50 chars */ | null;
+
+  Background_Check_Password?: Blob | string /* binary data */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Background_Check_Callback_Username?: string /* max 50 chars */ | null;
+
+  Background_Check_Callback_Password?: Blob | string /* binary data */ | null;
+
+  Event_Registration_Handoff_URL?: string /* URL */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Vanco_Tenant?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Vanco_Giving_PCCT?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Vanco_Signing_Key?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 16 characters
+   */
+  Organization_Code?: string /* max 16 chars */ | null;
+
+  Sacrament_Place_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Sacrament_Places.Sacrament_Place_ID
+
+  /**
+   * Max length: 500 characters
+   */
+  Dark_Mode_Logo_URL?: string /* max 500 chars */ | null;
+
+  /**
+   * Max length: 8 characters
+   */
+  Site_Number?: string /* max 8 chars */ | null;
+
+  App_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Pocket_Platform_Apps.App_ID
 }
 
-export const CongregationsSchema = z.object({
-  Congregation_ID: z.number().int(),
-  Congregation_Name: z.string().max(50),
-  Start_Date: z.string().datetime(),
-  Description: z.string().max(255).nullable(),
-  Location_ID: z.number().int().nullable(),
-  Time_Zone: z.unknown(),
-  Contact_ID: z.number().int(),
-  Pastor: z.number().int(),
-  End_Date: z.string().datetime().nullable(),
-  Home_Page: z.string().max(254).nullable(),
-  Available_Online: z.boolean(),
-  Web_Template_Name: z.string().max(50).nullable(),
-  Accounting_Company_ID: z.number().int(),
-  Default_Giving_Program: z.number().int().nullable(),
-  Online_Sort_Order: z.number().int().nullable(),
-  Front_Desk_SMS_Phone: z.string().nullable(),
-  Childcare_Size: z.number().int(),
-  Monday_Childcare_Size: z.number().int(),
-  Tuesday_Childcare_Size: z.number().int(),
-  Wednesday_Childcare_Size: z.number().int(),
-  Thursday_Childcare_Size: z.number().int(),
-  Friday_Childcare_Size: z.number().int(),
-  Plan_A_Visit_Template: z.number().int().nullable(),
-  Plan_A_Visit_Contact: z.number().int().nullable(),
-  Plan_A_Visit_User: z.number().int().nullable(),
-  Discipleship_Admin: z.number().int().nullable(),
-  Coming_Soon: z.boolean(),
-  Giving_URL: z.string().max(500).nullable(),
-  Logo_URL: z.string().max(500).nullable(),
-  Giving_Image_URL: z.string().max(500).nullable(),
-  JWT_Signing_Key: z.unknown().nullable(),
-  Certifications_Provider: z.string().max(25).nullable(),
-  Certifications_API_Key: z.unknown().nullable(),
-  Certifications_API_Address: z.string().max(100).nullable(),
-  Certification_Callback_Username: z.string().max(50).nullable(),
-  Certification_Callback_Password: z.unknown().nullable(),
-  Background_Check_Provider: z.string().max(25).nullable(),
-  Background_Check_Username: z.string().max(50).nullable(),
-  Background_Check_Password: z.unknown().nullable(),
-  Background_Check_Callback_Username: z.string().max(50).nullable(),
-  Background_Check_Callback_Password: z.unknown().nullable(),
-  Event_Registration_Handoff_URL: z.string().url().nullable(),
-  Vanco_Tenant: z.string().max(50).nullable(),
-  Vanco_Giving_PCCT: z.string().max(50).nullable(),
-  Vanco_Signing_Key: z.string().max(50).nullable(),
-  Organization_Code: z.string().max(16).nullable(),
-  Sacrament_Place_ID: z.number().int().nullable(),
-  Dark_Mode_Logo_URL: z.string().max(500).nullable(),
-  Site_Number: z.string().max(8).nullable(),
-  App_ID: z.number().int().nullable(),
-});
-
-export type Congregations = CongregationsRecord;
-export type CongregationsInput = z.infer<typeof CongregationsSchema>;
+export type CongregationsRecord = Congregations;
