@@ -1,7 +1,7 @@
 'use server';
 
 import { ContactService } from '@/services/contactService';
-import { ContactSearch } from '@/lib/providers/ministry-platform/models';
+import { ContactSearch } from '@/lib/dto';
 
 export async function searchContacts(searchTerm: string): Promise<ContactSearch[]> {
   try {

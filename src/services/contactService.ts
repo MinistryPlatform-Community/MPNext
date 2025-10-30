@@ -1,4 +1,4 @@
-import { ContactSearch } from "@/lib/providers/ministry-platform/models";
+import { ContactSearch } from "@/lib/dto";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 
 /**

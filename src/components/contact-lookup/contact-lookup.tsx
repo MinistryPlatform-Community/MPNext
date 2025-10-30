@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ContactLookupSearch } from "./contact-lookup-search";
 import { ContactLookupResults } from "./contact-lookup-results";
-import { ContactSearch } from "@/lib/providers/ministry-platform/models";
+import { ContactSearch } from "@/lib/dto";
 
 interface ContactLookupProps {
   placeholder?: string;

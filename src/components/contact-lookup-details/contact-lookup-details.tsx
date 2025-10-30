@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { getContactDetails } from "./actions";
-import { ContactLookupDetails as ContactLookupDetailsType } from "@/lib/providers/ministry-platform/models";
+import { ContactLookupDetails as ContactLookupDetailsType } from "@/lib/dto";
 
 interface ContactLookupDetailsProps {
   guid: string;

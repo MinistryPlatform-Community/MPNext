@@ -1,6 +1,6 @@
 'use server';
 
-import { ContactLookupDetails } from '@/lib/providers/ministry-platform/models';
+import { ContactLookupDetails } from '@/lib/dto';
 import { ContactService } from '@/services/contactService';
 
 export async function getContactDetails(guid: string): Promise<ContactLookupDetails> {

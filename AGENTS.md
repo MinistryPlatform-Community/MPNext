@@ -29,7 +29,9 @@
 - **Actions**: 
   - Feature-specific actions: co-locate in component folder as `actions.ts`
   - Shared actions: place in `src/components/actions/`
-- **Ministry Platform Models**: Export from `src/lib/providers/ministry-platform/models/index.ts`
+- **Ministry Platform Structure**:
+  - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
+  - DTOs/ViewModels (hand-written): `src/lib/dto/` - application-level data transfer objects
 
 ## Component Organization
 ```
@@ -47,6 +49,15 @@ src/components/
 ```typescript
 // Feature components (using barrel exports)
 import { ContactLookup } from '@/components/contact-lookup';
+
+// Application DTOs
+import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
+
+// Ministry Platform models (generated)
+import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
+
+// Ministry Platform helper
+import { MPHelper } from '@/lib/providers/ministry-platform';
 
 // Feature-specific actions (relative path within same folder)
 import { searchContacts } from './actions';

@@ -139,11 +139,12 @@ MPNext/
 │   │   ├── session-provider.tsx      # NextAuth session provider
 │   │   └── sidebar.tsx               # App sidebar
 │   ├── lib/                          # Shared libraries
+│   │   ├── dto/                      # Data Transfer Objects / ViewModels (application-level)
 │   │   └── providers/
 │   │       └── ministry-platform/    # Ministry Platform provider
 │   │           ├── auth/             # Authentication logic
 │   │           ├── services/         # API services (tables, procedures, files, etc.)
-│   │           ├── models/           # Generated type-safe models
+│   │           ├── models/           # Generated type-safe models (auto-generated from DBMS)
 │   │           ├── types/            # Type definitions
 │   │           ├── utils/            # Utility functions
 │   │           ├── scripts/          # CLI tools (type generator)
@@ -282,6 +283,7 @@ Use the `@/*` path alias for all internal imports:
 ```typescript
 import { MPHelper } from '@/lib/providers/ministry-platform';
 import { Button } from '@/components/ui/button';
+import { ContactSearch } from '@/lib/dto';
 ```
 
 ### Component Style
@@ -316,6 +318,15 @@ src/components/
 import { ContactLookup } from '@/components/contact-lookup';
 import { UserMenu } from '@/components/user-menu';
 
+// Import application DTOs
+import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
+
+// Import Ministry Platform models (generated)
+import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
+
+// Import Ministry Platform helper
+import { MPHelper } from '@/lib/providers/ministry-platform';
+
 // Import feature-specific actions (within same folder)
 import { searchContacts } from './actions';
 
@@ -336,8 +347,10 @@ import { sharedAction } from '@/components/actions/shared';
 1. Always use TypeScript generics for type-safe API calls
 2. Handle errors with try-catch blocks
 3. Use Zod schemas for runtime validation
-4. Keep Ministry Platform models in `src/lib/providers/ministry-platform/models/`
-5. Export all models from `src/lib/providers/ministry-platform/models/index.ts`
+4. Keep Ministry Platform structure organized:
+   - Generated database models: `src/lib/providers/ministry-platform/models/`
+   - Application-level DTOs/ViewModels: `src/lib/dto/`
+   - Export all from respective `index.ts` files
 
 ## Contributing
 

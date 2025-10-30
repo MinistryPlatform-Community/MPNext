@@ -4,7 +4,7 @@ import React, { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { searchContacts } from "./actions";
-import { ContactSearch } from "@/lib/providers/ministry-platform/models";
+import { ContactSearch } from "@/lib/dto";
 
 interface ContactLookupSearchProps {
   placeholder?: string;
