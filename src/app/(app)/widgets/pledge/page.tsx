@@ -1,11 +1,9 @@
 import { Pledge } from "@/components/pledge";
 
-export function PledgePage() {
+export default function PledgePage() {
   return (
     <div className="p-8">
       <Pledge />
     </div>
   );
 }
-
-export default PledgePage;
