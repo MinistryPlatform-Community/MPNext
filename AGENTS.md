@@ -1,5 +1,52 @@
 # AGENTS.md - MPNext Development Guide
 
+## Brand Guide
+
+### Primary Colors
+- **Pantone 2945 Blue** (Primary Brand Color)
+  - CMYK: 100/64/0/16
+  - RGB: 0/75/151
+  - HEX: `#004C97`
+- **Black**
+  - CMYK: 65/66/68/82
+  - HEX: `#2D2926`
+
+### Secondary Colors
+- **Pantone 142** (Yellow/Gold)
+  - CMYK: 0/21/77/0
+  - RGB: 241/190/72
+  - HEX: `#F1BE48`
+- **Pantone 295** (Dark Navy)
+  - CMYK: 100/63/0/67
+  - RGB: 0/40/85
+  - HEX: `#002855`
+- **Pantone 292** (Light Blue)
+  - CMYK: 75/18/0/0
+  - RGB: 0/155/222
+  - HEX: `#009CDE`
+- **Pantone 4212** (Green)
+  - CMYK: 48/2/88/9
+  - RGB: 134/173/65
+  - HEX: `#86AD3F`
+- **Pantone 2345** (Coral/Red)
+  - CMYK: 0/67/52/0
+  - RGB: 255/100/56
+  - HEX: `#FF6D6A`
+
+### Preferred Tints
+- **Black Tints**: 13% (`#E0E0E0`), 38% (`#9E9E9E`), 72% (`#474747`)
+- **Pantone 292 Tints**: 18% (`#D6F0FC`), 38% (`#9DD9F5`), 72% (`#4DB8E8`)
+
+### Color Usage Guidelines
+- **Primary Actions/Branding**: Use Pantone 2945 Blue (`#004C97`)
+- **Success States**: Use Pantone 4212 Green (`#86AD3F`)
+- **Warning/Accent**: Use Pantone 142 Yellow (`#F1BE48`)
+- **Error/Destructive**: Use Pantone 2345 Coral (`#FF6D6A`)
+- **Information/Links**: Use Pantone 292 Light Blue (`#009CDE`)
+- **Text/Headings**: Use Black (`#2D2926`)
+- **Backgrounds/Borders**: Use Black tints or Pantone 292 tints
+- **Secondary Actions**: Use Pantone 295 Dark Navy (`#002855`)
+
 ## Commands
 - **Dev**: `npm run dev` (Next.js dev server)
 - **Build**: `npm run build` (production build, runs type checking)
