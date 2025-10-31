@@ -14,6 +14,7 @@ export function Pledge() {
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
 
   const formatCurrency = (value: string) => {
     const numericValue = value.replace(/[^0-9.]/g, "");
@@ -122,11 +123,7 @@ export function Pledge() {
       setIsSubmitting(false);
 
       if (result.success) {
-        setSubmitMessage({ 
-          type: "success", 
-          text: result.message || "Pledge saved successfully!" 
-        });
-        // TODO: Reset form or redirect
+        setIsSuccess(true);
       } else {
         setSubmitMessage({ 
           type: "error", 
@@ -135,6 +132,32 @@ export function Pledge() {
       }
     }
   };
+
+  if (isSuccess) {
+    return (
+      <div className="max-w-[600px] mx-auto bg-white rounded-2xl overflow-hidden">
+        <div className="bg-[#002B55] text-white p-10 text-center">
+          <div className="text-4xl font-bold mb-6">Thank You!</div>
+          <p className="text-lg mb-8">
+            We are grateful for your commitment to God&apos;s work.
+          </p>
+        </div>
+        <div className="p-10 text-center">
+          <div className="mb-6">
+            <div className="text-gray-600 text-sm uppercase tracking-wide mb-2">
+              Total Commitment
+            </div>
+            <div className="text-5xl font-bold text-[#002B55]">
+              ${parseFloat(total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <div className="text-gray-700 leading-relaxed">
+            <p>Your commitment has been recorded successfully.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form 
