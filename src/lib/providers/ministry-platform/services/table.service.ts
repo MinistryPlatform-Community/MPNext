@@ -1,5 +1,5 @@
 import { MinistryPlatformClient } from "../client";
-import { TableQueryParams, TableRecord, QueryParams } from "../types";
+import { TableQueryParams, TableRecord, QueryParams, RequestBody } from "../types";
 
 export class TableService {
     private client: MinistryPlatformClient;
@@ -41,7 +41,7 @@ export class TableService {
             await this.client.ensureValidToken();
 
             const endpoint = `/tables/${encodeURIComponent(table)}`;
-            const result = await this.client.getHttpClient().post<T[]>(endpoint, records, params);
+            const result = await this.client.getHttpClient().post<T[]>(endpoint, records as unknown as RequestBody, params);
             return result;
         } catch (error) {
             console.error(`Error creating records in table ${table}:`, error);
