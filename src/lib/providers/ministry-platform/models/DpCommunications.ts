@@ -20,9 +20,9 @@ export interface DpCommunications {
   Send_To_Parents: boolean; // Has Default
 
   /**
-   * Max length: 1000 characters
+   * Max length: 256 characters
    */
-  Subject: string /* max 1000 chars */;
+  Subject: string /* max 256 chars */;
 
   /**
    * Max length: 2147483647 characters
@@ -58,8 +58,6 @@ export interface DpCommunications {
   Template_User?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Users.User_ID
 
   Template_User_Group?: number /* 32-bit integer */ | null; // Foreign Key -> dp_User_Groups.User_Group_ID
-
-  Communication_GUID: string /* GUID/UUID */; // Has Default
 
   Alternate_Email_Type_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Alternate_Email_Types.Alternate_Email_Type_ID
 

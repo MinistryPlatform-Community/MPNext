@@ -9,9 +9,11 @@ export const MinistriesSchema = z.object({
   End_Date: z.string().datetime().nullable(),
   Primary_Contact: z.number().int(),
   Parent_Ministry: z.number().int().nullable(),
+  Division: z.number().int().nullable(),
   Available_Online: z.boolean(),
   Priority_ID: z.number().int().nullable(),
   Leadership_Team: z.number().int().nullable(),
+  Background_Check_Required: z.boolean().nullable(),
 });
 
 export type MinistriesInput = z.infer<typeof MinistriesSchema>;

@@ -7,6 +7,7 @@ export const DpContactPublicationsSchema = z.object({
   Unsubscribed: z.boolean(),
   _Synced_List_Name: z.string().max(255).nullable(),
   External_List_ID: z.string().max(50).nullable(),
+  New_Subscriber_Message_Sent: z.boolean(),
   _Unsubscribe_Sync_Pending: z.boolean(),
 });
 

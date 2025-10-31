@@ -14,6 +14,8 @@ export interface Procedures {
    */
   Procedure_Title: string /* max 50 chars */;
 
+  Parent_Procedure?: number /* 32-bit integer */ | null; // Foreign Key -> Procedures.Procedure_ID
+
   Creation_Date?: string /* ISO datetime */ | null; // Has Default
 
   Active: boolean; // Has Default

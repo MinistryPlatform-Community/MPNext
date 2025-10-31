@@ -15,6 +15,7 @@ export const EventRoomsSchema = z.object({
   Notes: z.string().max(2147483647).nullable(),
   _Approved: z.boolean().nullable(),
   Cancelled: z.boolean(),
+  Default_Room: z.boolean(),
   Checkin_Capacity: z.number().int().nullable(),
 });
 

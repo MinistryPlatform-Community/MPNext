@@ -26,6 +26,8 @@ export interface DonationDistributions {
    */
   Notes?: string /* max 1000 chars */ | null;
 
+  Surge_Church_Plant_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Surge_Church_Plants.Surge_Church_Plant_ID
+
   /**
    * Max length: 254 characters
    */
@@ -39,10 +41,6 @@ export interface DonationDistributions {
   _Vendor_Pledge_Code?: string /* max 16 chars */ | null; // Read Only
 
   Projected_Gift_Frequency?: number /* 32-bit integer */ | null; // Foreign Key -> Frequencies.Frequency_ID
-
-  _Last_Statement_Review?: string /* ISO datetime */ | null; // Read Only
-
-  Soft_Credit_Statement_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Contribution_Statements.Statement_ID
 }
 
 export type DonationDistributionsRecord = DonationDistributions;

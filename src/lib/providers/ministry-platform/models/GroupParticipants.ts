@@ -44,6 +44,33 @@ export interface GroupParticipants {
 
   _Last_Attendance?: string /* ISO datetime */ | null; // Read Only
 
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_1?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_2?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_3?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_4?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_5?: string /* max 50 chars */ | null;
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
+
   Show_Email: boolean; // Has Default
 
   Show_Phone: boolean; // Has Default
@@ -63,6 +90,10 @@ export interface GroupParticipants {
   _Show_Address: boolean; // Read Only, Has Default
 
   _Show_Photo: boolean; // Read Only, Has Default
+
+  Schedule_Household_Together: boolean; // Has Default
+
+  Serving_Frequency_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Frequencies.Frequency_ID
 }
 
 export type GroupParticipantsRecord = GroupParticipants;

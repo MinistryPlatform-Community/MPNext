@@ -49,6 +49,8 @@ export interface Households {
   Driving_Distance?: number /* decimal */ | null;
 
   Driving_Time?: number /* decimal */ | null;
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
 }
 
 export type HouseholdsRecord = Households;

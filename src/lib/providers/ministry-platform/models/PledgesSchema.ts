@@ -19,8 +19,8 @@ export const PledgesSchema = z.object({
   _Gift_Frequency: z.number().int().nullable(),
   Donation_Source_ID: z.number().int().nullable(),
   Send_Pledge_Statement: z.boolean(),
-  _Original_Amount: z.number().nullable(),
   _Last_Installment_Date: z.string().datetime().nullable(),
+  _Original_Amount: z.number().nullable(),
   Batch_ID: z.number().int().nullable(),
 });
 

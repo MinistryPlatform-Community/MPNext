@@ -29,6 +29,18 @@ export interface EventTypes {
   Omit_From_Engagement_Attendance: boolean; // Has Default
 
   Auto_Close_Registrations: boolean; // Has Default
+
+  /**
+   * Max length: 100 characters
+   */
+  PP_Event_Type?: string /* max 100 chars */ | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  PP_Screen_Name?: string /* max 255 chars */ | null;
+
+  Collect_Headcount: boolean; // Has Default
 }
 
 export type EventTypesRecord = EventTypes;

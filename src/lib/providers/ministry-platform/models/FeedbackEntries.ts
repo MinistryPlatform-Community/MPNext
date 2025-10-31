@@ -39,6 +39,38 @@ export interface FeedbackEntries {
 
   Approved: boolean; // Has Default
 
+  Notification_Sent: boolean; // Has Default
+
+  /**
+   * Max length: 250 characters
+   */
+  _Form_First_Name?: string /* max 250 chars */ | null; // Read Only
+
+  /**
+   * Max length: 250 characters
+   */
+  _Form_Last_Name?: string /* max 250 chars */ | null; // Read Only
+
+  /**
+   * Max length: 250 characters
+   */
+  _Form_Response_Email?: string /* max 250 chars */ | null; // Read Only
+
+  /**
+   * Max length: 250 characters
+   */
+  _Form_Response_Phone?: string /* max 250 chars */ | null; // Read Only
+
+  /**
+   * Max length: 50 characters
+   */
+  _Form_Campus?: string /* max 50 chars */ | null; // Read Only
+
+  /**
+   * Max length: 2147483647 characters
+   */
+  _Form_Response?: string /* max 2147483647 chars */ | null; // Read Only
+
   Care_Case_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Care_Cases.Care_Case_ID
 }
 

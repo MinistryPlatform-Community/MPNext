@@ -18,6 +18,8 @@ export interface CareCaseTypes {
    * Max length: 512 characters
    */
   Description?: string /* max 512 chars */ | null;
+
+  Care_Group?: number /* 32-bit integer */ | null; // Foreign Key -> Groups.Group_ID
 }
 
 export type CareCaseTypesRecord = CareCaseTypes;

@@ -108,6 +108,8 @@ export interface Addresses {
    * Max length: 100 characters
    */
   Country?: string /* max 100 chars */ | null;
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
 }
 
 export type AddressesRecord = Addresses;

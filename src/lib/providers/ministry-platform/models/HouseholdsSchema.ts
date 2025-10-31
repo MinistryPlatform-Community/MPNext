@@ -21,6 +21,7 @@ export const HouseholdsSchema = z.object({
   Repeats_Annually: z.boolean(),
   Driving_Distance: z.number().nullable(),
   Driving_Time: z.number().nullable(),
+  PCO_Connect_Mode: z.number().int().nullable(),
 });
 
 export type HouseholdsInput = z.infer<typeof HouseholdsSchema>;

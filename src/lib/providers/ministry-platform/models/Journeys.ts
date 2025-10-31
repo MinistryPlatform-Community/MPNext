@@ -38,6 +38,8 @@ export interface Journeys {
    * Max length: 150 characters
    */
   Finish_Message?: string /* max 150 chars */ | null;
+
+  Milestone_Automation_Rule_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Milestone_Automation_Rules.Milestone_Automation_Rule_ID
 }
 
 export type JourneysRecord = Journeys;

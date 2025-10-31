@@ -34,6 +34,8 @@ export interface Donors {
 
   First_Contact_Made?: boolean | null;
 
+  Surge_Category_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Surge_Categories.Surge_Category_ID
+
   _First_Donation_Date?: string /* ISO datetime */ | null; // Read Only
 
   _Last_Donation_Date?: string /* ISO datetime */ | null; // Read Only

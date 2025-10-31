@@ -14,6 +14,13 @@ export const FeedbackEntriesSchema = z.object({
   Care_Outcome_ID: z.number().int().nullable(),
   Outcome_Date: z.string().datetime().nullable(),
   Approved: z.boolean(),
+  Notification_Sent: z.boolean(),
+  _Form_First_Name: z.string().max(250).nullable(),
+  _Form_Last_Name: z.string().max(250).nullable(),
+  _Form_Response_Email: z.string().max(250).nullable(),
+  _Form_Response_Phone: z.string().max(250).nullable(),
+  _Form_Campus: z.string().max(50).nullable(),
+  _Form_Response: z.string().max(2147483647).nullable(),
   Care_Case_ID: z.number().int().nullable(),
 });
 

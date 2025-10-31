@@ -17,9 +17,9 @@ export interface ProductOptionGroups {
   Product_ID: number /* 32-bit integer */; // Foreign Key -> Products.Product_ID
 
   /**
-   * Max length: 255 characters
+   * Max length: 510 characters
    */
-  Description?: string /* max 255 chars */ | null;
+  Description?: string /* max 510 chars */ | null;
 
   Mutually_Exclusive: boolean;
 

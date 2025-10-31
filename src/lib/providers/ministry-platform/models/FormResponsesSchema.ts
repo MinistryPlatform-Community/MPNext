@@ -16,6 +16,7 @@ export const FormResponsesSchema = z.object({
   Address_State: z.string().max(50).nullable(),
   Address_Zip: z.string().max(25).nullable(),
   Event_ID: z.number().int().nullable(),
+  Scholarship_Amount: z.number().nullable(),
   Pledge_Campaign_ID: z.number().int().nullable(),
   Opportunity_ID: z.number().int().nullable(),
   Opportunity_Response: z.number().int().nullable(),

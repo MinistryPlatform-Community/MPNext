@@ -66,9 +66,9 @@ export interface Events {
 
   External_Registration_URL?: string /* URL */ | null;
 
-  _Web_Approved?: boolean | null; // Read Only
-
   Force_Login: boolean; // Has Default
+
+  _Web_Approved?: boolean | null; // Read Only
 
   "Allow_Check-in": boolean; // Has Default
 
@@ -92,6 +92,11 @@ export interface Events {
 
   Send_To_Heads: boolean; // Has Default
 
+  /**
+   * Max length: 2147483647 characters
+   */
+  RSVP_Confirmed_Message?: string /* max 2147483647 chars */ | null;
+
   Parent_Event_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Events.Event_ID
 
   Priority_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Priorities.Priority_ID
@@ -105,23 +110,45 @@ export interface Events {
    */
   Project_Code?: string /* max 15 chars */ | null;
 
+  PCO_Plan_ID?: number /* 32-bit integer */ | null;
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
+
+  Show_On_Connect_Card: boolean; // Has Default
+
+  Connect_Card_Order?: number /* 32-bit integer */ | null;
+
   /**
    * Max length: 2083 characters
    */
   Online_Meeting_Link?: string /* max 2083 chars */ | null;
+
+  Allow_Self_Checkin: boolean; // Has Default
+
+  Event_Slot_Collection_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Event_Slot_Collections.Event_Slot_Collection_ID
+
+  Slots_Confirmation_Engine_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
+
+  Slots_Notification_Engine_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
+
+  Slots_Confirmation_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
+
+  Slots_Notification_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
 
   /**
    * Max length: 1000 characters
    */
   Read_More_URL?: string /* max 1000 chars */ | null;
 
-  Allow_Self_Checkin: boolean; // Has Default
-
   Minor_Registration: boolean; // Has Default
 
   Allow_Email: boolean; // Has Default
 
   Show_Building_Room_Info: boolean; // Has Default
+
+  Registration_Milestone?: number /* 32-bit integer */ | null; // Foreign Key -> Milestones.Milestone_ID
+
+  Attendance_Milestone?: number /* 32-bit integer */ | null; // Foreign Key -> Milestones.Milestone_ID
 
   Allow_QR_Check_In: boolean; // Has Default
 
@@ -131,6 +158,8 @@ export interface Events {
   QR_Redirect_Url?: string /* max 300 chars */ | null;
 
   Allow_Fastpass: boolean; // Has Default
+
+  Medical_Release_Required: boolean; // Has Default
 }
 
 export type EventsRecord = Events;

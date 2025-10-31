@@ -59,9 +59,9 @@ export interface Milestones {
   Call_To_Action_Button_Text?: string /* max 70 chars */ | null;
 
   /**
-   * Max length: 70 characters
+   * Max length: 400 characters
    */
-  Call_To_Action?: string /* max 70 chars */ | null;
+  Call_To_Action?: string /* max 400 chars */ | null;
 
   /**
    * Max length: 2000 characters

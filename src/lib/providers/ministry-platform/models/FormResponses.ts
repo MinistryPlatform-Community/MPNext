@@ -67,6 +67,8 @@ export interface FormResponses {
 
   Event_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Events.Event_ID
 
+  Scholarship_Amount?: number /* currency amount */ | null;
+
   Pledge_Campaign_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Pledge_Campaigns.Pledge_Campaign_ID
 
   Opportunity_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Opportunities.Opportunity_ID

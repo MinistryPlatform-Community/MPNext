@@ -31,6 +31,11 @@ export interface CareCases {
 
   Location_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Locations.Location_ID
 
+  /**
+   * Max length: 75 characters
+   */
+  Location_Details?: string /* max 75 chars */ | null;
+
   Case_Manager?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Users.User_ID
 
   Share_With_Group_Leaders: boolean;

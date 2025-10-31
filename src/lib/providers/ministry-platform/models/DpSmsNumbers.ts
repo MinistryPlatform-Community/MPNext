@@ -22,11 +22,11 @@ export interface DpSmsNumbers {
 
   User_Group_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_User_Groups.User_Group_ID
 
+  Primary_Contact?: number /* 32-bit integer */ | null; // Foreign Key -> Contacts.Contact_ID
+
   Congregation_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Congregations.Congregation_ID
 
-  Cost_Per_Segment?: number /* decimal */ | null;
-
-  Texting_Compliance_Level: number /* 32-bit integer */; // Foreign Key -> Texting_Compliance_Levels.Texting_Compliance_Level_ID, Has Default
+  Cost_Per_Message?: number /* decimal */ | null;
 }
 
 export type DpSmsNumbersRecord = DpSmsNumbers;

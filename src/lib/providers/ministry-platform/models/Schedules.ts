@@ -20,11 +20,11 @@ export interface Schedules {
 
   Group_ID: number /* 32-bit integer */; // Foreign Key -> Groups.Group_ID
 
-  Primary_Contact?: number /* 32-bit integer */ | null; // Foreign Key -> Contacts.Contact_ID
-
   Allow_Volunteer_Signup: boolean; // Has Default
 
   Accept_All_Assignments: boolean; // Has Default
+
+  Primary_Contact?: number /* 32-bit integer */ | null; // Foreign Key -> Contacts.Contact_ID
 
   Reminder_Sent: boolean; // Has Default
 

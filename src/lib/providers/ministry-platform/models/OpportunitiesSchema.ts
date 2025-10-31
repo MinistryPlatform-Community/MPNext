@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const OpportunitiesSchema = z.object({
   Opportunity_ID: z.number().int(),
   Opportunity_Title: z.string().max(50),
-  Description: z.string().max(2000).nullable(),
+  Description: z.string().max(3000).nullable(),
   Group_Role_ID: z.number().int(),
   Program_ID: z.number().int(),
   Visibility_Level_ID: z.number().int(),
@@ -28,6 +28,16 @@ export const OpportunitiesSchema = z.object({
   Date_To_Remind: z.string().datetime().nullable(),
   Optional_Reminder_Message: z.number().int().nullable(),
   Send_To_Heads: z.boolean().nullable(),
+  Show_on_Connection_Card: z.boolean(),
+  Show_on_Communication_Card: z.boolean(),
+  Communication_Card_Start_Date: z.string().datetime().nullable(),
+  Communication_Card_End_Date: z.string().datetime().nullable(),
+  Communication_Card_Sort_Order: z.number().int().nullable(),
+  Opportunity_Slot_Collection_ID: z.number().int().nullable(),
+  Slots_Confirmation_Engine_Template_ID: z.number().int().nullable(),
+  Slots_Notification_Engine_Template_ID: z.number().int().nullable(),
+  Slots_Confirmation_Template_ID: z.number().int().nullable(),
+  Slots_Notification_Template_ID: z.number().int().nullable(),
   _Maximum_Needed_Met: z.boolean(),
 });
 

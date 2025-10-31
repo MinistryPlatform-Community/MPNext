@@ -120,7 +120,36 @@ export interface Contacts {
 
   Contact_GUID: string /* GUID/UUID */; // Has Default
 
+  /**
+   * Max length: 255 characters
+   */
+  Additional_Email?: string /* max 255 chars */ | null;
+
+  /**
+   * Max length: 25 characters
+   */
+  Weekend_Promotional_Mail?: string /* max 25 chars */ | null;
+
+  /**
+   * Max length: 25 characters
+   */
+  Receive_ENews?: string /* max 25 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  Occupation?: string /* max 50 chars */ | null;
+
+  Staff_Record?: number /* 32-bit integer */ | null; // Foreign Key -> Staff.Staff_ID
+
+  /**
+   * Max length: 50 characters
+   */
+  Twilio_Number?: string /* max 50 chars */ | null;
+
   _Contact_Setup_Date: string /* ISO datetime */; // Read Only, Has Default
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
 
   Email_Verified: boolean; // Has Default
 
@@ -134,8 +163,6 @@ export interface Contacts {
   Primary_Language_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Primary_Languages.Primary_Language_ID
 
   Faith_Background_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Faith_Backgrounds.Faith_Background_ID
-
-  Texting_Opt_In_Type_ID: number /* 32-bit integer */; // Foreign Key -> Texting_Opt_In_Types.Texting_Opt_In_Type_ID, Has Default
 }
 
 export type ContactsRecord = Contacts;

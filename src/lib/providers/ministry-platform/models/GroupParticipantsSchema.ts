@@ -18,6 +18,12 @@ export const GroupParticipantsSchema = z.object({
   _Second_Attendance: z.string().datetime().nullable(),
   _Third_Attendance: z.string().datetime().nullable(),
   _Last_Attendance: z.string().datetime().nullable(),
+  ACS_List_1: z.string().max(50).nullable(),
+  ACS_List_2: z.string().max(50).nullable(),
+  ACS_List_3: z.string().max(50).nullable(),
+  ACS_List_4: z.string().max(50).nullable(),
+  ACS_List_5: z.string().max(50).nullable(),
+  PCO_Connect_Mode: z.number().int().nullable(),
   Show_Email: z.boolean(),
   Show_Phone: z.boolean(),
   Show_Last_Name: z.boolean(),
@@ -28,6 +34,8 @@ export const GroupParticipantsSchema = z.object({
   _Show_Mobile_Phone: z.boolean(),
   _Show_Address: z.boolean(),
   _Show_Photo: z.boolean(),
+  Schedule_Household_Together: z.boolean(),
+  Serving_Frequency_ID: z.number().int().nullable(),
 });
 
 export type GroupParticipantsInput = z.infer<typeof GroupParticipantsSchema>;

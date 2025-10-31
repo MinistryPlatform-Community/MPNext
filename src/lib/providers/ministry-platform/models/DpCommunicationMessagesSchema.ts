@@ -10,12 +10,11 @@ export const DpCommunicationMessagesSchema = z.object({
   From: z.string().max(256),
   To: z.string().max(256),
   Reply_To: z.string().max(256).nullable(),
-  Subject: z.string().max(1000).nullable(),
+  Subject: z.string().max(256).nullable(),
   Body: z.string().max(2147483647).nullable(),
   Deleted: z.boolean(),
   _Date_Submitted: z.string().datetime().nullable(),
   _Priority: z.number().int(),
-  _Text_Segments: z.number().int().nullable(),
 });
 
 export type DpCommunicationMessagesInput = z.infer<typeof DpCommunicationMessagesSchema>;

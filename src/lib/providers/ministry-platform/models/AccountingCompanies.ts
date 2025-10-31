@@ -22,6 +22,10 @@ export interface AccountingCompanies {
 
   Online_Sort_Order?: number /* 16-bit integer */ | null;
 
+  Statement_Cutoff_Date?: string /* ISO datetime */ | null;
+
+  Statement_Cutoff_Automation_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Statement_Cutoff_Automation.Statement_Cutoff_Automation_ID, Has Default
+
   Pledge_Campaign_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Pledge_Campaigns.Pledge_Campaign_ID
 
   Alternate_Pledge_Campaign?: number /* 32-bit integer */ | null; // Foreign Key -> Pledge_Campaigns.Pledge_Campaign_ID
@@ -37,10 +41,6 @@ export interface AccountingCompanies {
    * Max length: 2147483647 characters
    */
   Statement_Letter?: string /* max 2147483647 chars */ | null;
-
-  Statement_Cutoff_Date?: string /* ISO datetime */ | null;
-
-  Statement_Cutoff_Automation_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Statement_Cutoff_Automation.Statement_Cutoff_Automation_ID, Has Default
 
   Standard_Statement?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Reports.Report_ID
 
@@ -83,8 +83,6 @@ export interface AccountingCompanies {
   Receiving_DFI_ID?: string /* max 9 chars */ | null;
 
   Current_Settings: boolean;
-
-  Include_Soft_Credits: boolean; // Has Default
 }
 
 export type AccountingCompaniesRecord = AccountingCompanies;

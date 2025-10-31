@@ -11,6 +11,7 @@ export const JourneysSchema = z.object({
   Start_Date: z.string().datetime().nullable(),
   End_Date: z.string().datetime().nullable(),
   Finish_Message: z.string().max(150).nullable(),
+  Milestone_Automation_Rule_ID: z.number().int().nullable(),
 });
 
 export type JourneysInput = z.infer<typeof JourneysSchema>;

@@ -25,6 +25,7 @@ export const AddressesSchema = z.object({
   Do_Not_Validate: z.boolean(),
   Last_GeoCode_Attempt: z.string().datetime().nullable(),
   Country: z.string().max(100).nullable(),
+  PCO_Connect_Mode: z.number().int().nullable(),
 });
 
 export type AddressesInput = z.infer<typeof AddressesSchema>;

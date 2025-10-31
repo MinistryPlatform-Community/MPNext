@@ -34,6 +34,23 @@ export interface FormFields {
    */
   Alternate_Label?: string /* max 2147483647 chars */ | null;
 
+  Attribute_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Attributes.Attribute_ID
+
+  Days_Attribute_Is_Valid: number /* 32-bit integer */; // Has Default
+
+  Feedback_Type_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Feedback_Types.Feedback_Type_ID
+
+  Milestone_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Milestones.Milestone_ID
+
+  Program_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Programs.Program_ID
+
+  Update_Milestone: boolean; // Has Default
+
+  /**
+   * Max length: 4000 characters
+   */
+  Milestone_Value?: string /* max 4000 chars */ | null;
+
   Is_Hidden: boolean; // Has Default
 
   Depends_On?: number /* 32-bit integer */ | null; // Foreign Key -> Form_Fields.Form_Field_ID

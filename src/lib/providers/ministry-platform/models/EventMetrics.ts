@@ -16,6 +16,10 @@ export interface EventMetrics {
   Numerical_Value: number /* decimal */;
 
   Group_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Groups.Group_ID
+
+  Multplier?: number /* decimal */ | null;
+
+  Automatically_Added: boolean; // Has Default
 }
 
 export type EventMetricsRecord = EventMetrics;

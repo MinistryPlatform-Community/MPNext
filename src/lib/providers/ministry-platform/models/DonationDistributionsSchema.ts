@@ -9,12 +9,11 @@ export const DonationDistributionsSchema = z.object({
   Target_Event: z.number().int().nullable(),
   Soft_Credit_Donor: z.number().int().nullable(),
   Notes: z.string().max(1000).nullable(),
+  Surge_Church_Plant_ID: z.number().int().nullable(),
   Statement_Description: z.string().max(254).nullable(),
   Donation_Source_ID: z.number().int().nullable(),
   _Vendor_Pledge_Code: z.string().max(16).nullable(),
   Projected_Gift_Frequency: z.number().int().nullable(),
-  _Last_Statement_Review: z.string().datetime().nullable(),
-  Soft_Credit_Statement_ID: z.number().int().nullable(),
 });
 
 export type DonationDistributionsInput = z.infer<typeof DonationDistributionsSchema>;

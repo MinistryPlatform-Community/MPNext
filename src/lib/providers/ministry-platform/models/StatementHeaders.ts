@@ -15,6 +15,8 @@ export interface StatementHeaders {
   Statement_Header: string /* max 50 chars */;
 
   Header_Sort: unknown;
+
+  Publication_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Publications.Publication_ID
 }
 
 export type StatementHeadersRecord = StatementHeaders;

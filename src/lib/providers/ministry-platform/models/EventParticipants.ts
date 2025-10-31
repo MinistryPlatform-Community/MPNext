@@ -47,7 +47,21 @@ export interface EventParticipants {
 
   Registrant_Message_Sent: boolean; // Has Default
 
+  Attended_Online: boolean; // Has Default
+
   Attendee_Message_Sent: boolean; // Has Default
+
+  /**
+   * Max length: 255 characters
+   */
+  PCO_Position?: string /* max 255 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  PCO_Status?: string /* max 75 chars */ | null;
+
+  PCO_Connect_Mode?: number /* 32-bit integer */ | null;
 
   Attending_Online: boolean; // Has Default
 

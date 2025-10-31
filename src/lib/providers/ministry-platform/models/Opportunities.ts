@@ -15,9 +15,9 @@ export interface Opportunities {
   Opportunity_Title: string /* max 50 chars */;
 
   /**
-   * Max length: 2000 characters
+   * Max length: 3000 characters
    */
-  Description?: string /* max 2000 chars */ | null;
+  Description?: string /* max 3000 chars */ | null;
 
   Group_Role_ID: number /* 32-bit integer */; // Foreign Key -> Group_Roles.Group_Role_ID
 
@@ -72,6 +72,26 @@ export interface Opportunities {
   Optional_Reminder_Message?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
 
   Send_To_Heads?: boolean | null; // Has Default
+
+  Show_on_Connection_Card: boolean; // Has Default
+
+  Show_on_Communication_Card: boolean; // Has Default
+
+  Communication_Card_Start_Date?: string /* ISO datetime */ | null;
+
+  Communication_Card_End_Date?: string /* ISO datetime */ | null;
+
+  Communication_Card_Sort_Order?: number /* 32-bit integer */ | null;
+
+  Opportunity_Slot_Collection_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Opportunity_Slot_Collections.Opportunity_Slot_Collection_ID
+
+  Slots_Confirmation_Engine_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
+
+  Slots_Notification_Engine_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
+
+  Slots_Confirmation_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
+
+  Slots_Notification_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
 
   _Maximum_Needed_Met: boolean; // Read Only, Has Default
 }

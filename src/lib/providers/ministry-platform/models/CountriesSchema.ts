@@ -8,6 +8,7 @@ export const CountriesSchema = z.object({
   Code2: z.string().max(2).nullable(),
   Code3: z.string().max(3).nullable(),
   Calling_Code: z.string().max(32).nullable(),
+  OLG_Surge_Subfund: z.string().max(100).nullable(),
 });
 
 export type CountriesInput = z.infer<typeof CountriesSchema>;

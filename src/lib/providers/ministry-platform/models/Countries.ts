@@ -35,6 +35,11 @@ export interface Countries {
    * Max length: 32 characters
    */
   Calling_Code?: string /* max 32 chars */ | null;
+
+  /**
+   * Max length: 100 characters
+   */
+  OLG_Surge_Subfund?: string /* max 100 chars */ | null;
 }
 
 export type CountriesRecord = Countries;

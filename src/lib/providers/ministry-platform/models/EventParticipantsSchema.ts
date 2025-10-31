@@ -18,7 +18,11 @@ export const EventParticipantsSchema = z.object({
   Group_Role_ID: z.number().int().nullable(),
   Response_ID: z.number().int().nullable(),
   Registrant_Message_Sent: z.boolean(),
+  Attended_Online: z.boolean(),
   Attendee_Message_Sent: z.boolean(),
+  PCO_Position: z.string().max(255).nullable(),
+  PCO_Status: z.string().max(75).nullable(),
+  PCO_Connect_Mode: z.number().int().nullable(),
   Attending_Online: z.boolean(),
   RSVP_Status_ID: z.number().int().nullable(),
 });

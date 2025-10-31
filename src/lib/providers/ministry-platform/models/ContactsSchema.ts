@@ -41,13 +41,19 @@ export const ContactsSchema = z.object({
   User_Account: z.number().int().nullable(),
   ID_Card: z.string().max(50).nullable(),
   Contact_GUID: z.string().uuid(),
+  Additional_Email: z.string().max(255).nullable(),
+  Weekend_Promotional_Mail: z.string().max(25).nullable(),
+  Receive_ENews: z.string().max(25).nullable(),
+  Occupation: z.string().max(50).nullable(),
+  Staff_Record: z.number().int().nullable(),
+  Twilio_Number: z.string().max(50).nullable(),
   _Contact_Setup_Date: z.string().datetime(),
+  PCO_Connect_Mode: z.number().int().nullable(),
   Email_Verified: z.boolean(),
   Mobile_Phone_Verified: z.boolean(),
   Maiden_Name: z.string().max(50).nullable(),
   Primary_Language_ID: z.number().int().nullable(),
   Faith_Background_ID: z.number().int().nullable(),
-  Texting_Opt_In_Type_ID: z.number().int(),
 });
 
 export type ContactsInput = z.infer<typeof ContactsSchema>;

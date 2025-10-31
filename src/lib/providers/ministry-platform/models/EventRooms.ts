@@ -38,6 +38,8 @@ export interface EventRooms {
 
   Cancelled: boolean; // Has Default
 
+  Default_Room: boolean; // Has Default
+
   Checkin_Capacity?: number /* 32-bit integer */ | null;
 }
 

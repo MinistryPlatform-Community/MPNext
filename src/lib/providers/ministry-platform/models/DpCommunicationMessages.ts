@@ -38,9 +38,9 @@ export interface DpCommunicationMessages {
   Reply_To?: string /* max 256 chars */ | null;
 
   /**
-   * Max length: 1000 characters
+   * Max length: 256 characters
    */
-  Subject?: string /* max 1000 chars */ | null;
+  Subject?: string /* max 256 chars */ | null;
 
   /**
    * Max length: 2147483647 characters
@@ -52,8 +52,6 @@ export interface DpCommunicationMessages {
   _Date_Submitted?: string /* ISO datetime */ | null; // Read Only
 
   _Priority: number /* 32-bit integer */; // Read Only, Has Default
-
-  _Text_Segments?: number /* 32-bit integer */ | null; // Read Only
 }
 
 export type DpCommunicationMessagesRecord = DpCommunicationMessages;

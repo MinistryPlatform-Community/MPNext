@@ -83,6 +83,10 @@ export interface Groups {
 
   Promotion_Date?: string /* ISO date (YYYY-MM-DD) */ | null;
 
+  Age_Start_Date?: string /* ISO date (YYYY-MM-DD) */ | null;
+
+  Age_End_Date?: string /* ISO date (YYYY-MM-DD) */ | null;
+
   Promote_Participants_Only: boolean; // Has Default
 
   Send_Attendance_Notification: boolean; // Has Default
@@ -90,6 +94,47 @@ export interface Groups {
   Send_Service_Notification: boolean; // Has Default
 
   Enable_Discussion: boolean; // Has Default
+
+  Born_From?: string /* ISO datetime */ | null;
+
+  Born_To?: string /* ISO datetime */ | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  Topic_Curriculum?: string /* max 255 chars */ | null;
+
+  Childcare_Provided?: boolean | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  Small_Group_Type?: string /* max 255 chars */ | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  Group_Stage?: string /* max 255 chars */ | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  Key_Phrases?: string /* max 255 chars */ | null;
+
+  Send_Parent_Resource?: boolean | null; // Has Default
+
+  /**
+   * Max length: 240 characters
+   */
+  Parent_Resource_URL?: string /* max 240 chars */ | null;
+
+  Slots_Confirmation_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
+
+  Slots_Notification_Template_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communications.Communication_ID
+
+  Group_Slot_Collection_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Group_Slot_Collections.Group_Slot_Collection_ID
+
+  Available_On_App?: boolean | null;
 
   SMS_Number?: number /* 32-bit integer */ | null; // Foreign Key -> dp_SMS_Numbers.SMS_Number_ID
 
@@ -99,7 +144,11 @@ export interface Groups {
 
   Next_Scheduled_Meeting?: string /* ISO datetime */ | null;
 
-  Available_On_App?: boolean | null;
+  Send_Mobile_Attendance_Notifications: boolean; // Has Default
+
+  Background_Check_Required?: boolean | null;
+
+  Show_Files_to_Participants: boolean; // Has Default
 }
 
 export type GroupsRecord = Groups;

@@ -10,6 +10,7 @@ export const CareCasesSchema = z.object({
   End_Date: z.string().datetime().nullable(),
   Care_Case_Type_ID: z.number().int(),
   Location_ID: z.number().int().nullable(),
+  Location_Details: z.string().max(75).nullable(),
   Case_Manager: z.number().int().nullable(),
   Share_With_Group_Leaders: z.boolean(),
   Program_ID: z.number().int().nullable(),

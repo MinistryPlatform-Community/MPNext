@@ -7,7 +7,7 @@ export const DpCommunicationsSchema = z.object({
   Communication_Status_ID: z.number().int().nullable(),
   Selection_ID: z.number().int().nullable(),
   Send_To_Parents: z.boolean(),
-  Subject: z.string().max(1000),
+  Subject: z.string().max(256),
   Body: z.string().max(2147483647),
   Pertains_To_Page_ID: z.number().int().nullable(),
   _Sent_From_Task: z.number().int().nullable(),
@@ -24,7 +24,6 @@ export const DpCommunicationsSchema = z.object({
   Expire_Date: z.string().datetime().nullable(),
   Template_User: z.number().int().nullable(),
   Template_User_Group: z.number().int().nullable(),
-  Communication_GUID: z.string().uuid(),
   Alternate_Email_Type_ID: z.number().int().nullable(),
   Publication_ID: z.number().int().nullable(),
 });

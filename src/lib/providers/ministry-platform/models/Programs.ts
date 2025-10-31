@@ -28,6 +28,8 @@ export interface Programs {
 
   Primary_Contact: number /* 32-bit integer */; // Foreign Key -> Contacts.Contact_ID
 
+  BGChk_Contact: number /* 32-bit integer */; // Foreign Key -> Contacts.Contact_ID, Has Default
+
   Priority_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Priorities.Priority_ID
 
   On_Connection_Card: boolean; // Has Default
@@ -60,17 +62,27 @@ export interface Programs {
 
   Omit_From_Engagement_Giving: boolean; // Has Default
 
+  /**
+   * Max length: 100 characters
+   */
+  OLG_Fund?: string /* max 100 chars */ | null;
+
+  /**
+   * Max length: 100 characters
+   */
+  OLG_Sub_Fund?: string /* max 100 chars */ | null;
+
+  /**
+   * Max length: 100 characters
+   */
+  Pocket_Platform_Display_Name?: string /* max 100 chars */ | null;
+
+  /**
+   * Max length: 100 characters
+   */
+  OLG_Surge_Subfund?: string /* max 100 chars */ | null;
+
   SMS_Number?: number /* 32-bit integer */ | null; // Foreign Key -> dp_SMS_Numbers.SMS_Number_ID
-
-  /**
-   * Max length: 1000 characters
-   */
-  OLG_Fund?: string /* max 1000 chars */ | null;
-
-  /**
-   * Max length: 1000 characters
-   */
-  OLG_Sub_Fund?: string /* max 1000 chars */ | null;
 
   /**
    * Max length: 1000 characters

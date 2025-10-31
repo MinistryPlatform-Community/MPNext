@@ -25,6 +25,8 @@ export interface DpContactPublications {
    */
   External_List_ID?: string /* max 50 chars */ | null;
 
+  New_Subscriber_Message_Sent: boolean; // Has Default
+
   _Unsubscribe_Sync_Pending: boolean; // Read Only, Has Default
 }
 

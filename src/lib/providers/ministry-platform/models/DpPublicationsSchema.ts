@@ -13,6 +13,7 @@ export const DpPublicationsSchema = z.object({
   Sync_Nightly: z.boolean(),
   Name: z.string().max(25),
   On_Connection_Card: z.boolean(),
+  New_Subscriber_Message: z.number().int().nullable(),
 });
 
 export type DpPublicationsInput = z.infer<typeof DpPublicationsSchema>;

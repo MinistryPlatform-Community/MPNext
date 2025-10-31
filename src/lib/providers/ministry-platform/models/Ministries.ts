@@ -32,11 +32,15 @@ export interface Ministries {
 
   Parent_Ministry?: number /* 32-bit integer */ | null; // Foreign Key -> Ministries.Ministry_ID
 
+  Division?: number /* 32-bit integer */ | null; // Foreign Key -> Ministries.Ministry_ID
+
   Available_Online: boolean; // Has Default
 
   Priority_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Priorities.Priority_ID
 
   Leadership_Team?: number /* 32-bit integer */ | null; // Foreign Key -> Groups.Group_ID
+
+  Background_Check_Required?: boolean | null;
 }
 
 export type MinistriesRecord = Ministries;

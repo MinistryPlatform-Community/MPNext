@@ -13,6 +13,8 @@ export interface BackgroundChecks {
 
   Requesting_Ministry?: number /* 32-bit integer */ | null; // Foreign Key -> Ministries.Ministry_ID
 
+  Last_BGCheck_Request?: string /* ISO datetime */ | null;
+
   Background_Check_Submitted?: string /* ISO datetime */ | null;
 
   Background_Check_Returned?: string /* ISO datetime */ | null;
@@ -20,9 +22,9 @@ export interface BackgroundChecks {
   All_Clear?: boolean | null;
 
   /**
-   * Max length: 500 characters
+   * Max length: 1000 characters
    */
-  Notes?: string /* max 500 chars */ | null;
+  Notes?: string /* max 1000 chars */ | null;
 
   Theft?: boolean | null;
 
@@ -44,6 +46,21 @@ export interface BackgroundChecks {
    * Max length: 50 characters
    */
   Reference_Number?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  LinkID?: string /* max 75 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  CandidateID?: string /* max 75 chars */ | null;
+
+  /**
+   * Max length: 255 characters
+   */
+  ShortCodeUrl?: string /* max 255 chars */ | null;
 
   Report_Url?: string /* URL */ | null;
 
@@ -117,6 +134,16 @@ export interface BackgroundChecks {
    * Max length: 128 characters
    */
   Jurisdiction?: string /* max 128 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  ACS_Description?: string /* max 75 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  ACS_Status?: string /* max 75 chars */ | null;
 
   /**
    * Max length: 50 characters

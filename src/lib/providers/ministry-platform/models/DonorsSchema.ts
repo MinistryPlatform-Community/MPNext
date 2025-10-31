@@ -13,6 +13,7 @@ export const DonorsSchema = z.object({
   Always_Pledge_Credit: z.number().int().nullable(),
   Setup_Date: z.string().datetime(),
   First_Contact_Made: z.boolean().nullable(),
+  Surge_Category_ID: z.number().int().nullable(),
   _First_Donation_Date: z.string().datetime().nullable(),
   _Last_Donation_Date: z.string().datetime().nullable(),
   Donation_Frequency_ID: z.number().int().nullable(),

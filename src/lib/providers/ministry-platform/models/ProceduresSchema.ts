@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const ProceduresSchema = z.object({
   Procedure_ID: z.number().int(),
   Procedure_Title: z.string().max(50),
+  Parent_Procedure: z.number().int().nullable(),
   Creation_Date: z.string().datetime().nullable(),
   Active: z.boolean(),
   User_ID: z.number().int(),

@@ -6,6 +6,8 @@ export const EventMetricsSchema = z.object({
   Metric_ID: z.number().int(),
   Numerical_Value: z.number(),
   Group_ID: z.number().int().nullable(),
+  Multplier: z.number().nullable(),
+  Automatically_Added: z.boolean(),
 });
 
 export type EventMetricsInput = z.infer<typeof EventMetricsSchema>;

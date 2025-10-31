@@ -42,6 +42,8 @@ export interface DpPublications {
   Name: string /* max 25 chars */;
 
   On_Connection_Card: boolean; // Has Default
+
+  New_Subscriber_Message?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Communication_Templates.Communication_Template_ID
 }
 
 export type DpPublicationsRecord = DpPublications;
