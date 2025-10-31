@@ -41,7 +41,7 @@ export class TableService {
             await this.client.ensureValidToken();
 
             const endpoint = `/tables/${encodeURIComponent(table)}`;
-            const result = await this.client.getHttpClient().post<T[]>(endpoint, { records }, params);
+            const result = await this.client.getHttpClient().post<T[]>(endpoint, records, params);
             return result;
         } catch (error) {
             console.error(`Error creating records in table ${table}:`, error);
