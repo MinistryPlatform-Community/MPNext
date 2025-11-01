@@ -24,15 +24,21 @@ export async function requireWidgetAuth(
   // Extract token from Authorization header
   const authHeader = req.headers.get("authorization");
   if (!authHeader) {
+    console.error("Missing Authorization header");
     throw new Error("Missing Authorization header");
   }
 
   const parts = authHeader.split(" ");
   if (parts.length !== 2 || parts[0] !== "Bearer") {
+    console.error("Invalid Authorization header format:", authHeader);
     throw new Error("Invalid Authorization header format");
   }
 
   const token = parts[1];
+  if (!token || token.trim() === "") {
+    console.error("Authorization token is empty");
+    throw new Error("Authorization token is empty");
+  }
   
   // Verify JWT
   let claims: WidgetClaims;
