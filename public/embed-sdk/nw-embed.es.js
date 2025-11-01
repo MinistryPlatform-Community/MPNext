@@ -1,4 +1,4 @@
-class y extends HTMLElement {
+class w extends HTMLElement {
   constructor() {
     var e, i;
     super(), this.root = this.attachShadow({ mode: "open" });
@@ -11,7 +11,7 @@ class y extends HTMLElement {
    * Fetch wrapper with automatic token injection and refresh on 401
    */
   async fetch(t, e) {
-    var a;
+    var n;
     let i;
     try {
       i = await this.tokenProvider();
@@ -32,7 +32,7 @@ class y extends HTMLElement {
       credentials: "omit",
       mode: "cors"
     });
-    if (r.status === 401 && ((a = window.__nwTokenProvider) != null && a.refresh)) {
+    if (r.status === 401 && ((n = window.__nwTokenProvider) != null && n.refresh)) {
       const o = await window.__nwTokenProvider.refresh();
       return fetch(`${this.apiHost}${t}`, {
         ...e,
@@ -82,30 +82,30 @@ class y extends HTMLElement {
     );
   }
 }
-class T {
+class S {
   constructor(t) {
     this.config = t;
   }
   async request(t, e = {}) {
-    const { skipRetry: i, ...s } = e, r = await this.config.getToken(), a = {
+    const { skipRetry: i, ...s } = e, r = await this.config.getToken(), n = {
       "Content-Type": "application/json",
       ...s.headers,
       Authorization: `Bearer ${r}`
     };
-    this.config.tenantId && (a["X-Tenant-ID"] = this.config.tenantId);
+    this.config.tenantId && (n["X-Tenant-ID"] = this.config.tenantId);
     const o = await fetch(`${this.config.apiHost}${t}`, {
       ...s,
-      headers: a,
+      headers: n,
       credentials: "omit",
       mode: "cors"
     });
     if (o.status === 401 && !i && this.config.onTokenRefresh && await this.refreshToken())
       return this.request(t, { ...e, skipRetry: !0 });
     if (!o.ok) {
-      const d = await o.json().catch(() => ({
+      const l = await o.json().catch(() => ({
         error: o.statusText
       }));
-      throw new Error(d.error || `Request failed: ${o.statusText}`);
+      throw new Error(l.error || `Request failed: ${o.statusText}`);
     }
     return o.json();
   }
@@ -126,7 +126,7 @@ class T {
     return null;
   }
 }
-class w extends y {
+class y extends w {
   constructor() {
     super(), this.state = {
       courageousGift: "",
@@ -203,14 +203,14 @@ class w extends y {
       notes: i.get("notes") || void 0
     }, r = {};
     (m = s.firstName) != null && m.trim() || (r.firstName = !0), (u = s.lastName) != null && u.trim() || (r.lastName = !0), (!((g = s.email) != null && g.trim()) || !this.validateEmail(s.email)) && (r.email = !0), (!((f = s.phone) != null && f.trim()) || !this.validatePhone(s.phone)) && (r.phone = !0), (h = s.address) != null && h.trim() || (r.address = !0), (v = s.city) != null && v.trim() || (r.city = !0), (!((b = s.zipcode) != null && b.trim()) || s.zipcode.length !== 5) && (r.zipcode = !0);
-    const a = this.parseNumeric(this.state.courageousGift), o = this.parseNumeric(this.state.consistentGift), d = this.parseNumeric(this.state.creativeGift);
-    if (a === 0 && o === 0 && d === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
+    const n = this.parseNumeric(this.state.courageousGift), o = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
+    if (n === 0 && o === 0 && l === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
       this.updateErrorStates();
       return;
     }
     this.state.isSubmitting = !0, this.state.errorMessage = "", this.render();
     try {
-      const c = crypto.randomUUID(), k = this.apiHost || "http://localhost:3000", l = await this.fetch("/api/embed/pledge/submit", {
+      const c = crypto.randomUUID(), T = this.apiHost || "http://localhost:3000", d = await this.fetch("/api/embed/pledge/submit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -233,11 +233,11 @@ class w extends y {
           notes: s.notes
         })
       });
-      if (!l.ok) {
-        const x = await l.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(x.error || `HTTP ${l.status}: ${l.statusText}`);
+      if (!d.ok) {
+        const x = await d.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(x.error || `HTTP ${d.status}: ${d.statusText}`);
       }
-      const p = await l.json();
+      const p = await d.json();
       p.success ? (this.state.isSuccess = !0, this.emit("pledgeSubmitted", {
         pledgeId: p.pledgeId,
         total: this.state.total
@@ -735,18 +735,24 @@ class w extends y {
     `;
   }
 }
-customElements.define("nw-pledge", w);
-function S(n) {
-  console.log("✅ Northwoods SDK initialized with token provider"), window.__nwTokenProvider = n.tokenProvider, n.tokenProvider.get().then((t) => {
+customElements.define("nw-pledge", y);
+function k(a) {
+  console.log("✅ Northwoods SDK initialized with token provider"), typeof window != "undefined" && (window.__nwTokenProvider = a.tokenProvider, console.log("✅ Token provider set on window.__nwTokenProvider")), a.tokenProvider.get().then((t) => {
     t ? console.log("✅ Token provider test successful, token length:", t.length) : console.error("❌ Token provider returned empty token");
   }).catch((t) => {
     console.error("❌ Token provider test failed:", t);
   });
 }
+typeof window != "undefined" && (window.NorthwoodsEmbed = {
+  init: k,
+  setTokenProvider: (a) => {
+    window.__nwTokenProvider = a;
+  }
+});
 export {
-  T as ApiClient,
-  y as NorthwoodsWidget,
-  w as PledgeWidget,
-  S as init
+  S as ApiClient,
+  w as NorthwoodsWidget,
+  y as PledgeWidget,
+  k as init
 };
 //# sourceMappingURL=nw-embed.es.js.map
