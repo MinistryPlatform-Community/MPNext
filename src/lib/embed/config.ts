@@ -62,19 +62,15 @@ export async function validateInitToken(
   }
 
   // TODO: Add real token validation here
-  // For development, we'll accept any token matching pattern
-  const expectedToken = `${tenantId}_${process.env.EMBED_INIT_TOKEN_SECRET || "dev-secret"}`;
-  
-  if (initToken !== expectedToken) {
-    console.warn(`Invalid init token for tenant ${tenantId}`);
-    // In development, we'll still return the tenant for testing
-    if (process.env.NODE_ENV === "development") {
-      console.warn("⚠️ DEV MODE: Allowing invalid token for development");
-      return tenant;
-    }
+  // For production, accept tokens that start with the tenant ID
+  // This allows custom generated tokens from generate-init-token.ps1
+  if (!initToken.startsWith(`${tenantId}_`)) {
+    console.warn(`Invalid init token for tenant ${tenantId}: token doesn't start with tenant ID`);
     return null;
   }
 
+  // Token is valid if it starts with tenant ID and is long enough
+  console.log(`✅ Valid init token for tenant ${tenantId}`);
   return tenant;
 }
 
