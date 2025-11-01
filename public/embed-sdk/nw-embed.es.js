@@ -12,7 +12,11 @@ class y extends HTMLElement {
    */
   async fetch(t, e) {
     var o;
-    const s = await this.tokenProvider(), i = {
+    const s = await this.tokenProvider();
+    if (!s)
+      throw console.error("❌ No token received from tokenProvider"), new Error("Authentication token not available");
+    console.log("🔑 Token received:", s.substring(0, 20) + "...");
+    const i = {
       ...e == null ? void 0 : e.headers,
       Authorization: `Bearer ${s}`
     };
