@@ -1,4 +1,4 @@
-class w extends HTMLElement {
+class x extends HTMLElement {
   constructor() {
     var e, i;
     super(), this.root = this.attachShadow({ mode: "open" });
@@ -12,40 +12,41 @@ class w extends HTMLElement {
    */
   async fetch(t, e) {
     var n;
+    await this.waitForTokenProvider();
     let i;
     try {
       i = await this.tokenProvider();
-    } catch (o) {
-      throw console.error("❌ Error getting token from tokenProvider:", o), new Error(`Failed to get authentication token: ${o instanceof Error ? o.message : "Unknown error"}`);
+    } catch (r) {
+      throw console.error("❌ Error getting token from tokenProvider:", r), new Error(`Failed to get authentication token: ${r instanceof Error ? r.message : "Unknown error"}`);
     }
     if (!i)
       throw console.error("❌ No token received from tokenProvider"), console.error("Make sure you called init() with a tokenProvider before mounting the widget"), new Error("Authentication token not available. Did you call init()?");
     console.log("🔑 Token received:", i.substring(0, 20) + "...");
-    const s = {
+    const o = {
       ...e == null ? void 0 : e.headers,
       Authorization: `Bearer ${i}`
     };
-    this.tenantId && (s["X-Tenant-ID"] = this.tenantId);
-    const r = await fetch(`${this.apiHost}${t}`, {
+    this.tenantId && (o["X-Tenant-ID"] = this.tenantId);
+    const s = await fetch(`${this.apiHost}${t}`, {
       ...e,
-      headers: s,
+      headers: o,
       credentials: "omit",
       mode: "cors"
     });
-    if (r.status === 401 && ((n = window.__nwTokenProvider) != null && n.refresh)) {
-      const o = await window.__nwTokenProvider.refresh();
+    if (s.status === 401 && ((n = window.__nwTokenProvider) != null && n.refresh)) {
+      const r = await window.__nwTokenProvider.refresh();
       return fetch(`${this.apiHost}${t}`, {
         ...e,
         headers: {
           ...e == null ? void 0 : e.headers,
-          Authorization: `Bearer ${o}`,
+          Authorization: `Bearer ${r}`,
           "X-Tenant-ID": this.tenantId
         },
         credentials: "omit",
         mode: "cors"
       });
     }
-    return r;
+    return s;
   }
   /**
    * Inject CSS into Shadow DOM
@@ -70,6 +71,19 @@ class w extends HTMLElement {
     e.textContent = t, this.root.appendChild(e);
   }
   /**
+   * Wait for token provider to be initialized
+   */
+  async waitForTokenProvider() {
+    window.__nwSDKReady && (console.log("⏳ Waiting for SDK initialization..."), await window.__nwSDKReady, console.log("✅ SDK initialization complete"));
+    const t = 5e3, e = 100, i = Date.now();
+    for (; !window.__nwTokenProvider; ) {
+      if (Date.now() - i > t)
+        throw new Error("Token provider not initialized after 5 seconds. Make sure init() is called.");
+      await new Promise((o) => setTimeout(o, e));
+    }
+    this.tokenProvider = window.__nwTokenProvider.get, console.log("✅ Token provider ready");
+  }
+  /**
    * Emit custom event from widget
    */
   emit(t, e) {
@@ -87,27 +101,27 @@ class S {
     this.config = t;
   }
   async request(t, e = {}) {
-    const { skipRetry: i, ...s } = e, r = await this.config.getToken(), n = {
+    const { skipRetry: i, ...o } = e, s = await this.config.getToken(), n = {
       "Content-Type": "application/json",
-      ...s.headers,
-      Authorization: `Bearer ${r}`
+      ...o.headers,
+      Authorization: `Bearer ${s}`
     };
     this.config.tenantId && (n["X-Tenant-ID"] = this.config.tenantId);
-    const o = await fetch(`${this.config.apiHost}${t}`, {
-      ...s,
+    const r = await fetch(`${this.config.apiHost}${t}`, {
+      ...o,
       headers: n,
       credentials: "omit",
       mode: "cors"
     });
-    if (o.status === 401 && !i && this.config.onTokenRefresh && await this.refreshToken())
+    if (r.status === 401 && !i && this.config.onTokenRefresh && await this.refreshToken())
       return this.request(t, { ...e, skipRetry: !0 });
-    if (!o.ok) {
-      const l = await o.json().catch(() => ({
-        error: o.statusText
+    if (!r.ok) {
+      const l = await r.json().catch(() => ({
+        error: r.statusText
       }));
-      throw new Error(l.error || `Request failed: ${o.statusText}`);
+      throw new Error(l.error || `Request failed: ${r.statusText}`);
     }
-    return o.json();
+    return r.json();
   }
   async post(t, e, i) {
     return this.request(t, {
@@ -126,7 +140,7 @@ class S {
     return null;
   }
 }
-class y extends w {
+class y extends x {
   constructor() {
     super(), this.state = {
       courageousGift: "",
@@ -159,8 +173,8 @@ class y extends w {
   formatCurrency(t) {
     const e = t.replace(/[^0-9.]/g, ""), i = e.split(".");
     if (i.length > 2) return t;
-    const s = i[1];
-    return s !== void 0 && s.length > 2 ? t : e;
+    const o = i[1];
+    return o !== void 0 && o.length > 2 ? t : e;
   }
   parseNumeric(t) {
     const e = t.replace(/[^0-9.]/g, "");
@@ -177,10 +191,10 @@ class y extends w {
     });
   }
   updateTotal() {
-    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), s = t + e + i;
-    this.state.total = s.toFixed(2);
-    const r = this.root.querySelector('input[name="total_gift"]');
-    r && (r.value = this.state.total);
+    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), o = t + e + i;
+    this.state.total = o.toFixed(2);
+    const s = this.root.querySelector('input[name="total_gift"]');
+    s && (s.value = this.state.total);
   }
   validateEmail(t) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
@@ -189,9 +203,9 @@ class y extends w {
     return t.replace(/\D/g, "").length === 10;
   }
   async handleSubmit(t) {
-    var m, u, g, f, h, v, b;
+    var m, f, u, g, h, v, w;
     t.preventDefault();
-    const e = t.target, i = new FormData(e), s = {
+    const e = t.target, i = new FormData(e), o = {
       firstName: i.get("firstName"),
       lastName: i.get("lastName"),
       email: i.get("email"),
@@ -201,10 +215,10 @@ class y extends w {
       state: i.get("state"),
       zipcode: i.get("zipcode"),
       notes: i.get("notes") || void 0
-    }, r = {};
-    (m = s.firstName) != null && m.trim() || (r.firstName = !0), (u = s.lastName) != null && u.trim() || (r.lastName = !0), (!((g = s.email) != null && g.trim()) || !this.validateEmail(s.email)) && (r.email = !0), (!((f = s.phone) != null && f.trim()) || !this.validatePhone(s.phone)) && (r.phone = !0), (h = s.address) != null && h.trim() || (r.address = !0), (v = s.city) != null && v.trim() || (r.city = !0), (!((b = s.zipcode) != null && b.trim()) || s.zipcode.length !== 5) && (r.zipcode = !0);
-    const n = this.parseNumeric(this.state.courageousGift), o = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
-    if (n === 0 && o === 0 && l === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
+    }, s = {};
+    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (f = o.lastName) != null && f.trim() || (s.lastName = !0), (!((u = o.email) != null && u.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((g = o.phone) != null && g.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
+    const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
+    if (n === 0 && r === 0 && l === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
       this.updateErrorStates();
       return;
     }
@@ -218,24 +232,24 @@ class y extends w {
         },
         body: JSON.stringify({
           campaignId: this.campaignId,
-          firstName: s.firstName,
-          lastName: s.lastName,
-          email: s.email,
-          phone: s.phone,
-          address: s.address,
-          city: s.city,
-          state: s.state,
-          zipcode: s.zipcode,
+          firstName: o.firstName,
+          lastName: o.lastName,
+          email: o.email,
+          phone: o.phone,
+          address: o.address,
+          city: o.city,
+          state: o.state,
+          zipcode: o.zipcode,
           courageous_gift: this.state.courageousGift,
           consistent_gift: this.state.consistentGift,
           creative_gift: this.state.creativeGift,
           total_gift: this.state.total,
-          notes: s.notes
+          notes: o.notes
         })
       });
       if (!d.ok) {
-        const x = await d.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(x.error || `HTTP ${d.status}: ${d.statusText}`);
+        const b = await d.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(b.error || `HTTP ${d.status}: ${d.statusText}`);
       }
       const p = await d.json();
       p.success ? (this.state.isSuccess = !0, this.emit("pledgeSubmitted", {
@@ -736,8 +750,14 @@ class y extends w {
   }
 }
 customElements.define("nw-pledge", y);
+if (typeof window != "undefined") {
+  let a = null;
+  window.__nwSDKReady = new Promise((t) => {
+    a = t;
+  }), window.__nwSDKReadyResolve = a;
+}
 function k(a) {
-  console.log("✅ Northwoods SDK initialized with token provider"), typeof window != "undefined" && (window.__nwTokenProvider = a.tokenProvider, console.log("✅ Token provider set on window.__nwTokenProvider")), a.tokenProvider.get().then((t) => {
+  console.log("✅ Northwoods SDK initialized with token provider"), typeof window != "undefined" && (window.__nwTokenProvider = a.tokenProvider, console.log("✅ Token provider set on window.__nwTokenProvider"), window.__nwSDKReadyResolve && (window.__nwSDKReadyResolve(), console.log("✅ SDK ready promise resolved"))), a.tokenProvider.get().then((t) => {
     t ? console.log("✅ Token provider test successful, token length:", t.length) : console.error("❌ Token provider returned empty token");
   }).catch((t) => {
     console.error("❌ Token provider test failed:", t);
@@ -751,7 +771,7 @@ typeof window != "undefined" && (window.NorthwoodsEmbed = {
 });
 export {
   S as ApiClient,
-  w as NorthwoodsWidget,
+  x as NorthwoodsWidget,
   y as PledgeWidget,
   k as init
 };
