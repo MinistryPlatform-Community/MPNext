@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Embed Example</title>
+</head>
+<body>
+  <h1>Pledge Widget - Simple Embed</h1>
+
+  <!-- SIMPLE ONE-SCRIPT PATTERN -->
+  <script type="module">
+    // Import and initialize in one script block
+    import { init } from "https://northwoods.vercel.app/embed-sdk/nw-embed.es.js?v=1.0.2";
+    
+    // Call init IMMEDIATELY
+    init({
+      tokenProvider: {
+        get: async () => {
+          console.log("Fetching token...");
+          const res = await fetch("https://northwoods.vercel.app/api/embed/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tid: "northwoods-prod",
+              wid: "pledge",
+              initToken: "northwoods-prod_D22EC80205430A72276C8E0FEFE82DBAAEA3EA7C9A39AF1EFA0F72BF714532EC"
+            })
+          });
+          const data = await res.json();
+          console.log("Token fetched:", data.token ? "✅" : "❌");
+          return data.token;
+        }
+      }
+    });
+
+    console.log("Init complete, window.__nwTokenProvider =", window.__nwTokenProvider);
+  </script>
+
+  <!-- Widget element - will mount AFTER init() has run -->
+  <nw-pledge campaign-id="115"></nw-pledge>
+
+</body>
+</html>
