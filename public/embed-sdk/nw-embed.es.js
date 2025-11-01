@@ -5,35 +5,40 @@ class y extends HTMLElement {
     const t = document.querySelector(
       "script[data-api-host]"
     );
-    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://northwoods.vercel.app", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", this.tokenProvider = ((e = window.__nwTokenProvider) == null ? void 0 : e.get) || (async () => this.getAttribute("token") || "");
+    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://northwoods.vercel.app", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", this.tokenProvider = ((e = window.__nwTokenProvider) == null ? void 0 : e.get) || (async () => (console.warn("⚠️ No token provider initialized. Call init() before using the widget."), this.getAttribute("token") || ""));
   }
   /**
    * Fetch wrapper with automatic token injection and refresh on 401
    */
   async fetch(t, e) {
-    var o;
-    const s = await this.tokenProvider();
-    if (!s)
-      throw console.error("❌ No token received from tokenProvider"), new Error("Authentication token not available");
-    console.log("🔑 Token received:", s.substring(0, 20) + "...");
-    const i = {
+    var a;
+    let i;
+    try {
+      i = await this.tokenProvider();
+    } catch (o) {
+      throw console.error("❌ Error getting token from tokenProvider:", o), new Error(`Failed to get authentication token: ${o instanceof Error ? o.message : "Unknown error"}`);
+    }
+    if (!i)
+      throw console.error("❌ No token received from tokenProvider"), console.error("Make sure you called init() with a tokenProvider before mounting the widget"), new Error("Authentication token not available. Did you call init()?");
+    console.log("🔑 Token received:", i.substring(0, 20) + "...");
+    const s = {
       ...e == null ? void 0 : e.headers,
-      Authorization: `Bearer ${s}`
+      Authorization: `Bearer ${i}`
     };
-    this.tenantId && (i["X-Tenant-ID"] = this.tenantId);
+    this.tenantId && (s["X-Tenant-ID"] = this.tenantId);
     const r = await fetch(`${this.apiHost}${t}`, {
       ...e,
-      headers: i,
+      headers: s,
       credentials: "omit",
       mode: "cors"
     });
-    if (r.status === 401 && ((o = window.__nwTokenProvider) != null && o.refresh)) {
-      const a = await window.__nwTokenProvider.refresh();
+    if (r.status === 401 && ((a = window.__nwTokenProvider) != null && a.refresh)) {
+      const o = await window.__nwTokenProvider.refresh();
       return fetch(`${this.apiHost}${t}`, {
         ...e,
         headers: {
           ...e == null ? void 0 : e.headers,
-          Authorization: `Bearer ${a}`,
+          Authorization: `Bearer ${o}`,
           "X-Tenant-ID": this.tenantId
         },
         credentials: "omit",
@@ -82,31 +87,31 @@ class N {
     this.config = t;
   }
   async request(t, e = {}) {
-    const { skipRetry: s, ...i } = e, r = await this.config.getToken(), o = {
+    const { skipRetry: i, ...s } = e, r = await this.config.getToken(), a = {
       "Content-Type": "application/json",
-      ...i.headers,
+      ...s.headers,
       Authorization: `Bearer ${r}`
     };
-    this.config.tenantId && (o["X-Tenant-ID"] = this.config.tenantId);
-    const a = await fetch(`${this.config.apiHost}${t}`, {
-      ...i,
-      headers: o,
+    this.config.tenantId && (a["X-Tenant-ID"] = this.config.tenantId);
+    const o = await fetch(`${this.config.apiHost}${t}`, {
+      ...s,
+      headers: a,
       credentials: "omit",
       mode: "cors"
     });
-    if (a.status === 401 && !s && this.config.onTokenRefresh && await this.refreshToken())
+    if (o.status === 401 && !i && this.config.onTokenRefresh && await this.refreshToken())
       return this.request(t, { ...e, skipRetry: !0 });
-    if (!a.ok) {
-      const l = await a.json().catch(() => ({
-        error: a.statusText
+    if (!o.ok) {
+      const d = await o.json().catch(() => ({
+        error: o.statusText
       }));
-      throw new Error(l.error || `Request failed: ${a.statusText}`);
+      throw new Error(d.error || `Request failed: ${o.statusText}`);
     }
-    return a.json();
+    return o.json();
   }
-  async post(t, e, s) {
+  async post(t, e, i) {
     return this.request(t, {
-      ...s,
+      ...i,
       method: "POST",
       body: JSON.stringify(e)
     });
@@ -143,37 +148,37 @@ class w extends y {
   handleInput(t) {
     const e = t.target;
     if (e.name === "courageous_gift" || e.name === "consistent_gift" || e.name === "creative_gift") {
-      const s = this.formatCurrency(e.value);
-      e.value = s, e.name === "courageous_gift" && (this.state.courageousGift = s), e.name === "consistent_gift" && (this.state.consistentGift = s), e.name === "creative_gift" && (this.state.creativeGift = s), this.updateTotal();
+      const i = this.formatCurrency(e.value);
+      e.value = i, e.name === "courageous_gift" && (this.state.courageousGift = i), e.name === "consistent_gift" && (this.state.consistentGift = i), e.name === "creative_gift" && (this.state.creativeGift = i), this.updateTotal();
     }
     if (e.name === "phone") {
-      const s = this.formatPhoneNumber(e.value);
-      e.value = s;
+      const i = this.formatPhoneNumber(e.value);
+      e.value = i;
     }
   }
   formatCurrency(t) {
-    const e = t.replace(/[^0-9.]/g, ""), s = e.split(".");
-    if (s.length > 2) return t;
-    const i = s[1];
-    return i !== void 0 && i.length > 2 ? t : e;
+    const e = t.replace(/[^0-9.]/g, ""), i = e.split(".");
+    if (i.length > 2) return t;
+    const s = i[1];
+    return s !== void 0 && s.length > 2 ? t : e;
   }
   parseNumeric(t) {
     const e = t.replace(/[^0-9.]/g, "");
     return parseFloat(e) || 0;
   }
   formatPhoneNumber(t) {
-    const s = t.replace(/\D/g, "").substring(0, 10);
-    return s.length <= 3 ? s : s.length <= 6 ? `${s.slice(0, 3)}-${s.slice(3)}` : `${s.slice(0, 3)}-${s.slice(3, 6)}-${s.slice(6)}`;
+    const i = t.replace(/\D/g, "").substring(0, 10);
+    return i.length <= 3 ? i : i.length <= 6 ? `${i.slice(0, 3)}-${i.slice(3)}` : `${i.slice(0, 3)}-${i.slice(3, 6)}-${i.slice(6)}`;
   }
   updateErrorStates() {
     this.root.querySelectorAll("input, select, textarea").forEach((e) => {
-      const s = e.name;
-      this.state.errors[s] ? e.classList.add("error") : e.classList.remove("error");
+      const i = e.name;
+      this.state.errors[i] ? e.classList.add("error") : e.classList.remove("error");
     });
   }
   updateTotal() {
-    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), s = this.parseNumeric(this.state.creativeGift), i = t + e + s;
-    this.state.total = i.toFixed(2);
+    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), s = t + e + i;
+    this.state.total = s.toFixed(2);
     const r = this.root.querySelector('input[name="total_gift"]');
     r && (r.value = this.state.total);
   }
@@ -186,20 +191,20 @@ class w extends y {
   async handleSubmit(t) {
     var m, u, f, g, h, b, v;
     t.preventDefault();
-    const e = t.target, s = new FormData(e), i = {
-      firstName: s.get("firstName"),
-      lastName: s.get("lastName"),
-      email: s.get("email"),
-      phone: s.get("phone"),
-      address: s.get("address"),
-      city: s.get("city"),
-      state: s.get("state"),
-      zipcode: s.get("zipcode"),
-      notes: s.get("notes") || void 0
+    const e = t.target, i = new FormData(e), s = {
+      firstName: i.get("firstName"),
+      lastName: i.get("lastName"),
+      email: i.get("email"),
+      phone: i.get("phone"),
+      address: i.get("address"),
+      city: i.get("city"),
+      state: i.get("state"),
+      zipcode: i.get("zipcode"),
+      notes: i.get("notes") || void 0
     }, r = {};
-    (m = i.firstName) != null && m.trim() || (r.firstName = !0), (u = i.lastName) != null && u.trim() || (r.lastName = !0), (!((f = i.email) != null && f.trim()) || !this.validateEmail(i.email)) && (r.email = !0), (!((g = i.phone) != null && g.trim()) || !this.validatePhone(i.phone)) && (r.phone = !0), (h = i.address) != null && h.trim() || (r.address = !0), (b = i.city) != null && b.trim() || (r.city = !0), (!((v = i.zipcode) != null && v.trim()) || i.zipcode.length !== 5) && (r.zipcode = !0);
-    const o = this.parseNumeric(this.state.courageousGift), a = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
-    if (o === 0 && a === 0 && l === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
+    (m = s.firstName) != null && m.trim() || (r.firstName = !0), (u = s.lastName) != null && u.trim() || (r.lastName = !0), (!((f = s.email) != null && f.trim()) || !this.validateEmail(s.email)) && (r.email = !0), (!((g = s.phone) != null && g.trim()) || !this.validatePhone(s.phone)) && (r.phone = !0), (h = s.address) != null && h.trim() || (r.address = !0), (b = s.city) != null && b.trim() || (r.city = !0), (!((v = s.zipcode) != null && v.trim()) || s.zipcode.length !== 5) && (r.zipcode = !0);
+    const a = this.parseNumeric(this.state.courageousGift), o = this.parseNumeric(this.state.consistentGift), d = this.parseNumeric(this.state.creativeGift);
+    if (a === 0 && o === 0 && d === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
       this.updateErrorStates();
       return;
     }
@@ -213,19 +218,19 @@ class w extends y {
         },
         body: JSON.stringify({
           campaignId: this.campaignId,
-          firstName: i.firstName,
-          lastName: i.lastName,
-          email: i.email,
-          phone: i.phone,
-          address: i.address,
-          city: i.city,
-          state: i.state,
-          zipcode: i.zipcode,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          email: s.email,
+          phone: s.phone,
+          address: s.address,
+          city: s.city,
+          state: s.state,
+          zipcode: s.zipcode,
           courageous_gift: this.state.courageousGift,
           consistent_gift: this.state.consistentGift,
           creative_gift: this.state.creativeGift,
           total_gift: this.state.total,
-          notes: i.notes
+          notes: s.notes
         })
       });
       if (!n.ok) {
@@ -271,7 +276,7 @@ class w extends y {
     `;
   }
   renderForm() {
-    const { errors: t, isSubmitting: e, errorMessage: s } = this.state;
+    const { errors: t, isSubmitting: e, errorMessage: i } = this.state;
     return `
       <form class="nw-pledge" novalidate>
         <div class="pledge-header">
@@ -389,8 +394,8 @@ class w extends y {
         </div>
 
         <div class="pledge-footer">
-          ${s ? `
-            <div class="error-message">${s}</div>
+          ${i ? `
+            <div class="error-message">${i}</div>
           ` : ""}
           <button type="submit" ${e ? "disabled" : ""}>
             ${e ? "Saving..." : "Make My Pledge"}
@@ -731,8 +736,8 @@ class w extends y {
   }
 }
 customElements.define("nw-pledge", w);
-function T(d) {
-  window.__nwTokenProvider = d.tokenProvider;
+function T(l) {
+  window.__nwTokenProvider = l.tokenProvider;
 }
 export {
   N as ApiClient,
