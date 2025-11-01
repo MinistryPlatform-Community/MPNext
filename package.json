@@ -1,10 +1,16 @@
 {
-  "name": "mp-next",
+  "name": "web",
   "version": "0.2.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "dev:sdk": "pnpm --filter @northwoods/embed-sdk dev",
+    "build": "pnpm build:sdk && next build",
+    "build:web": "next build",
+    "build:sdk": "pnpm --filter @northwoods/embed-sdk build",
     "start": "next start",
     "lint": "next lint",
     "mp:generate": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts",
