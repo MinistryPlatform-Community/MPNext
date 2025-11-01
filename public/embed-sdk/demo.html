@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Northwoods Pledge Widget - Live Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #002855;
+      text-align: center;
+    }
+    .info {
+      background: #e0f2fe;
+      border-left: 4px solid #004C97;
+      padding: 16px;
+      margin-bottom: 30px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎯 Northwoods Pledge Widget</h1>
+  
+  <div class="info">
+    <strong>Live Demo</strong><br>
+    This widget is embedded using Shadow DOM and connects to the production API.
+  </div>
+
+  <!-- Widget goes here -->
+  <nw-pledge campaign-id="115" api-host="https://northwoods.vercel.app"></nw-pledge>
+
+  <!-- Load SDK -->
+  <script type="module" src="./nw-embed.es.js"></script>
+
+  <script type="module">
+    import { init } from "./nw-embed.es.js";
+    
+    init({
+      tokenProvider: {
+        get: async () => {
+          const res = await fetch("https://northwoods.vercel.app/api/embed/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tid: "northwoods-dev",
+              wid: "pledge",
+              initToken: "northwoods-dev_dev-secret"
+            })
+          });
+          const data = await res.json();
+          return data.token;
+        }
+      }
+    });
+
+    // Event listeners
+    const widget = document.querySelector("nw-pledge");
+    
+    widget.addEventListener("pledgeSubmitted", (e) => {
+      console.log("✅ Pledge submitted:", e.detail);
+      alert(`Thank you! Pledge ID: ${e.detail.pledgeId}, Total: $${e.detail.total}`);
+    });
+
+    widget.addEventListener("pledgeError", (e) => {
+      console.error("❌ Error:", e.detail);
+      alert(`Error: ${e.detail.error}`);
+    });
+  </script>
+</body>
+</html>

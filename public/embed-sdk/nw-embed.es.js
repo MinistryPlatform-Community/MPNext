@@ -73,7 +73,7 @@ class y extends HTMLElement {
     );
   }
 }
-class T {
+class N {
   constructor(t) {
     this.config = t;
   }
@@ -161,6 +161,12 @@ class w extends y {
     const s = t.replace(/\D/g, "").substring(0, 10);
     return s.length <= 3 ? s : s.length <= 6 ? `${s.slice(0, 3)}-${s.slice(3)}` : `${s.slice(0, 3)}-${s.slice(3, 6)}-${s.slice(6)}`;
   }
+  updateErrorStates() {
+    this.root.querySelectorAll("input, select, textarea").forEach((e) => {
+      const s = e.name;
+      this.state.errors[s] ? e.classList.add("error") : e.classList.remove("error");
+    });
+  }
   updateTotal() {
     const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), s = this.parseNumeric(this.state.creativeGift), i = t + e + s;
     this.state.total = i.toFixed(2);
@@ -190,7 +196,7 @@ class w extends y {
     (m = i.firstName) != null && m.trim() || (r.firstName = !0), (u = i.lastName) != null && u.trim() || (r.lastName = !0), (!((f = i.email) != null && f.trim()) || !this.validateEmail(i.email)) && (r.email = !0), (!((g = i.phone) != null && g.trim()) || !this.validatePhone(i.phone)) && (r.phone = !0), (h = i.address) != null && h.trim() || (r.address = !0), (b = i.city) != null && b.trim() || (r.city = !0), (!((v = i.zipcode) != null && v.trim()) || i.zipcode.length !== 5) && (r.zipcode = !0);
     const o = this.parseNumeric(this.state.courageousGift), a = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
     if (o === 0 && a === 0 && l === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
-      this.render();
+      this.updateErrorStates();
       return;
     }
     this.state.isSubmitting = !0, this.state.errorMessage = "", this.render();
@@ -721,13 +727,13 @@ class w extends y {
   }
 }
 customElements.define("nw-pledge", w);
-function $(d) {
+function T(d) {
   window.__nwTokenProvider = d.tokenProvider;
 }
 export {
-  T as ApiClient,
+  N as ApiClient,
   y as NorthwoodsWidget,
   w as PledgeWidget,
-  $ as init
+  T as init
 };
 //# sourceMappingURL=nw-embed.es.js.map

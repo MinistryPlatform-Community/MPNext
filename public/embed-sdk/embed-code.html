@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Northwoods Widget - Embed Code</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f9fafb;
+    }
+    h1 {
+      color: #002855;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #6b7280;
+      margin-bottom: 40px;
+    }
+    .section {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      margin-bottom: 30px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #002855;
+      margin-top: 0;
+      border-bottom: 2px solid #004C97;
+      padding-bottom: 10px;
+    }
+    pre {
+      background: #1f2937;
+      color: #e5e7eb;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    code {
+      font-family: 'Courier New', monospace;
+    }
+    .highlight {
+      background: #fef3c7;
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: #92400e;
+      font-weight: 600;
+    }
+    .note {
+      background: #fef3c7;
+      border-left: 4px solid #f59e0b;
+      padding: 16px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .success {
+      background: #d1fae5;
+      border-left: 4px solid #10b981;
+      padding: 16px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    ul {
+      line-height: 2;
+    }
+    a {
+      color: #004C97;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎯 Northwoods Pledge Widget</h1>
+  <p class="subtitle">Embed the pledge form on your website</p>
+
+  <div class="section">
+    <h2>📋 Quick Start</h2>
+    <p>Copy and paste this code into your website's HTML:</p>
+    
+    <pre><code>&lt;!-- Northwoods Pledge Widget --&gt;
+&lt;script type="module" 
+        src="https://northwoods.vercel.app/embed-sdk/nw-embed.es.js"&gt;
+&lt;/script&gt;
+
+&lt;script type="module"&gt;
+  import { init } from "https://northwoods.vercel.app/embed-sdk/nw-embed.es.js";
+  
+  init({
+    tokenProvider: {
+      get: async () =&gt; {
+        const res = await fetch("https://northwoods.vercel.app/api/embed/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tid: "northwoods-prod",
+            wid: "pledge",
+            initToken: "<span class="highlight">YOUR_INIT_TOKEN_HERE</span>"
+          })
+        });
+        const data = await res.json();
+        return data.token;
+      }
+    }
+  });
+&lt;/script&gt;
+
+&lt;!-- Place widget anywhere on your page --&gt;
+&lt;nw-pledge campaign-id="115"&gt;&lt;/nw-pledge&gt;</code></pre>
+
+    <div class="note">
+      <strong>⚠️ Important:</strong> Replace <code class="highlight">YOUR_INIT_TOKEN_HERE</code> with the token provided by Northwoods.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🎨 Customization</h2>
+    
+    <h3>Change Campaign ID</h3>
+    <pre><code>&lt;nw-pledge campaign-id="115"&gt;&lt;/nw-pledge&gt;
+&lt;!-- Change 115 to your campaign ID --&gt;</code></pre>
+
+    <h3>Custom Event Handling</h3>
+    <pre><code>&lt;script&gt;
+  const widget = document.querySelector("nw-pledge");
+  
+  widget.addEventListener("pledgeSubmitted", (e) =&gt; {
+    console.log("Pledge ID:", e.detail.pledgeId);
+    console.log("Total:", e.detail.total);
+    
+    // Send to Google Analytics
+    gtag('event', 'pledge_submitted', {
+      value: parseFloat(e.detail.total),
+      currency: 'USD'
+    });
+    
+    // Redirect to thank you page
+    window.location.href = "/thank-you";
+  });
+&lt;/script&gt;</code></pre>
+  </div>
+
+  <div class="section">
+    <h2>✅ Testing</h2>
+    <ol>
+      <li>Add the embed code to your test page</li>
+      <li>Open your website in a browser</li>
+      <li>Open browser Developer Tools (F12) → Console tab</li>
+      <li>Look for any error messages</li>
+      <li>Fill out the form and submit</li>
+      <li>Verify the pledge appears in Ministry Platform</li>
+    </ol>
+
+    <div class="success">
+      <strong>✅ Success:</strong> You should see "Pledge submitted:" in the console and a success screen in the widget.
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🔧 Troubleshooting</h2>
+    
+    <h3>Widget doesn't load</h3>
+    <ul>
+      <li>Check browser console for errors</li>
+      <li>Verify the script URL is correct</li>
+      <li>Make sure your site uses HTTPS (not HTTP)</li>
+    </ul>
+
+    <h3>"Failed to fetch" or CORS error</h3>
+    <ul>
+      <li>Your website domain needs to be added to the allowlist</li>
+      <li>Contact Northwoods to add your domain</li>
+    </ul>
+
+    <h3>"Invalid token" error</h3>
+    <ul>
+      <li>Verify your init token is correct</li>
+      <li>Make sure <code>tid</code> is set to "northwoods-prod"</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>📞 Support</h2>
+    <p>Need help? Contact Northwoods Church:</p>
+    <ul>
+      <li>Email: <a href="mailto:support@northwoods.org">support@northwoods.org</a></li>
+      <li>Demo: <a href="./demo.html">View Live Demo</a></li>
+    </ul>
+  </div>
+</body>
+</html>
