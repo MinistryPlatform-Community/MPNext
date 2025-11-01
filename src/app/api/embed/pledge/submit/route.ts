@@ -93,8 +93,24 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Error processing pledge submission:", error);
 
-    const tenant = await getTenantConfig("northwoods-dev"); // Fallback for CORS
-    const headers = getCorsHeaders(origin, tenant?.allowedOrigins || []);
+    // Try to get the actual tenant for proper CORS headers
+    let corsHeaders: HeadersInit = {
+      "Access-Control-Allow-Origin": origin || "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Tenant-ID",
+    };
+
+    try {
+      const tenantId = req.headers.get("x-tenant-id");
+      if (tenantId) {
+        const tenant = await getTenantConfig(tenantId);
+        if (tenant) {
+          corsHeaders = getCorsHeaders(origin, tenant.allowedOrigins);
+        }
+      }
+    } catch {
+      // Use default CORS headers if tenant lookup fails
+    }
 
     return NextResponse.json(
       {
@@ -103,7 +119,7 @@ export async function POST(req: NextRequest) {
       },
       {
         status: error instanceof Error && error.message.includes("Invalid") ? 403 : 500,
-        headers,
+        headers: corsHeaders,
       }
     );
   }
