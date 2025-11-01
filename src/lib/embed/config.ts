@@ -9,12 +9,13 @@ import { TenantConfig } from "./types";
 const TENANT_CONFIGS: Record<string, TenantConfig> = {
   "northwoods-dev": {
     id: "northwoods-dev",
-    name: "Northwoods Church (Dev)",
+    name: "Northwoods Church (dev)",
     allowedOrigins: [
       "http://localhost:3000",
       "http://localhost:5173",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:5173",
+
     ],
     mpClientId: process.env.MINISTRY_PLATFORM_CLIENT_ID || "",
     mpClientSecret: process.env.MINISTRY_PLATFORM_CLIENT_SECRET || "",
@@ -23,8 +24,8 @@ const TENANT_CONFIGS: Record<string, TenantConfig> = {
     id: "northwoods-prod",
     name: "Northwoods Church",
     allowedOrigins: [
-      "https://northwoods.org",
-      "https://www.northwoods.org",
+      "https://northwoods.church",
+      "https://www.northwoods.church",
     ],
     mpClientId: process.env.MINISTRY_PLATFORM_CLIENT_ID || "",
     mpClientSecret: process.env.MINISTRY_PLATFORM_CLIENT_SECRET || "",
