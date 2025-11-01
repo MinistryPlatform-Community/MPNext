@@ -1,11 +1,11 @@
 class y extends HTMLElement {
   constructor() {
-    var e;
+    var e, i;
     super(), this.root = this.attachShadow({ mode: "open" });
     const t = document.querySelector(
       "script[data-api-host]"
     );
-    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://northwoods.vercel.app", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", this.tokenProvider = ((e = window.__nwTokenProvider) == null ? void 0 : e.get) || (async () => (console.warn("⚠️ No token provider initialized. Call init() before using the widget."), this.getAttribute("token") || ""));
+    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://northwoods.vercel.app", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", console.log("🔧 Widget constructor - checking for token provider..."), console.log("window.__nwTokenProvider exists?", !!window.__nwTokenProvider), console.log("window.__nwTokenProvider.get exists?", !!((e = window.__nwTokenProvider) != null && e.get)), this.tokenProvider = ((i = window.__nwTokenProvider) == null ? void 0 : i.get) || (async () => (console.warn("⚠️ No token provider initialized. Call init() before using the widget."), this.getAttribute("token") || ""));
   }
   /**
    * Fetch wrapper with automatic token injection and refresh on 401
@@ -82,7 +82,7 @@ class y extends HTMLElement {
     );
   }
 }
-class N {
+class T {
   constructor(t) {
     this.config = t;
   }
@@ -189,7 +189,7 @@ class w extends y {
     return t.replace(/\D/g, "").length === 10;
   }
   async handleSubmit(t) {
-    var m, u, f, g, h, b, v;
+    var m, u, g, f, h, v, b;
     t.preventDefault();
     const e = t.target, i = new FormData(e), s = {
       firstName: i.get("firstName"),
@@ -202,7 +202,7 @@ class w extends y {
       zipcode: i.get("zipcode"),
       notes: i.get("notes") || void 0
     }, r = {};
-    (m = s.firstName) != null && m.trim() || (r.firstName = !0), (u = s.lastName) != null && u.trim() || (r.lastName = !0), (!((f = s.email) != null && f.trim()) || !this.validateEmail(s.email)) && (r.email = !0), (!((g = s.phone) != null && g.trim()) || !this.validatePhone(s.phone)) && (r.phone = !0), (h = s.address) != null && h.trim() || (r.address = !0), (b = s.city) != null && b.trim() || (r.city = !0), (!((v = s.zipcode) != null && v.trim()) || s.zipcode.length !== 5) && (r.zipcode = !0);
+    (m = s.firstName) != null && m.trim() || (r.firstName = !0), (u = s.lastName) != null && u.trim() || (r.lastName = !0), (!((g = s.email) != null && g.trim()) || !this.validateEmail(s.email)) && (r.email = !0), (!((f = s.phone) != null && f.trim()) || !this.validatePhone(s.phone)) && (r.phone = !0), (h = s.address) != null && h.trim() || (r.address = !0), (v = s.city) != null && v.trim() || (r.city = !0), (!((b = s.zipcode) != null && b.trim()) || s.zipcode.length !== 5) && (r.zipcode = !0);
     const a = this.parseNumeric(this.state.courageousGift), o = this.parseNumeric(this.state.consistentGift), d = this.parseNumeric(this.state.creativeGift);
     if (a === 0 && o === 0 && d === 0 && (r.courageous_gift = !0, r.consistent_gift = !0, r.creative_gift = !0), this.state.errors = r, Object.keys(r).length > 0) {
       this.updateErrorStates();
@@ -210,7 +210,7 @@ class w extends y {
     }
     this.state.isSubmitting = !0, this.state.errorMessage = "", this.render();
     try {
-      const c = crypto.randomUUID(), S = this.apiHost || "http://localhost:3000", n = await this.fetch("/api/embed/pledge/submit", {
+      const c = crypto.randomUUID(), k = this.apiHost || "http://localhost:3000", l = await this.fetch("/api/embed/pledge/submit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -233,11 +233,11 @@ class w extends y {
           notes: s.notes
         })
       });
-      if (!n.ok) {
-        const x = await n.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(x.error || `HTTP ${n.status}: ${n.statusText}`);
+      if (!l.ok) {
+        const x = await l.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(x.error || `HTTP ${l.status}: ${l.statusText}`);
       }
-      const p = await n.json();
+      const p = await l.json();
       p.success ? (this.state.isSuccess = !0, this.emit("pledgeSubmitted", {
         pledgeId: p.pledgeId,
         total: this.state.total
@@ -736,13 +736,17 @@ class w extends y {
   }
 }
 customElements.define("nw-pledge", w);
-function T(l) {
-  window.__nwTokenProvider = l.tokenProvider;
+function S(n) {
+  console.log("✅ Northwoods SDK initialized with token provider"), window.__nwTokenProvider = n.tokenProvider, n.tokenProvider.get().then((t) => {
+    t ? console.log("✅ Token provider test successful, token length:", t.length) : console.error("❌ Token provider returned empty token");
+  }).catch((t) => {
+    console.error("❌ Token provider test failed:", t);
+  });
 }
 export {
-  N as ApiClient,
+  T as ApiClient,
   y as NorthwoodsWidget,
   w as PledgeWidget,
-  T as init
+  S as init
 };
 //# sourceMappingURL=nw-embed.es.js.map
