@@ -5,7 +5,7 @@ class y extends HTMLElement {
     const t = document.querySelector(
       "script[data-api-host]"
     );
-    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://api.northwoods.com", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", this.tokenProvider = ((e = window.__nwTokenProvider) == null ? void 0 : e.get) || (async () => this.getAttribute("token") || "");
+    this.apiHost = this.getAttribute("api-host") || (t == null ? void 0 : t.dataset.apiHost) || "https://northwoods.vercel.app", this.tenantId = this.getAttribute("tenant") || (t == null ? void 0 : t.dataset.tenant) || "", this.tokenProvider = ((e = window.__nwTokenProvider) == null ? void 0 : e.get) || (async () => this.getAttribute("token") || "");
   }
   /**
    * Fetch wrapper with automatic token injection and refresh on 401
