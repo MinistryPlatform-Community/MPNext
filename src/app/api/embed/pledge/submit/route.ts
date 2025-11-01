@@ -9,7 +9,9 @@ import { getTenantConfig } from "@/lib/embed/config";
 import { savePledge, type PledgeFormData } from "@/components/pledge/actions";
 
 // In-memory cache for idempotency (use Redis/Vercel KV in production)
-const idempotencyCache = new Map<string, { result: any; timestamp: number }>();
+import { PledgeResult } from "@/components/pledge/actions";
+
+const idempotencyCache = new Map<string, { result: PledgeResult; timestamp: number }>();
 const IDEMPOTENCY_TTL = 86400000; // 24 hours in milliseconds
 
 // Clean up old entries periodically

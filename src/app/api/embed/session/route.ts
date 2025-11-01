@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { validateInitToken, getTenantConfig } from "@/lib/embed/config";
+import { validateInitToken } from "@/lib/embed/config";
 import { createWidgetToken } from "@/lib/embed/jwt";
 import { getCorsHeaders } from "@/lib/embed/auth";
 import { SessionRequest, SessionResponse } from "@/lib/embed/types";

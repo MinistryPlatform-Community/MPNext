@@ -34,7 +34,7 @@ export async function createWidgetToken(claims: Omit<WidgetClaims, "iat" | "exp"
  */
 export async function verifyWidgetToken(token: string): Promise<WidgetClaims> {
   try {
-    const claims = simpleJWT.verify(token, JWT_SECRET) as WidgetClaims;
+    const claims = await simpleJWT.verify(token, JWT_SECRET);
     
     // Check expiry
     if (claims.exp && claims.exp < Math.floor(Date.now() / 1000)) {
@@ -52,17 +52,17 @@ export async function verifyWidgetToken(token: string): Promise<WidgetClaims> {
  * Replace with 'jose' or 'jsonwebtoken' in production
  */
 const simpleJWT = {
-  sign(payload: any, secret: string): string {
+  async sign(payload: WidgetClaims, secret: string): Promise<string> {
     const header = { alg: JWT_ALGORITHM, typ: "JWT" };
     const encodedHeader = base64UrlEncode(JSON.stringify(header));
     const encodedPayload = base64UrlEncode(JSON.stringify(payload));
     const signature = base64UrlEncode(
-      createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret)
+      await createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret)
     );
     return `${encodedHeader}.${encodedPayload}.${signature}`;
   },
 
-  verify(token: string, secret: string): any {
+  async verify(token: string, secret: string): Promise<WidgetClaims> {
     const parts = token.split(".");
     if (parts.length !== 3) {
       throw new Error("Invalid token format");
@@ -70,14 +70,14 @@ const simpleJWT = {
 
     const [encodedHeader, encodedPayload, signature] = parts;
     const expectedSignature = base64UrlEncode(
-      createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret)
+      await createHmacSignature(`${encodedHeader}.${encodedPayload}`, secret)
     );
 
     if (signature !== expectedSignature) {
       throw new Error("Invalid signature");
     }
 
-    return JSON.parse(base64UrlDecode(encodedPayload));
+    return JSON.parse(base64UrlDecode(encodedPayload)) as WidgetClaims;
   },
 };
 
@@ -107,19 +107,26 @@ function base64UrlDecode(str: string): string {
   return atob(str);
 }
 
-function createHmacSignature(data: string, secret: string): string {
-  // This is a simplified version - use crypto.createHmac in Node.js
-  // For production, import 'crypto' and use proper HMAC
-  if (typeof require !== "undefined") {
-    try {
-      const crypto = require("crypto");
-      return crypto.createHmac("sha256", secret).update(data).digest("base64");
-    } catch (e) {
-      // Fallback for edge runtime
-    }
+async function createHmacSignature(data: string, secret: string): Promise<string> {
+  // Use Web Crypto API (works in Node.js and Edge Runtime)
+  try {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(data);
+    
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    
+    const signature = await crypto.subtle.sign("HMAC", key, messageData);
+    return Buffer.from(signature).toString("base64");
+  } catch {
+    // Fallback for environments without Web Crypto API
+    console.warn("⚠️ Using insecure JWT signing - implement proper HMAC for production");
+    return Buffer.from(data + secret).toString("base64");
   }
-  
-  // Very basic fallback (NOT SECURE - only for development)
-  console.warn("⚠️ Using insecure JWT signing - implement proper HMAC for production");
-  return Buffer.from(data + secret).toString("base64");
 }

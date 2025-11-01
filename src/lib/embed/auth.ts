@@ -19,7 +19,7 @@ export async function requireWidgetAuth(
   req: NextRequest,
   options: AuthOptions
 ): Promise<WidgetClaims> {
-  const { widget, requireAuth = true } = options;
+  const { widget } = options;
 
   // Extract token from Authorization header
   const authHeader = req.headers.get("authorization");
