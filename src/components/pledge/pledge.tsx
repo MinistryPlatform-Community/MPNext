@@ -124,6 +124,7 @@ export function Pledge() {
 
       if (result.success) {
         setIsSuccess(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         setSubmitMessage({ 
           type: "error", 
@@ -371,13 +372,13 @@ export function Pledge() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div></div>
             <div className="text-[13px] text-gray-700 leading-6 italic pl-6">
-              Provide an estimated value.
+              Provide an estimated value of stocks, bonds or other assets.
             </div>
           </div>
           {creativeGift && (
             <>
               <div className="text-xs text-gray-600 mb-2 leading-relaxed mt-4">
-                Describe the creative gift(s) of stocks, bonds, or other assets.
+                Please Describe the creative gift.
               </div>
               <textarea
                 name="notes"
@@ -390,15 +391,14 @@ export function Pledge() {
 
         {/* Total Gift */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center mt-8 mb-8">
-          <div className="text-lg font-bold text-[#002B55]">TOTAL GIFT</div>
-          <div className="flex items-center gap-2.5">
-            <span className="text-gray-600 mr-1">$</span>
+          <div className="text-lg font-bold text-[#002B55] text-center md:text-left">TOTAL GIFT</div>
+          <div className="flex items-center justify-center md:justify-start">
             <input
               type="text"
               name="total_gift"
-              value={total}
+              value={`$${parseFloat(total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
               readOnly
-              className="flex-1 px-4 py-3 border-none rounded-md bg-white text-xl font-bold text-[#002B55] focus:outline-none"
+              className="px-4 py-3 border-none rounded-md bg-white text-xl font-bold text-[#002B55] focus:outline-none text-center md:text-left"
             />
           </div>
         </div>
