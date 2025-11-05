@@ -22,18 +22,18 @@ class y extends HTMLElement {
     if (!i)
       throw console.error("❌ No token received from tokenProvider"), console.error("Make sure you called init() with a tokenProvider before mounting the widget"), new Error("Authentication token not available. Did you call init()?");
     console.log("🔑 Token received:", i.substring(0, 20) + "...");
-    const o = {
+    const s = {
       ...e == null ? void 0 : e.headers,
       Authorization: `Bearer ${i}`
     };
-    this.tenantId && (o["X-Tenant-ID"] = this.tenantId);
-    const s = await fetch(`${this.apiHost}${t}`, {
+    this.tenantId && (s["X-Tenant-ID"] = this.tenantId);
+    const o = await fetch(`${this.apiHost}${t}`, {
       ...e,
-      headers: o,
+      headers: s,
       credentials: "omit",
       mode: "cors"
     });
-    if (s.status === 401 && ((n = window.__nwTokenProvider) != null && n.refresh)) {
+    if (o.status === 401 && ((n = window.__nwTokenProvider) != null && n.refresh)) {
       const r = await window.__nwTokenProvider.refresh();
       return fetch(`${this.apiHost}${t}`, {
         ...e,
@@ -46,7 +46,7 @@ class y extends HTMLElement {
         mode: "cors"
       });
     }
-    return s;
+    return o;
   }
   /**
    * Inject CSS into Shadow DOM
@@ -79,7 +79,7 @@ class y extends HTMLElement {
     for (; !window.__nwTokenProvider; ) {
       if (Date.now() - i > t)
         throw new Error("Token provider not initialized after 5 seconds. Make sure init() is called.");
-      await new Promise((o) => setTimeout(o, e));
+      await new Promise((s) => setTimeout(s, e));
     }
     this.tokenProvider = window.__nwTokenProvider.get, console.log("✅ Token provider ready");
   }
@@ -101,14 +101,14 @@ class S {
     this.config = t;
   }
   async request(t, e = {}) {
-    const { skipRetry: i, ...o } = e, s = await this.config.getToken(), n = {
+    const { skipRetry: i, ...s } = e, o = await this.config.getToken(), n = {
       "Content-Type": "application/json",
-      ...o.headers,
-      Authorization: `Bearer ${s}`
+      ...s.headers,
+      Authorization: `Bearer ${o}`
     };
     this.config.tenantId && (n["X-Tenant-ID"] = this.config.tenantId);
     const r = await fetch(`${this.config.apiHost}${t}`, {
-      ...o,
+      ...s,
       headers: n,
       credentials: "omit",
       mode: "cors"
@@ -151,21 +151,21 @@ class x extends y {
       isSubmitting: !1,
       isSuccess: !1,
       errorMessage: ""
-    }, this.campaignId = parseInt(this.getAttribute("campaign-id") || "115");
+    }, this.inputHandler = (t) => this.handleInput(t), this.submitHandler = (t) => this.handleSubmit(t), this.campaignId = parseInt(this.getAttribute("campaign-id") || "115");
   }
   connectedCallback() {
     this.injectStyles(this.getStyles()), this.render(), this.attachEventListeners();
   }
   attachEventListeners() {
-    this.root.addEventListener("input", (t) => this.handleInput(t)), this.root.addEventListener("submit", (t) => this.handleSubmit(t));
+    this.root.removeEventListener("input", this.inputHandler), this.root.removeEventListener("submit", this.submitHandler), this.root.addEventListener("input", this.inputHandler), this.root.addEventListener("submit", this.submitHandler);
   }
   handleInput(t) {
     const e = t.target;
     if (e.name === "courageous_gift" || e.name === "consistent_gift" || e.name === "creative_gift") {
       const i = this.formatCurrency(e.value);
       e.value = i;
-      const o = this.state.creativeGift;
-      e.name === "courageous_gift" && (this.state.courageousGift = i), e.name === "consistent_gift" && (this.state.consistentGift = i), e.name === "creative_gift" && (this.state.creativeGift = i), this.updateTotal(), e.name === "creative_gift" && (!o || o === "" || o === "0" || o === "0.00") !== (!i || i === "" || i === "0" || i === "0.00") && this.render();
+      const s = this.state.creativeGift;
+      e.name === "courageous_gift" && (this.state.courageousGift = i), e.name === "consistent_gift" && (this.state.consistentGift = i), e.name === "creative_gift" && (this.state.creativeGift = i), this.updateTotal(), e.name === "creative_gift" && (!s || s === "" || s === "0" || s === "0.00") !== (!i || i === "" || i === "0" || i === "0.00") && this.render();
     }
     if (e.name === "phone") {
       const i = this.formatPhoneNumber(e.value);
@@ -175,8 +175,8 @@ class x extends y {
   formatCurrency(t) {
     const e = t.replace(/[^0-9.]/g, ""), i = e.split(".");
     if (i.length > 2) return t;
-    const o = i[1];
-    return o !== void 0 && o.length > 2 ? t : e;
+    const s = i[1];
+    return s !== void 0 && s.length > 2 ? t : e;
   }
   parseNumeric(t) {
     const e = t.replace(/[^0-9.]/g, "");
@@ -193,10 +193,10 @@ class x extends y {
     });
   }
   updateTotal() {
-    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), o = t + e + i;
-    this.state.total = o.toFixed(2);
-    const s = this.root.querySelector('input[name="total_gift"]');
-    s && (s.value = this.state.total);
+    const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), s = t + e + i;
+    this.state.total = s.toFixed(2);
+    const o = this.root.querySelector('input[name="total_gift"]');
+    o && (o.value = this.state.total);
   }
   validateEmail(t) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
@@ -205,9 +205,10 @@ class x extends y {
     return t.replace(/\D/g, "").length === 10;
   }
   async handleSubmit(t) {
-    var m, g, f, u, h, v, w;
-    t.preventDefault();
-    const e = t.target, i = new FormData(e), o = {
+    var m, u, g, f, h, v, w;
+    if (t.preventDefault(), this.state.isSubmitting)
+      return;
+    const e = t.target, i = new FormData(e), s = {
       firstName: i.get("firstName"),
       lastName: i.get("lastName"),
       email: i.get("email"),
@@ -217,10 +218,10 @@ class x extends y {
       state: i.get("state"),
       zipcode: i.get("zipcode"),
       notes: i.get("notes") || void 0
-    }, s = {};
-    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (g = o.lastName) != null && g.trim() || (s.lastName = !0), (!((f = o.email) != null && f.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((u = o.phone) != null && u.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
+    }, o = {};
+    (m = s.firstName) != null && m.trim() || (o.firstName = !0), (u = s.lastName) != null && u.trim() || (o.lastName = !0), (!((g = s.email) != null && g.trim()) || !this.validateEmail(s.email)) && (o.email = !0), (!((f = s.phone) != null && f.trim()) || !this.validatePhone(s.phone)) && (o.phone = !0), (h = s.address) != null && h.trim() || (o.address = !0), (v = s.city) != null && v.trim() || (o.city = !0), (!((w = s.zipcode) != null && w.trim()) || s.zipcode.length !== 5) && (o.zipcode = !0);
     const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
-    if (n === 0 && r === 0 && l === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
+    if (n === 0 && r === 0 && l === 0 && (o.courageous_gift = !0, o.consistent_gift = !0, o.creative_gift = !0), this.state.errors = o, Object.keys(o).length > 0) {
       this.updateErrorStates();
       return;
     }
@@ -234,19 +235,19 @@ class x extends y {
         },
         body: JSON.stringify({
           campaignId: this.campaignId,
-          firstName: o.firstName,
-          lastName: o.lastName,
-          email: o.email,
-          phone: o.phone,
-          address: o.address,
-          city: o.city,
-          state: o.state,
-          zipcode: o.zipcode,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          email: s.email,
+          phone: s.phone,
+          address: s.address,
+          city: s.city,
+          state: s.state,
+          zipcode: s.zipcode,
           courageous_gift: this.state.courageousGift,
           consistent_gift: this.state.consistentGift,
           creative_gift: this.state.creativeGift,
           total_gift: this.state.total,
-          notes: o.notes
+          notes: s.notes
         })
       });
       if (!d.ok) {
