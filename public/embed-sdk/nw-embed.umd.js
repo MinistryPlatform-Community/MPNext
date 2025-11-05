@@ -71,7 +71,7 @@
             </div>
           </div>
 
-          <div class="commitment-header">WITH DEPENDENCE ON GOD I/WE COMMIT:</div>
+          <div class="commitment-header">WITH DEPENDENCE ON GOD I/WE COMMIT TO:</div>
         </div>
 
         <div class="pledge-body">
