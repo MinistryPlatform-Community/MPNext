@@ -289,13 +289,14 @@ export function Pledge() {
             />
           </div>
         </div>
+
+        <div className="text-white px-5 py-3 mb-0 text-lg font-bold text-center">
+          WITH DEPENDENCE ON GOD I/WE COMMIT TO:
+        </div>
       </div>
 
       {/* Commitment Section */}
       <div className="p-5">
-        <div className="bg-[#002B55] text-white px-5 py-3 -mx-5 -mt-5 mb-5 text-lg font-bold text-center">
-          WITH DEPENDENCE ON GOD I/WE COMMIT:
-        </div>
 
         {/* Courageous Gift */}
         <div className="mb-8">
@@ -446,7 +447,7 @@ export function Pledge() {
                   Saving...
                 </>
               ) : (
-                "Make My Pledge"
+                "MAKE MY PLEDGE"
               )}
             </button>
           </div>

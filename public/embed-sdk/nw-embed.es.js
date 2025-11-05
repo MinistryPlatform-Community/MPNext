@@ -1,4 +1,4 @@
-class x extends HTMLElement {
+class y extends HTMLElement {
   constructor() {
     var e, i;
     super(), this.root = this.attachShadow({ mode: "open" });
@@ -140,7 +140,7 @@ class S {
     return null;
   }
 }
-class y extends x {
+class x extends y {
   constructor() {
     super(), this.state = {
       courageousGift: "",
@@ -203,7 +203,7 @@ class y extends x {
     return t.replace(/\D/g, "").length === 10;
   }
   async handleSubmit(t) {
-    var m, f, u, g, h, v, w;
+    var m, g, u, f, h, v, w;
     t.preventDefault();
     const e = t.target, i = new FormData(e), o = {
       firstName: i.get("firstName"),
@@ -216,7 +216,7 @@ class y extends x {
       zipcode: i.get("zipcode"),
       notes: i.get("notes") || void 0
     }, s = {};
-    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (f = o.lastName) != null && f.trim() || (s.lastName = !0), (!((u = o.email) != null && u.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((g = o.phone) != null && g.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
+    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (g = o.lastName) != null && g.trim() || (s.lastName = !0), (!((u = o.email) != null && u.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((f = o.phone) != null && f.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
     const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
     if (n === 0 && r === 0 && l === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
       this.updateErrorStates();
@@ -345,10 +345,11 @@ class y extends x {
                 class="${t.zipcode ? "error" : ""}" ${e ? "disabled" : ""}>
             </div>
           </div>
+
+          <div class="commitment-header">WITH DEPENDENCE ON GOD I/WE COMMIT:</div>
         </div>
 
         <div class="pledge-body">
-          <div class="commitment-header">WITH DEPENDENCE ON GOD I/WE COMMIT:</div>
 
           <div class="gift-section">
             <div class="gift-row">
@@ -412,7 +413,7 @@ class y extends x {
             <div class="error-message">${i}</div>
           ` : ""}
           <button type="submit" ${e ? "disabled" : ""}>
-            ${e ? "Saving..." : "Make My Pledge"}
+            ${e ? "Saving..." : "MAKE MY PLEDGE"}
           </button>
         </div>
       </form>
@@ -582,6 +583,17 @@ class y extends x {
         box-sizing: border-box;
       }
 
+      select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 0.5rem center;
+        background-size: 1.5em 1.5em;
+        padding-right: 2.5rem;
+      }
+
       input:focus, select:focus, textarea:focus {
         outline: none;
         background: #f9fafb;
@@ -602,10 +614,9 @@ class y extends x {
       }
 
       .commitment-header {
-        background: #002855;
         color: white;
         padding: 12px 20px;
-        margin: -32px -32px 32px -32px;
+        margin-bottom: 0;
         font-size: 18px;
         font-weight: bold;
         text-align: center;
@@ -741,15 +752,11 @@ class y extends x {
         .pledge-header, .pledge-body, .pledge-footer {
           padding: 24px;
         }
-
-        .commitment-header {
-          margin: -24px -24px 24px -24px;
-        }
       }
     `;
   }
 }
-customElements.define("nw-pledge", y);
+customElements.define("nw-pledge", x);
 if (typeof window != "undefined") {
   let a = null;
   window.__nwSDKReady = new Promise((t) => {
@@ -771,8 +778,8 @@ typeof window != "undefined" && (window.NorthwoodsEmbed = {
 });
 export {
   S as ApiClient,
-  x as NorthwoodsWidget,
-  y as PledgeWidget,
+  y as NorthwoodsWidget,
+  x as PledgeWidget,
   k as init
 };
 //# sourceMappingURL=nw-embed.es.js.map
