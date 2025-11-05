@@ -139,7 +139,7 @@ export function Pledge() {
         <div className="bg-[#002B55] text-white p-10 text-center">
           <div className="text-4xl font-bold mb-6">Thank You!</div>
           <p className="text-lg mb-8">
-            We are grateful for your commitment to God&apos;s work.
+            Thank you for your commitment to the Now is the time Campaign.
           </p>
         </div>
         <div className="p-10 text-center">
@@ -289,13 +289,14 @@ export function Pledge() {
             />
           </div>
         </div>
+
+        <div className="text-white px-5 py-3 mb-0 text-lg font-bold text-center">
+          WITH DEPENDENCE ON GOD I/WE COMMIT TO:
+        </div>
       </div>
 
       {/* Commitment Section */}
       <div className="p-5">
-        <div className="bg-[#002B55] text-white px-5 py-3 -mx-5 -mt-5 mb-5 text-lg font-bold text-center">
-          WITH DEPENDENCE ON GOD I/WE COMMIT:
-        </div>
 
         {/* Courageous Gift */}
         <div className="mb-8">
@@ -446,7 +447,7 @@ export function Pledge() {
                   Saving...
                 </>
               ) : (
-                "Make My Pledge"
+                "MAKE MY PLEDGE"
               )}
             </button>
           </div>

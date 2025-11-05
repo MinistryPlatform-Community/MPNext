@@ -65,12 +65,10 @@
     
     widget.addEventListener("pledgeSubmitted", (e) => {
       console.log("✅ Pledge submitted:", e.detail);
-      alert(`Thank you! Pledge ID: ${e.detail.pledgeId}, Total: $${e.detail.total}`);
     });
 
     widget.addEventListener("pledgeError", (e) => {
       console.error("❌ Error:", e.detail);
-      alert(`Error: ${e.detail.error}`);
     });
   </script>
 </body>
