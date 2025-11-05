@@ -139,7 +139,7 @@ export function Pledge() {
         <div className="bg-[#002B55] text-white p-10 text-center">
           <div className="text-4xl font-bold mb-6">Thank You!</div>
           <p className="text-lg mb-8">
-            We are grateful for your commitment to God&apos;s work.
+            Thank you for your commitment to the Now is the time Campaign.
           </p>
         </div>
         <div className="p-10 text-center">

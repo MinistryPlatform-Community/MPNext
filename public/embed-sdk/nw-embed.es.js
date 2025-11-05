@@ -273,7 +273,7 @@ class x extends y {
         <div class="pledge-header success-header">
           <div class="success-title">Thank You!</div>
           <p class="success-message">
-            We are grateful for your commitment to God's work.
+            Thank you for your commitment to the Now is the time Campaign.
           </p>
         </div>
         <div class="pledge-success-content">
