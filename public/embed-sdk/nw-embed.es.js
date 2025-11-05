@@ -163,7 +163,9 @@ class x extends y {
     const e = t.target;
     if (e.name === "courageous_gift" || e.name === "consistent_gift" || e.name === "creative_gift") {
       const i = this.formatCurrency(e.value);
-      e.value = i, e.name === "courageous_gift" && (this.state.courageousGift = i), e.name === "consistent_gift" && (this.state.consistentGift = i), e.name === "creative_gift" && (this.state.creativeGift = i), this.updateTotal();
+      e.value = i;
+      const o = this.state.creativeGift;
+      e.name === "courageous_gift" && (this.state.courageousGift = i), e.name === "consistent_gift" && (this.state.consistentGift = i), e.name === "creative_gift" && (this.state.creativeGift = i), this.updateTotal(), e.name === "creative_gift" && (!o || o === "" || o === "0" || o === "0.00") !== (!i || i === "" || i === "0" || i === "0.00") && this.render();
     }
     if (e.name === "phone") {
       const i = this.formatPhoneNumber(e.value);
@@ -203,7 +205,7 @@ class x extends y {
     return t.replace(/\D/g, "").length === 10;
   }
   async handleSubmit(t) {
-    var m, g, u, f, h, v, w;
+    var m, g, f, u, h, v, w;
     t.preventDefault();
     const e = t.target, i = new FormData(e), o = {
       firstName: i.get("firstName"),
@@ -216,7 +218,7 @@ class x extends y {
       zipcode: i.get("zipcode"),
       notes: i.get("notes") || void 0
     }, s = {};
-    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (g = o.lastName) != null && g.trim() || (s.lastName = !0), (!((u = o.email) != null && u.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((f = o.phone) != null && f.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
+    (m = o.firstName) != null && m.trim() || (s.firstName = !0), (g = o.lastName) != null && g.trim() || (s.lastName = !0), (!((f = o.email) != null && f.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((u = o.phone) != null && u.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
     const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
     if (n === 0 && r === 0 && l === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
       this.updateErrorStates();
@@ -391,7 +393,7 @@ class x extends y {
             <div class="gift-description">
               Provide an estimated value.
             </div>
-            ${this.state.creativeGift ? `
+            ${this.state.creativeGift && this.state.creativeGift !== "" && this.state.creativeGift !== "0" && this.state.creativeGift !== "0.00" ? `
               <div class="notes-section">
                 <label for="notes">Describe the creative gift(s) of stocks, bonds, or other assets.</label>
                 <textarea id="notes" name="notes" rows="3" ${e ? "disabled" : ""}></textarea>
