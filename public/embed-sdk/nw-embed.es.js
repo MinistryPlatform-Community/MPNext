@@ -116,10 +116,10 @@ class S {
     if (r.status === 401 && !i && this.config.onTokenRefresh && await this.refreshToken())
       return this.request(t, { ...e, skipRetry: !0 });
     if (!r.ok) {
-      const l = await r.json().catch(() => ({
+      const d = await r.json().catch(() => ({
         error: r.statusText
       }));
-      throw new Error(l.error || `Request failed: ${r.statusText}`);
+      throw new Error(d.error || `Request failed: ${r.statusText}`);
     }
     return r.json();
   }
@@ -200,7 +200,10 @@ class x extends y {
     const t = this.parseNumeric(this.state.courageousGift), e = this.parseNumeric(this.state.consistentGift), i = this.parseNumeric(this.state.creativeGift), o = t + e + i;
     this.state.total = o.toFixed(2);
     const s = this.root.querySelector('input[name="total_gift"]');
-    s && (s.value = this.state.total);
+    if (s) {
+      const n = parseFloat(this.state.total).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      s.value = `$${n}`;
+    }
   }
   validateEmail(t) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
@@ -224,14 +227,14 @@ class x extends y {
       notes: i.get("notes") || void 0
     }, s = {};
     (m = o.firstName) != null && m.trim() || (s.firstName = !0), (g = o.lastName) != null && g.trim() || (s.lastName = !0), (!((u = o.email) != null && u.trim()) || !this.validateEmail(o.email)) && (s.email = !0), (!((f = o.phone) != null && f.trim()) || !this.validatePhone(o.phone)) && (s.phone = !0), (h = o.address) != null && h.trim() || (s.address = !0), (v = o.city) != null && v.trim() || (s.city = !0), (!((w = o.zipcode) != null && w.trim()) || o.zipcode.length !== 5) && (s.zipcode = !0);
-    const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), l = this.parseNumeric(this.state.creativeGift);
-    if (n === 0 && r === 0 && l === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
+    const n = this.parseNumeric(this.state.courageousGift), r = this.parseNumeric(this.state.consistentGift), d = this.parseNumeric(this.state.creativeGift);
+    if (n === 0 && r === 0 && d === 0 && (s.courageous_gift = !0, s.consistent_gift = !0, s.creative_gift = !0), this.state.errors = s, Object.keys(s).length > 0) {
       this.updateErrorStates();
       return;
     }
     this.state.isSubmitting = !0, this.state.errorMessage = "", this.render();
     try {
-      const c = crypto.randomUUID(), T = this.apiHost || "http://localhost:3000", d = await this.fetch("/api/embed/pledge/submit", {
+      const c = crypto.randomUUID(), T = this.apiHost || "http://localhost:3000", l = await this.fetch("/api/embed/pledge/submit", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -254,12 +257,12 @@ class x extends y {
           notes: o.notes
         })
       });
-      if (!d.ok) {
-        const b = await d.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(b.error || `HTTP ${d.status}: ${d.statusText}`);
+      if (!l.ok) {
+        const b = await l.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(b.error || `HTTP ${l.status}: ${l.statusText}`);
       }
-      const p = await d.json();
-      p.success ? (this.state.isSuccess = !0, this.emit("pledgeSubmitted", {
+      const p = await l.json();
+      p.success ? (this.state.isSuccess = !0, window.scrollTo({ top: 0, behavior: "smooth" }), this.emit("pledgeSubmitted", {
         pledgeId: p.pledgeId,
         total: this.state.total
       })) : (this.state.errorMessage = p.error || "Failed to save pledge. Please try again.", this.emit("pledgeError", { error: this.state.errorMessage }));
@@ -396,10 +399,10 @@ class x extends y {
               </div>
             </div>
             <div class="gift-description">
-              Provide an estimated value.
+              Provide an estimated value of stocks, bonds or other assets.
             </div>
             <div class="notes-section" style="display: ${this.state.creativeGift && this.state.creativeGift !== "" && this.state.creativeGift !== "0" && this.state.creativeGift !== "0.00" ? "block" : "none"}">
-              <label for="notes">Describe the creative gift(s) of stocks, bonds, or other assets.</label>
+              <label for="notes">Please Describe the creative gift.</label>
               <textarea id="notes" name="notes" rows="3" ${e ? "disabled" : ""}></textarea>
             </div>
           </div>
@@ -407,8 +410,7 @@ class x extends y {
           <div class="total-section">
             <div class="total-label">TOTAL GIFT</div>
             <div class="total-input-wrapper">
-              <span class="currency-symbol">$</span>
-              <input type="text" name="total_gift" value="${this.state.total}" readonly class="total-amount">
+              <input type="text" name="total_gift" value="$${parseFloat(this.state.total).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}" readonly class="total-amount">
             </div>
           </div>
         </div>
@@ -693,12 +695,13 @@ class x extends y {
         font-size: 18px;
         font-weight: bold;
         color: #002855;
+        text-align: center;
       }
 
       .total-input-wrapper {
         display: flex;
         align-items: center;
-        gap: 8px;
+        justify-content: center;
       }
 
       .total-amount {
@@ -708,6 +711,7 @@ class x extends y {
         border: none !important;
         background: transparent !important;
         padding-left: 0 !important;
+        text-align: center;
       }
 
       .pledge-footer {
@@ -756,6 +760,20 @@ class x extends y {
 
         .pledge-header, .pledge-body, .pledge-footer {
           padding: 24px;
+        }
+      }
+
+      @media (min-width: 641px) {
+        .total-label {
+          text-align: left;
+        }
+
+        .total-input-wrapper {
+          justify-content: flex-start;
+        }
+
+        .total-amount {
+          text-align: left;
         }
       }
     `;
