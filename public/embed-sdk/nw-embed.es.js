@@ -281,7 +281,7 @@ class x extends y {
         <div class="pledge-header success-header">
           <div class="success-title">Thank You!</div>
           <p class="success-message">
-            Thank you for your commitment to the Now is the time Campaign.
+            Thank you for your commitment to the Now is the Time campaign.
           </p>
         </div>
         <div class="pledge-success-content">
@@ -402,7 +402,7 @@ class x extends y {
               Provide an estimated value of stocks, bonds or other assets.
             </div>
             <div class="notes-section" style="display: ${this.state.creativeGift && this.state.creativeGift !== "" && this.state.creativeGift !== "0" && this.state.creativeGift !== "0.00" ? "block" : "none"}">
-              <label for="notes">Please Describe the creative gift.</label>
+              <label for="notes">Describe the creative gift(s).</label>
               <textarea id="notes" name="notes" rows="3" ${e ? "disabled" : ""}></textarea>
             </div>
           </div>

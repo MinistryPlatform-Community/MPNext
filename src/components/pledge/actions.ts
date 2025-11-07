@@ -119,8 +119,13 @@ City, State Zip: ${formData.city}, ${formData.state} ${formData.zipcode}
 Country: USA`;
 
     const notes = formData.notes 
-      ? `${contactInfo}\n\n${formData.notes}`
+      ? `${contactInfo}\n\nCreative Notes: ${formData.notes}`
       : contactInfo;
+    
+    console.log("🔍 DEBUG - formData.notes value:", formData.notes);
+    console.log("🔍 DEBUG - formData.notes type:", typeof formData.notes);
+    console.log("🔍 DEBUG - formData.notes truthy?:", !!formData.notes);
+    console.log("🔍 DEBUG - final notes string:", notes);
     
     const pledgeInput: Partial<PledgesInput> = {
       Donor_ID: donorId,
@@ -142,6 +147,7 @@ Country: USA`;
     };
 
     console.log("💾 Creating pledge with data:", pledgeInput);
+    console.log("📝 Notes field content:", pledgeInput.Notes);
 
     const pledge = await pledgeService.createPledge(pledgeInput);
 

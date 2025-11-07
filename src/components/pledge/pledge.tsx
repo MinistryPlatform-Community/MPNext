@@ -140,7 +140,7 @@ export function Pledge() {
         <div className="bg-[#002B55] text-white p-10 text-center">
           <div className="text-4xl font-bold mb-6">Thank You!</div>
           <p className="text-lg mb-8">
-            Thank you for your commitment to the Now is the time Campaign.
+            Thank you for your commitment to the Now is the Time campaign.
           </p>
         </div>
         <div className="p-10 text-center">
@@ -378,7 +378,7 @@ export function Pledge() {
           {creativeGift && (
             <>
               <div className="text-xs text-gray-600 mb-2 leading-relaxed mt-4">
-                Please Describe the creative gift.
+                Describe the creative gift(s).
               </div>
               <textarea
                 name="notes"

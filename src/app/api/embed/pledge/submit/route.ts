@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
     // Parse and validate request body
     const data: PledgeFormData = await req.json();
 
+    console.log("🔍 EMBED API - Received data.notes:", data.notes);
+    console.log("🔍 EMBED API - Full data:", JSON.stringify(data, null, 2));
+
     // Basic validation
     if (!data.firstName || !data.lastName || !data.email) {
       return NextResponse.json(
