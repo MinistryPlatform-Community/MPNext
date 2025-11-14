@@ -15,6 +15,7 @@ import {
   TableMetadata,
   QueryParams,
 } from "./types";
+import type { ZodObject, ZodRawShape } from "zod";
 
 /**
  * MPHelper - Main Public API for Ministry Platform Operations
@@ -135,8 +136,9 @@ export class MPHelper {
    * @param params - Optional parameters for the creation operation
    * @param params.$select - Comma-separated list of columns to return in response
    * @param params.$userId - User ID for auditing and security context
+   * @param params.schema - Optional Zod schema for runtime validation before API call
    * @returns Promise resolving to array of created records with generated IDs
-   * @throws Error if table doesn't exist, records are invalid, or authentication fails
+   * @throws Error if table doesn't exist, records are invalid, validation fails, or authentication fails
    *
    * @example
    * // Create a single contact record
@@ -151,60 +153,58 @@ export class MPHelper {
    * });
    *
    * @example
-   * // Create multiple contact log entries
-   * const contactLogs = await mp.createTableRecords('Contact_Log', [
-   *   {
-   *     Contact_ID: 12345,
-   *     Contact_Date: new Date().toISOString(),
-   *     Made_By: 1,
-   *     Notes: 'Initial contact via phone'
-   *   },
-   *   {
-   *     Contact_ID: 12346,
-   *     Contact_Date: new Date().toISOString(),
-   *     Made_By: 1,
-   *     Notes: 'Follow-up email sent'
-   *   }
-   * ]);
+   * // Create with Zod validation (recommended)
+   * import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
+   *
+   * const contactLogs = await mp.createTableRecords('Contact_Log', [{
+   *   Contact_ID: 12345,
+   *   Contact_Date: new Date().toISOString(),
+   *   Made_By: 1,
+   *   Notes: 'Follow-up call completed'
+   * }], {
+   *   schema: ContactLogSchema,
+   *   $userId: 1
+   * });
    */
   public async createTableRecords<T extends TableRecord = TableRecord>(
     table: string,
     records: T[],
-    params?: Pick<TableQueryParams, "$select" | "$userId">
+    params?: Pick<TableQueryParams, "$select" | "$userId"> & {
+      schema?: ZodObject<ZodRawShape>;
+    }
   ): Promise<T[]> {
-    // Enhanced logging for debugging and monitoring
-    console.log("MPHELPER: createTableRecords called");
-    console.log("MPHELPER: table:", table);
-    console.log("MPHELPER: records:", JSON.stringify(records, null, 2));
-    console.log("MPHELPER: params:", JSON.stringify(params, null, 2));
-
     try {
-      console.log("MPHELPER: About to call provider.createTableRecords");
+      // Validate records with Zod schema if provided
+      let validatedRecords = records;
+      let providerParams = params;
+
+      if (params?.schema) {
+        const { schema, ...rest } = params;
+        validatedRecords = records.map((record, index) => {
+          try {
+            return schema.parse(record) as T;
+          } catch (validationError) {
+            throw new Error(
+              `Validation failed for record ${index}: ${
+                validationError instanceof Error
+                  ? validationError.message
+                  : String(validationError)
+              }`
+            );
+          }
+        });
+        providerParams = rest;
+      }
 
       // Delegate to provider for actual creation
       const result = await this.provider.createTableRecords<T>(
         table,
-        records,
-        params
-      );
-
-      console.log(
-        "MPHELPER: provider.createTableRecords completed successfully"
-      );
-      console.log(
-        "MPHELPER: Result from provider:",
-        JSON.stringify(result, null, 2)
+        validatedRecords,
+        providerParams
       );
 
       return result;
     } catch (error) {
-      // Comprehensive error logging for debugging
-      console.error("MPHELPER: Error in createTableRecords:");
-      console.error("MPHELPER: Error type:", error?.constructor?.name);
-      console.error("MPHELPER: Error message:", (error as Error)?.message);
-      console.error("MPHELPER: Error stack:", (error as Error)?.stack);
-      console.error("MPHELPER: Full error object:", error);
-
       // Re-throw the original error to maintain error chain
       throw error;
     }
@@ -219,8 +219,10 @@ export class MPHelper {
    * @param params.$select - Comma-separated list of columns to return in response
    * @param params.$userId - User ID for auditing and security context
    * @param params.$allowCreate - Whether to create records if they don't exist (upsert functionality)
+   * @param params.schema - Optional Zod schema for runtime validation before API call
+   * @param params.partial - Whether to use partial validation (default: true, allows partial updates)
    * @returns Promise resolving to array of updated records
-   * @throws Error if table doesn't exist, records are invalid, IDs not found, or authentication fails
+   * @throws Error if table doesn't exist, records are invalid, validation fails, IDs not found, or authentication fails
    *
    * @example
    * // Update contact information
@@ -233,22 +235,60 @@ export class MPHelper {
    * }]);
    *
    * @example
-   * // Update with upsert capability (create if doesn't exist)
-   * const upsertedRecords = await mp.updateTableRecords('Contact_Log', [{
+   * // Update with Zod validation (recommended)
+   * import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
+   *
+   * const updatedLogs = await mp.updateTableRecords('Contact_Log', [{
    *   Contact_Log_ID: 67890,
    *   Notes: 'Updated notes after follow-up'
    * }], {
-   *   $allowCreate: true, // Will create if ID doesn't exist
+   *   schema: ContactLogSchema,
+   *   partial: true, // Allow partial updates (default)
    *   $userId: 1
    * });
    */
   public async updateTableRecords<T extends TableRecord = TableRecord>(
     table: string,
     records: T[],
-    params?: Pick<TableQueryParams, "$select" | "$userId" | "$allowCreate">
+    params?: Pick<TableQueryParams, "$select" | "$userId" | "$allowCreate"> & {
+      schema?: ZodObject<ZodRawShape>;
+      partial?: boolean;
+    }
   ): Promise<T[]> {
-    // Delegate to provider for update operation
-    return await this.provider.updateTableRecords<T>(table, records, params);
+    try {
+      // Validate records with Zod schema if provided
+      let validatedRecords = records;
+      let providerParams = params;
+
+      if (params?.schema) {
+        const { schema, partial = true, ...rest } = params;
+        const validationSchema = partial ? schema.partial() : schema;
+
+        validatedRecords = records.map((record, index) => {
+          try {
+            return validationSchema.parse(record) as T;
+          } catch (validationError) {
+            throw new Error(
+              `Validation failed for record ${index}: ${
+                validationError instanceof Error
+                  ? validationError.message
+                  : String(validationError)
+              }`
+            );
+          }
+        });
+        providerParams = rest;
+      }
+
+      // Delegate to provider for update operation
+      return await this.provider.updateTableRecords<T>(
+        table,
+        validatedRecords,
+        providerParams
+      );
+    } catch (error) {
+      throw error;
+    }
   }
 
   /**
