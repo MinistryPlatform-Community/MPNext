@@ -24,6 +24,20 @@ export default function Home() {
             </Link>
           </CardContent>
         </Card>
+
+        <Card className="flex flex-col">
+          <CardHeader>
+            <CardTitle>Template Tool</CardTitle>
+            <CardDescription>
+              An example of an approach to build tools for MP
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="mt-auto">
+            <Link href="/tools/template">
+              <Button className="w-full">View Demo</Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
