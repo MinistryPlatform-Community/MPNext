@@ -462,6 +462,37 @@ Built with Radix UI primitives and styled with Tailwind CSS. Located in `src/com
 
 All components follow kebab-case naming and use named exports for consistency.
 
+## Building Custom Tools
+
+### Template Tool
+
+The project includes a template tool (`src/app/tools/template/`) that demonstrates best practices for building Ministry Platform tools that can be launched from within MP pages.
+
+**Key features:**
+- URL parameter parsing for MP page context (`pageID`, record selection, etc.)
+- Dual-mode support (create new vs. edit existing records)
+- Standard tool UI with save/close actions
+- Development helpers for debugging tool params and user context
+- Integration with `ToolContainer` component for consistent UX
+
+**Structure:**
+```
+src/app/tools/template/
+├── page.tsx           # Server component that parses URL params
+└── template-tool.tsx  # Client component with tool UI
+```
+
+**Usage as a starting point:**
+1. Copy the `template` folder to create your new tool
+2. Rename files and components appropriately
+3. Implement your tool logic inside the `ToolContainer`
+4. Remove `ToolParamsDebug` and `UserToolsDebug` before production
+
+**URL Parameters:**
+Tools receive standard MP parameters like `pageID`, `s` (selection), and `recordDescription`. Use `parseToolParams()` to handle them consistently.
+
+See the [template tool](src/app/tools/template/) for implementation details.
+
 ## Development
 
 ### Available Commands
