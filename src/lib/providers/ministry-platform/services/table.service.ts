@@ -41,7 +41,7 @@ export class TableService {
             await this.client.ensureValidToken();
 
             const endpoint = `/tables/${encodeURIComponent(table)}`;
-            const result = await this.client.getHttpClient().post<T[]>(endpoint, records, params);
+            const result = await this.client.getHttpClient().post<T[]>(endpoint, records as unknown as Record<string, unknown>, params);
             return result;
         } catch (error) {
             console.error(`Error creating records in table ${table}:`, error);
@@ -60,7 +60,7 @@ export class TableService {
             await this.client.ensureValidToken();
 
             const endpoint = `/tables/${encodeURIComponent(table)}`;
-            const result = await this.client.getHttpClient().put<T[]>(endpoint, records, params);
+            const result = await this.client.getHttpClient().put<T[]>(endpoint, records as unknown as Record<string, unknown>, params);
             return result;
         } catch (error) {
             console.error(`Error updating records in table ${table}:`, error);
