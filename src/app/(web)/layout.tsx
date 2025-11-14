@@ -33,7 +33,7 @@ export default async function WebLayout({
 }>) {
   return (
     <Providers>
-      <div className="flex flex-col">
+      <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
         <Header />
         <main className="flex-1 mt-16">
           <div className="px-4 py-3 border-b bg-muted/30">
