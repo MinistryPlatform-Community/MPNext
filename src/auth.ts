@@ -8,8 +8,8 @@ import { MPUserProfile } from "@/lib/providers/ministry-platform/types"
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     MinistryPlatformAuthProvider({
-      clientId: process.env.MINISTRY_PLATFORM_CLIENT_ID!,
-      clientSecret: process.env.MINISTRY_PLATFORM_CLIENT_SECRET!,
+      clientId: process.env.OIDC_CLIENT_ID!,
+      clientSecret: process.env.OIDC_CLIENT_SECRET!,
     }),
   ],
   pages: {
@@ -96,8 +96,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             body: new URLSearchParams({
               grant_type: 'refresh_token',
               refresh_token: token.refreshToken as string,
-              client_id: process.env.MINISTRY_PLATFORM_CLIENT_ID!,
-              client_secret: process.env.MINISTRY_PLATFORM_CLIENT_SECRET!,
+              client_id: process.env.OIDC_CLIENT_ID!,
+              client_secret: process.env.OIDC_CLIENT_SECRET!,
             }),
           })
         
