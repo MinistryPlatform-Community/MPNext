@@ -47,7 +47,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           const records = await mp.getTableRecords<MPUserProfile>({
             table: "dp_Users",
             filter: `User_GUID = '${profile.sub}'`,
-            select: "User_GUID, Contact_ID_TABLE.First_Name,Contact_ID_TABLE.Nickname,Contact_ID_TABLE.Last_Name,Contact_ID_TABLE.Email_Address,Contact_ID_TABLE.Mobile_Phone,Contact_ID_TABLE.dp_fileUniqueId AS Image_GUID",
+            select: "User_ID,User_GUID,Contact_ID,Contact_ID_TABLE.First_Name,Contact_ID_TABLE.Nickname,Contact_ID_TABLE.Last_Name,Contact_ID_TABLE.Email_Address,Contact_ID_TABLE.Mobile_Phone,Contact_ID_TABLE.dp_fileUniqueId AS Image_GUID",
             top: 1
           });
           userProfile = records[0] || null;
