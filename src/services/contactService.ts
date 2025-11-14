@@ -79,4 +79,24 @@ export class ContactService {
     // Return the first (and should be only) matching record, or null if not found
     return records.length > 0 ? records[0] : null;
   }
+
+  /**
+   * Updates specific fields for a contact
+   * 
+   * @param contactId - The Contact_ID of the contact to update
+   * @param fields - Partial object containing the fields to update (Email_Address, Mobile_Phone)
+   * @returns Promise<void>
+   */
+  public async updateContact(
+    contactId: number,
+    fields: Partial<Pick<ContactSearch, "Email_Address" | "Mobile_Phone">>
+  ): Promise<void> {
+    const record = { Contact_ID: contactId, ...fields };
+    console.log("ContactService.updateContact - Updating record:", JSON.stringify(record, null, 2));
+    
+    await this.mp!.updateTableRecords(
+      "Contacts",
+      [record]
+    );
+  }
 }

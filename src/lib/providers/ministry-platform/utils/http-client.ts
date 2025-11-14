@@ -70,6 +70,13 @@ export class HttpClient {
     async put<T = unknown>(endpoint: string, body: RequestBody, queryParams?: QueryParams): Promise<T> {
         const url = this.buildUrl(endpoint, queryParams);
         
+        console.log("HTTP PUT Request:", {
+            url,
+            endpoint,
+            body: JSON.stringify(body, null, 2),
+            queryParams
+        });
+        
         const response = await fetch(url, {
             method: 'PUT',
             headers: {
@@ -81,6 +88,12 @@ export class HttpClient {
         });
 
         if (!response.ok) {
+            const responseText = await response.text();
+            console.error("PUT Request failed:", {
+                status: response.status,
+                statusText: response.statusText,
+                responseBody: responseText
+            });
             throw new Error(`PUT ${endpoint} failed: ${response.status} ${response.statusText}`);
         }
 

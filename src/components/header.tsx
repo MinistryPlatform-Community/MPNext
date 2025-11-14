@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 import { Sidebar } from "@/components/sidebar";
@@ -49,14 +50,17 @@ export function Header() {
                   }
                 >
                   {userProfile?.Image_GUID ? (
-                    <img
+                    <Image
                       src={`${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${userProfile.Image_GUID}?$thumbnail=true`}
                       alt={
                         userProfile.First_Name && userProfile.Last_Name
                           ? `${userProfile.First_Name} ${userProfile.Last_Name}`
                           : "User avatar"
                       }
-                      className="h-8 w-8 rounded-full object-cover border-2 border-white"
+                      width={32}
+                      height={32}
+                      className="rounded-full object-cover border-2 border-white"
+                      unoptimized
                     />
                   ) : (
                     <UserCircleIcon className="h-8 w-8 text-white" />

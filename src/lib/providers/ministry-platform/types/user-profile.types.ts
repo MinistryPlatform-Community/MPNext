@@ -1,5 +1,7 @@
 export interface MPUserProfile {
+  User_ID: number;
   User_GUID: string;
+  Contact_ID: number;
   First_Name: string;
   Nickname: string;
   Last_Name: string;

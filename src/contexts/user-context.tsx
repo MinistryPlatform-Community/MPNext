@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { useSession } from "next-auth/react";
 import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 import { getCurrentUserProfile } from "@/components/user-menu/actions";
@@ -24,7 +24,7 @@ export function UserProvider({ children }: UserProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     if (!session?.user?.id) {
       setUserProfile(null);
       setIsLoading(false);
@@ -48,7 +48,7 @@ export function UserProvider({ children }: UserProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [session?.user?.id, session?.userProfile]);
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -57,7 +57,7 @@ export function UserProvider({ children }: UserProviderProps) {
       setUserProfile(null);
       setIsLoading(false);
     }
-  }, [session?.user?.id, session?.userProfile, status]);
+  }, [session?.user?.id, session?.userProfile, status, loadUserProfile]);
 
   const refreshUserProfile = async () => {
     await loadUserProfile();

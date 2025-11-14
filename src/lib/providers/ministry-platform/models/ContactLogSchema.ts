@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const ContactLogSchema = z.object({
   Contact_Log_ID: z.number().int(),
   Contact_ID: z.number().int(),
-  Contact_Date: z.string().datetime(),
+  Contact_Date: z.string(), // Accept both ISO and SQL datetime formats
   Contact_Log_Type_ID: z.number().int().nullable(),
   Made_By: z.number().int(),
   Notes: z.string().max(2000),

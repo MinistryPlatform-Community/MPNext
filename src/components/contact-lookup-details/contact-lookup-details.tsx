@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { getContactDetails } from "./actions";
-import { ContactLookupDetails as ContactLookupDetailsType } from "@/lib/dto";
+import Image from "next/image";
+import { getContactDetails, getContactLogsByContactId } from "./actions";
+import { ContactLookupDetails as ContactLookupDetailsType, ContactLogDisplay } from "@/lib/dto";
+import { ContactLogs } from "@/components/contact-logs";
 
 interface ContactLookupDetailsProps {
   guid: string;
@@ -12,32 +14,40 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   guid,
 }) => {
   const [contact, setContact] = useState<ContactLookupDetailsType | null>(null);
+  const [contactLogs, setContactLogs] = useState<ContactLogDisplay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchContactDetails = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const fetchContactDetails = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        const contactDetails = await getContactDetails(guid);
-        setContact(contactDetails);
-      } catch (err) {
-        console.error("Error loading contact details:", err);
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "An error occurred while loading contact details";
-        setError(errorMessage);
-      } finally {
-        setLoading(false);
+      const contactDetails = await getContactDetails(guid);
+      setContact(contactDetails);
+      
+      // Fetch contact logs
+      if (contactDetails.Contact_ID) {
+        const logs = await getContactLogsByContactId(contactDetails.Contact_ID);
+        setContactLogs(logs);
       }
-    };
+    } catch (err) {
+      console.error("Error loading contact details:", err);
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "An error occurred while loading contact details";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     if (guid) {
       fetchContactDetails();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guid]);
 
   const getDisplayName = (firstName?: string, nickname?: string) => {
@@ -105,118 +115,113 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   const displayName = getDisplayName(contact.First_Name, contact.Nickname);
 
   return (
-    <div className="bg-white shadow rounded-lg">
-      <div className="px-4 py-5 sm:p-6">
-        <div className="flex items-center space-x-5">
-          <div className="flex-shrink-0">
-            <div className="h-20 w-20 rounded-full overflow-hidden">
-              {contact.Image_GUID ? (
-                <img
-                  src={getImageUrl(contact.Image_GUID)}
-                  alt={`${displayName} ${contact.Last_Name}`}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    // Fallback to initials if image fails to load
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = "none";
-                    const parent = target.parentElement;
-                    if (parent) {
-                      parent.innerHTML = `
-                        <div class="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xl font-medium">
-                          ${getInitials(
-                            contact.First_Name,
-                            contact.Nickname,
-                            contact.Last_Name
-                          )}
-                        </div>
-                      `;
-                    }
-                  }}
-                />
-              ) : (
-                <div className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xl font-medium">
-                  {getInitials(
-                    contact.First_Name,
-                    contact.Nickname,
-                    contact.Last_Name
-                  )}
-                </div>
-              )}
+    <>
+      <div className="bg-white shadow rounded-lg">
+        <div className="px-4 py-5 sm:p-6">
+          <div className="flex items-center space-x-5">
+            <div className="flex-shrink-0">
+              <div className="h-20 w-20 rounded-full overflow-hidden relative">
+                {contact.Image_GUID ? (
+                  <Image
+                    src={getImageUrl(contact.Image_GUID)}
+                    alt={`${displayName} ${contact.Last_Name}`}
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-xl font-medium">
+                    {getInitials(
+                      contact.First_Name,
+                      contact.Nickname,
+                      contact.Last_Name
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-2xl font-bold text-gray-900 truncate">
+                {displayName} {contact.Last_Name}
+              </h1>
+              <p className="text-sm text-gray-500">
+                GUID: {contact.Contact_GUID}
+              </p>
             </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 truncate">
-              {displayName} {contact.Last_Name}
-            </h1>
-            <p className="text-sm text-gray-500">
-              GUID: {contact.Contact_GUID}
-            </p>
-          </div>
-        </div>
 
-        <div className="mt-6 border-t border-gray-200 pt-6">
-          <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-            <div>
-              <dt className="text-sm font-medium text-gray-500">First Name</dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {contact.First_Name || "N/A"}
-              </dd>
-            </div>
-
-            {contact.Nickname && (
+          <div className="mt-6 border-t border-gray-200 pt-6">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
               <div>
-                <dt className="text-sm font-medium text-gray-500">Nickname</dt>
+                <dt className="text-sm font-medium text-gray-500">First Name</dt>
                 <dd className="mt-1 text-sm text-gray-900">
-                  {contact.Nickname}
+                  {contact.First_Name || "N/A"}
                 </dd>
               </div>
-            )}
 
-            <div>
-              <dt className="text-sm font-medium text-gray-500">Last Name</dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {contact.Last_Name || "N/A"}
-              </dd>
-            </div>
+              {contact.Nickname && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Nickname</dt>
+                  <dd className="mt-1 text-sm text-gray-900">
+                    {contact.Nickname}
+                  </dd>
+                </div>
+              )}
 
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                Email Address
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {contact.Email_Address ? (
-                  <a
-                    href={`mailto:${contact.Email_Address}`}
-                    className="text-blue-600 hover:text-blue-500"
-                  >
-                    {contact.Email_Address}
-                  </a>
-                ) : (
-                  "N/A"
-                )}
-              </dd>
-            </div>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Last Name</dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {contact.Last_Name || "N/A"}
+                </dd>
+              </div>
 
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                Mobile Phone
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {contact.Mobile_Phone ? (
-                  <a
-                    href={`tel:${contact.Mobile_Phone}`}
-                    className="text-blue-600 hover:text-blue-500"
-                  >
-                    {contact.Mobile_Phone}
-                  </a>
-                ) : (
-                  "N/A"
-                )}
-              </dd>
-            </div>
-          </dl>
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  Email Address
+                </dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {contact.Email_Address ? (
+                    <a
+                      href={`mailto:${contact.Email_Address}`}
+                      className="text-blue-600 hover:text-blue-500"
+                    >
+                      {contact.Email_Address}
+                    </a>
+                  ) : (
+                    "N/A"
+                  )}
+                </dd>
+              </div>
+
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  Mobile Phone
+                </dt>
+                <dd className="mt-1 text-sm text-gray-900">
+                  {contact.Mobile_Phone ? (
+                    <a
+                      href={`tel:${contact.Mobile_Phone}`}
+                      className="text-blue-600 hover:text-blue-500"
+                    >
+                      {contact.Mobile_Phone}
+                    </a>
+                  ) : (
+                    "N/A"
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </div>
-    </div>
+      
+      <ContactLogs
+        contactLogs={contactLogs}
+        contactId={contact.Contact_ID}
+        contactNickname={contact.Nickname}
+        contactLastName={contact.Last_Name}
+        onRefresh={fetchContactDetails}
+      />
+    </>
   );
 };
