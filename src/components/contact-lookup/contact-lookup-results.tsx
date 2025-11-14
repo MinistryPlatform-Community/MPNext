@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ContactSearch } from "@/lib/dto";
 
 interface ContactLookupResultsProps {
@@ -81,32 +82,17 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
             onClick={() => handleContactClick(contact)}
           >
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden">
+              <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden relative">
                 {contact.Image_GUID ? (
-                  <img
+                  <Image
                     src={getImageUrl(contact.Image_GUID)}
                     alt={`${getDisplayName(
                       contact.First_Name,
                       contact.Nickname
                     )} ${contact.Last_Name}`}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Fallback to initials if image fails to load
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = "none";
-                      const parent = target.parentElement;
-                      if (parent) {
-                        parent.innerHTML = `
-                          <div class="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium">
-                            ${getInitials(
-                              contact.First_Name,
-                              contact.Nickname,
-                              contact.Last_Name
-                            )}
-                          </div>
-                        `;
-                      }
-                    }}
+                    fill
+                    className="object-cover"
+                    unoptimized
                   />
                 ) : (
                   <div className="w-full h-full bg-gray-300 rounded-full flex items-center justify-center text-gray-600 text-sm font-medium">

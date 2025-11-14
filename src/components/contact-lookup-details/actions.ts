@@ -1,7 +1,8 @@
 'use server';
 
-import { ContactLookupDetails } from '@/lib/dto';
+import { ContactLookupDetails, ContactLogDisplay } from '@/lib/dto';
 import { ContactService } from '@/services/contactService';
+import { ContactLogService } from '@/services/contactLogService';
 
 export async function getContactDetails(guid: string): Promise<ContactLookupDetails> {
   try {
@@ -45,13 +46,47 @@ export async function updateContactEmailMobile(input: {
     const contactService = await ContactService.getInstance();
     const fields: ContactUpdatableFields = {};
     
-    if (Email_Address !== undefined) fields.Email_Address = Email_Address;
-    if (Mobile_Phone !== undefined) fields.Mobile_Phone = Mobile_Phone;
+    if (Email_Address !== undefined && Email_Address !== null) fields.Email_Address = Email_Address;
+    if (Mobile_Phone !== undefined && Mobile_Phone !== null) fields.Mobile_Phone = Mobile_Phone;
 
     await contactService.updateContact(input.contactId, fields);
     return { ok: true };
   } catch (error) {
     console.error("Error updating contact:", error);
     throw new Error(error instanceof Error ? error.message : "Failed to update contact");
+  }
+}
+
+export async function getContactLogsByContactId(contactId: number): Promise<ContactLogDisplay[]> {
+  try {
+    if (!contactId || contactId <= 0) {
+      throw new Error('Valid contact ID is required');
+    }
+
+    const contactLogService = await ContactLogService.getInstance();
+    const logs = await contactLogService.getContactLogsByContactId(contactId);
+    
+    // Transform to ContactLogDisplay with type information
+    const logsWithTypes = await Promise.all(
+      logs.map(async (log) => {
+        let contactLogType: string | null = null;
+        
+        if (log.Contact_Log_Type_ID) {
+          const types = await contactLogService.getContactLogTypes();
+          const type = types.find(t => t.Contact_Log_Type_ID === log.Contact_Log_Type_ID);
+          contactLogType = type?.Contact_Log_Type || null;
+        }
+        
+        return {
+          ...log,
+          Contact_Log_Type: contactLogType,
+        } as ContactLogDisplay;
+      })
+    );
+    
+    return logsWithTypes;
+  } catch (error) {
+    console.error('Error fetching contact logs:', error);
+    throw new Error('Failed to fetch contact logs');
   }
 }
