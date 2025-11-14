@@ -41,7 +41,10 @@
   - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
   - Zod schemas (generated): `src/lib/providers/ministry-platform/models/*Schema.ts` - for optional runtime validation
   - DTOs/ViewModels (hand-written): `src/lib/dto/` - application-level data transfer objects
-- **Validation**: Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
+- **Validation**: 
+  - Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
+  - For updates, set `partial: false` to require all fields (default is `partial: true` for partial updates)
+  - Validation errors provide detailed feedback with record index and field-level issues
 
 ## Component Organization
 ```
@@ -66,10 +69,10 @@ import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
 // Ministry Platform models (generated)
 import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
 
-// Ministry Platform Zod schemas (for validation)
+// Ministry Platform Zod schemas (for runtime validation)
 import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
 
-// Ministry Platform helper
+// Ministry Platform helper (main API entry point)
 import { MPHelper } from '@/lib/providers/ministry-platform';
 
 // Feature-specific actions (relative path within same folder)

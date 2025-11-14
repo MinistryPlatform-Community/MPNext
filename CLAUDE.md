@@ -47,7 +47,10 @@ This guide provides essential information for AI assistants (like Claude) workin
   - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
   - Zod schemas (generated): `src/lib/providers/ministry-platform/models/*Schema.ts` - for optional runtime validation
   - DTOs/ViewModels (hand-written): `src/lib/dto/` - application-level data transfer objects
-- **Validation**: Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
+- **Validation**: 
+  - Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
+  - For updates, set `partial: false` to require all fields (default is `partial: true` for partial updates)
+  - Validation errors provide detailed feedback with record index and field-level issues
 
 ## Component Organization
 
@@ -74,10 +77,10 @@ import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
 // Ministry Platform models (generated)
 import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
 
-// Ministry Platform Zod schemas (for validation)
+// Ministry Platform Zod schemas (for runtime validation)
 import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
 
-// Ministry Platform helper
+// Ministry Platform helper (main API entry point)
 import { MPHelper } from '@/lib/providers/ministry-platform';
 
 // Feature-specific actions (relative path within same folder)
@@ -103,4 +106,40 @@ export default MyComponent;            // ❌ Avoid
 5. **Co-locate feature code** - keep actions.ts with their related components
 6. **Never manually edit generated files** - regenerate types using `npm run mp:generate:models`
 7. **Use TypeScript strict mode** - all code must be type-safe
-8. **Validate at API boundaries** - use Zod schemas in createTableRecords/updateTableRecords when needed
+8. **Validate at API boundaries** - use Zod schemas with the `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation
+
+## Validation Best Practices
+
+When working with Ministry Platform data:
+
+```typescript
+import { MPHelper } from '@/lib/providers/ministry-platform';
+import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
+
+const mp = new MPHelper();
+
+// ✅ Good: Validate data before creating records
+await mp.createTableRecords('Contact_Log', records, {
+  schema: ContactLogSchema,
+  $userId: currentUser.Contact_ID
+});
+
+// ✅ Good: Partial validation for updates (default)
+await mp.updateTableRecords('Contact_Log', partialRecords, {
+  schema: ContactLogSchema,
+  partial: true, // default, allows partial updates
+  $userId: currentUser.Contact_ID
+});
+
+// ✅ Good: Strict validation for full record updates
+await mp.updateTableRecords('Contact_Log', fullRecords, {
+  schema: ContactLogSchema,
+  partial: false, // require all fields
+  $userId: currentUser.Contact_ID
+});
+
+// ⚠️ Acceptable: Skip validation (backward compatible)
+await mp.createTableRecords('Contact_Log', records, {
+  $userId: currentUser.Contact_ID
+});
+```

@@ -406,7 +406,7 @@ await mp.createTableRecords('Contact_Log', [{
 
 ### Available Services
 
-- **Table Service**: CRUD operations for MP tables
+- **Table Service**: Read, Create, Update, and Delete operations for MP tables
 - **Procedure Service**: Execute stored procedures
 - **Communication Service**: Send emails and messages
 - **Metadata Service**: Get table schema and domain info
@@ -455,8 +455,10 @@ Built with Radix UI primitives and styled with Tailwind CSS. Located in `src/com
 - **sidebar**: Application sidebar navigation
 - **user-menu**: User profile and logout menu
 - **dynamic-breadcrumb**: Automatic breadcrumb generation
+- **session-provider**: NextAuth session context provider
 - **contact-lookup**: Contact search and selection
 - **contact-lookup-details**: Detailed contact information
+- **contact-logs**: Contact log management
 
 All components follow kebab-case naming and use named exports for consistency.
 
