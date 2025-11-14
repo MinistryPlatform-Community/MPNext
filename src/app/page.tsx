@@ -1,9 +1,30 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center p-8 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <h1 className="text-4xl font-bold">Welcome to the App</h1>
-      <p className="text-lg">This is the home page of the app.</p>
+    <div className="container mx-auto p-8 sm:p-20 space-y-12">
+      <div className="text-center space-y-4">
+        <h1 className="text-4xl font-bold tracking-tight">Welcome to MPNext</h1>
+        <p className="text-lg text-muted-foreground">Explore demos showcasing Ministry Platform integration capabilities</p>
+      </div>
+      
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="flex flex-col">
+          <CardHeader>
+            <CardTitle>Contact Lookup</CardTitle>
+            <CardDescription>
+              Contact Lookup shows an example of the full CRUD power of the MP API and quickly accessing data from the platform
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="mt-auto">
+            <Link href="/contactlookup">
+              <Button className="w-full">View Demo</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
