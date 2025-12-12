@@ -112,16 +112,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             } as JWT
           } else {
             console.error('JWT Callback - Failed to refresh token:', response.status)
-            return token
+            return { ...token, error: "RefreshTokenError" } as JWT
           }
         } catch (error) {
           console.error('JWT Callback - Error refreshing token:', error)
-          return token
+          return { ...token, error: "RefreshTokenError" } as JWT
         }
       }
     
       console.log('JWT Callback - No refresh token available')
-      return token
+      return { ...token, error: "RefreshTokenError" } as JWT
     },
   async session({ session, token }) {
     console.log('Session Callback - token exists:', !!token)
@@ -136,6 +136,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       session.sub = token.sub as string
       session.idToken = token.idToken as string
       session.userProfile = token.userProfile as MPUserProfile | null
+      session.error = token.error as string | undefined
     }
     
     console.log('Final session user ID:', session.user?.id)

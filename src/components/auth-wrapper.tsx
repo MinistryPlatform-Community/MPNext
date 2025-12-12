@@ -11,5 +11,9 @@ export async function AuthWrapper({ children }: { children: React.ReactNode }) {
     redirect("/api/auth/signin");
   }
 
+  if (session.error === "RefreshTokenError") {
+    redirect("/api/auth/signout?callbackUrl=/api/auth/signin");
+  }
+
   return <SessionProvider session={session}>{children}</SessionProvider>;
 }

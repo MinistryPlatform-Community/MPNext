@@ -13,6 +13,7 @@ declare module "next-auth" {
     sub?: string
     idToken?: string
     userProfile?: MPUserProfile | null
+    error?: string
   }
 
   interface JWT {
@@ -24,5 +25,6 @@ declare module "next-auth" {
     lastName?: string
     idToken?: string
     userProfile?: MPUserProfile | null
+    error?: string
   }
 }
