@@ -8,7 +8,7 @@ This guide provides essential information for AI assistants (like Claude) workin
 - **Build**: `npm run build` (production build, runs type checking)
 - **Lint**: `npm run lint` (ESLint)
 - **Generate MP Types**: `npm run mp:generate:models` (generates TypeScript types + Zod schemas from Ministry Platform API, cleans output directory first)
-- **Tests**: No test framework configured yet
+- **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage)
 
 ### Type Generation Notes
 
