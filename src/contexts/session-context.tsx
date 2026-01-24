@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { createContext, useContext } from 'react';
-import type { Session } from 'next-auth';
+import { createContext, useContext } from "react";
+import type { Session } from "next-auth";
 
 const SessionContext = createContext<Session | null>(null);
 
@@ -12,7 +12,6 @@ export function SessionProvider({
   children: React.ReactNode;
   session: Session;
 }) {
-  console.log('SessionProvider session: ', session);
   return (
     <SessionContext.Provider value={session}>
       {children}
@@ -20,10 +19,10 @@ export function SessionProvider({
   );
 }
 
-export function useSession() {
+export function useAppSession() {
   const session = useContext(SessionContext);
-  if (session === undefined) {
-    throw new Error('useSession must be used within a SessionProvider');
+  if (session === null) {
+    throw new Error("useAppSession must be used within a SessionProvider");
   }
   return session;
 }

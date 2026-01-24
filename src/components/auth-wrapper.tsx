@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { SessionProvider } from "@/components/session-provider";
+import { SessionProvider } from "@/contexts";
 
 export async function AuthWrapper({ children }: { children: React.ReactNode }) {
   const session = await auth();

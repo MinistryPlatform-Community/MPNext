@@ -6,13 +6,12 @@ import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 import { Sidebar } from "@/components/sidebar";
 import { UserMenu } from "@/components/user-menu/user-menu";
-import { useSession } from "@/components/session-provider";
-import { useUser } from "@/contexts/user-context";
+import { useAppSession, useUser } from "@/contexts";
 
 export function Header() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { userProfile, isLoading } = useUser();
-  const session = useSession();
+  const session = useAppSession();
 
   console.log("Header rendered session: ", session);
 
