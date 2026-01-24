@@ -78,7 +78,7 @@ Update `.env.local` with your configuration:
 ```env
 # NextAuth Provider Configuration
 OIDC_PROVIDER_NAME="MinistryPlatform"
-OIDC_CLIENT_ID=TM.Widgets
+OIDC_CLIENT_ID=MPNext
 OIDC_CLIENT_SECRET=your_client_secret
 OIDC_WELL_KNOWN_URL=https://your-instance.ministryplatform.com/ministryplatformapi/oauth/.well-known/openid-configuration
 OIDC_SCOPE=openid profile email offline_access http://www.thinkministry.com/dataplatform/scopes/all
@@ -91,7 +91,7 @@ NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_DEBUG=false
 
 # MinistryPlatform API Configuration
-MINISTRY_PLATFORM_CLIENT_ID=TM.Widgets
+MINISTRY_PLATFORM_CLIENT_ID=MPNext
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 
@@ -99,6 +99,66 @@ MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministrypl
 NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=https://your-instance.ministryplatform.com/ministryplatformapi/files
 NEXT_PUBLIC_APP_NAME=App
 ```
+
+
+#### API Client Setup
+
+Before running the application, you must configure an OAuth 2.0 / OpenID Connect (OIDC) client in Ministry Platform.
+
+Log in to your Ministry Platform instance as an administrator and navigate to **Administration > API Clients**.
+
+Create a new API Client with the following configuration:
+
+##### Basic Settings
+- **Client ID**: `MPNext` (or your custom client ID)
+- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local`)
+- **Display Name**: `MPNext` (or your preferred name)
+- **Client User**: Create a scoped user or use API User
+- **Authentication Flow**: use the default: Authorization Code, Implicit, Hybrid, Client Credentials, or Resource Owner
+
+##### Redirect URIs (Required)
+Add these authorized redirect URIs where users will be sent after authentication - separate each entry by ending with a semi-colon(;):
+
+**Development:**
+```
+http://localhost:3000/api/auth/callback/ministryplatform
+```
+
+**Production:**
+```
+https://yourdomain.com/api/auth/callback/ministryplatform
+```
+
+> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs.
+
+##### Post-Logout Redirect URIs (Required)
+Add these URIs where users will be redirected after signing out:
+
+**Development:**
+```
+http://localhost:3000
+```
+
+**Production:**
+```
+https://yourdomain.com
+```
+
+> **Important**: Post-logout redirect URIs are **required** for proper logout functionality. The application implements OIDC RP-initiated logout to properly end Ministry Platform OAuth sessions. Without these configured, users will be auto-logged back in after clicking "Sign out" (SSO behavior).
+
+##### Token Lifetimes (Default Settings)
+
+
+#### Generate NextAuth Secret
+
+Generate a secure secret for NextAuth session encryption:
+
+```bash
+npx auth secret
+```
+
+Copy the generated secret to your `.env.local` file as `NEXTAUTH_SECRET`.
+
 
 ### 4. Generate Ministry Platform Types
 
@@ -149,127 +209,6 @@ npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 
 ### 5. Run the Development Server
 
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## OAuth Setup
-
-Before running the application, you must configure an OAuth 2.0 / OpenID Connect (OIDC) client in Ministry Platform.
-
-### 1. Create OAuth Client in Ministry Platform
-
-Log in to your Ministry Platform instance as an administrator and navigate to **Platform Settings > OAuth Clients**.
-
-Create a new OAuth client with the following configuration:
-
-#### Basic Settings
-- **Client ID**: `TM.Widgets` (or your custom client ID)
-- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local`)
-- **Client Name**: `MPNext Application` (or your preferred name)
-- **Enabled**: ✅ Yes
-
-#### Grant Types (Required)
-Select these grant types:
-- ✅ **Authorization Code** (required for user authentication)
-- ✅ **Refresh Token** (required for token refresh)
-- ✅ **Client Credentials** (required for server-to-server API calls)
-
-#### Redirect URIs (Required)
-Add these authorized redirect URIs where users will be sent after authentication:
-
-**Development:**
-```
-http://localhost:3000/api/auth/callback/ministryplatform
-```
-
-**Production:**
-```
-https://yourdomain.com/api/auth/callback/ministryplatform
-```
-
-> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs.
-
-#### Post-Logout Redirect URIs (Required)
-Add these URIs where users will be redirected after signing out:
-
-**Development:**
-```
-http://localhost:3000/
-http://localhost:3000/signin
-```
-
-**Production:**
-```
-https://yourdomain.com/
-https://yourdomain.com/signin
-```
-
-> **Important**: Post-logout redirect URIs are **required** for proper logout functionality. The application implements OIDC RP-initiated logout to properly end Ministry Platform OAuth sessions. Without these configured, users will be auto-logged back in after clicking "Sign out" (SSO behavior). See [OAUTH_LOGOUT_SETUP.md](OAUTH_LOGOUT_SETUP.md) for technical details.
-
-#### Scopes (Required)
-Ensure these scopes are enabled for your client:
-- `openid` - Required for OIDC authentication
-- `offline_access` - Required for refresh tokens
-- `http://www.thinkministry.com/dataplatform/scopes/all` - Required for full Ministry Platform API access
-
-#### Token Lifetimes (Recommended Settings)
-- **Access Token Lifetime**: 3600 seconds (1 hour)
-- **Refresh Token Lifetime**: 2592000 seconds (30 days)
-- **Authorization Code Lifetime**: 300 seconds (5 minutes)
-
-### 2. Configure Environment Variables
-
-After creating the OAuth client, update your `.env.local` file with the credentials:
-
-```env
-# Ministry Platform OAuth Client
-MINISTRY_PLATFORM_CLIENT_ID=TM.Widgets
-MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret_from_mp
-MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
-
-# NextAuth Configuration
-NEXTAUTH_SECRET=your_generated_secret  # Generate via: npx auth secret
-NEXTAUTH_URL=http://localhost:3000     # Update for production
-
-# Legacy OIDC variables (for backward compatibility)
-OIDC_PROVIDER_NAME="MinistryPlatform"
-OIDC_CLIENT_ID=TM.Widgets
-OIDC_CLIENT_SECRET=your_client_secret_from_mp
-OIDC_WELL_KNOWN_URL=https://your-instance.ministryplatform.com/ministryplatformapi/oauth/.well-known/openid-configuration
-OIDC_SCOPE=openid offline_access http://www.thinkministry.com/dataplatform/scopes/all
-
-# Public URLs
-NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=https://your-instance.ministryplatform.com/ministryplatformapi/files
-NEXT_PUBLIC_APP_NAME=MPNext
-```
-
-### 3. Generate NextAuth Secret
-
-Generate a secure secret for NextAuth session encryption:
-
-```bash
-npx auth secret
-```
-
-Copy the generated secret to your `.env.local` file as `NEXTAUTH_SECRET`.
-
-### 4. OAuth Endpoints
-
-The application uses these Ministry Platform OAuth endpoints (automatically configured via OIDC discovery):
-
-- **Authorization**: `{BASE_URL}/oauth/connect/authorize`
-- **Token**: `{BASE_URL}/oauth/connect/token`
-- **UserInfo**: `{BASE_URL}/oauth/connect/userinfo`
-- **End Session**: `{BASE_URL}/oauth/connect/endsession`
-- **Discovery**: `{BASE_URL}/oauth/.well-known/openid-configuration`
-
-Where `{BASE_URL}` is your `MINISTRY_PLATFORM_BASE_URL`.
-
-### 5. Test OAuth Configuration
-
 Start the development server and test the authentication flow:
 
 ```bash
@@ -288,13 +227,6 @@ npm run dev
 - **"Unauthorized scope"**: Ensure all required scopes are enabled
 - **Auto-login after logout**: Verify post-logout redirect URIs are configured in Ministry Platform OAuth client. The application requires these for proper OIDC logout (see [OAUTH_LOGOUT_SETUP.md](OAUTH_LOGOUT_SETUP.md))
 
-### OAuth Security Considerations
-
-1. **Client Secret**: Never commit your client secret to version control. Keep it in `.env.local` (which is gitignored).
-2. **HTTPS in Production**: Always use HTTPS for production redirect URIs.
-3. **NextAuth Secret**: Generate a strong secret using `npx auth secret`.
-4. **Token Storage**: Tokens are stored in encrypted JWT cookies, never in localStorage.
-5. **Token Refresh**: Refresh tokens are automatically used to renew expired access tokens.
 
 ### Production Deployment
 
