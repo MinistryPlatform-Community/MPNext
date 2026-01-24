@@ -1,7 +1,7 @@
 "use client";
 
-import { ToolHeader } from "@/components/tool-header";
-import { ToolFooter } from "@/components/tool-footer";
+import { ToolHeader } from "./tool-header";
+import { ToolFooter } from "./tool-footer";
 
 interface ToolContainerProps {
   title: string;
@@ -27,7 +27,7 @@ export function ToolContainer({
   return (
     <div className="flex flex-col h-screen">
       <ToolHeader title={title} infoContent={infoContent} />
-      
+
       <div className="flex-1 overflow-auto bg-gray-50">
         {children}
       </div>

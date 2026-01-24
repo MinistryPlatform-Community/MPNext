@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { useSession } from "next-auth/react";
 import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
-import { getCurrentUserProfile } from "@/components/user-menu/actions";
+import { getCurrentUserProfile } from "@/components/shared-actions/user";
 
 interface UserContextValue {
   userProfile: MPUserProfile | null;

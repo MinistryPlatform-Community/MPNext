@@ -18,20 +18,21 @@ Keep actions with their component folder when:
 ## Examples
 
 **Shared Actions (place here):**
+- `user.ts` - User profile operations used by contexts and components
 - `auth.ts` - Authentication actions used across the app
 - `analytics.ts` - Analytics tracking used by multiple features
 - `notifications.ts` - Notification system used app-wide
 
 **Feature-Specific Actions (keep co-located):**
 - `components/contact-lookup/actions.ts` - Contact search functionality
-- `components/user-menu/actions.ts` - User profile operations
+- `components/user-menu/actions.ts` - Sign-out and user menu operations
 - `components/contact-lookup-details/actions.ts` - Contact detail fetching
 
 ## Usage
 
 ```typescript
 // Importing shared actions
-import { trackEvent } from '@/components/actions/analytics';
+import { trackEvent } from '@/components/shared-actions/analytics';
 
 // Importing feature-specific actions
 import { searchContacts } from './actions'; // Within same folder

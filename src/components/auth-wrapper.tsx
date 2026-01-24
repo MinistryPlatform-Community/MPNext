@@ -5,8 +5,6 @@ import { SessionProvider } from "@/contexts";
 export async function AuthWrapper({ children }: { children: React.ReactNode }) {
   const session = await auth();
 
-  console.log("AuthWrapper session: ", session);
-
   if (!session) {
     redirect("/api/auth/signin");
   }

@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ToolContainer } from "@/components/tool-container";
-import { ToolParamsDebug } from "@/components/tool-params-debug";
+import { ToolContainer, ToolParamsDebug } from "@/components/tool";
 import { UserToolsDebug } from "@/components/user-tools-debug";
 import { Users } from "lucide-react";
 import { ToolParams, isNewRecord } from "@/lib/tool-params";

@@ -42,7 +42,7 @@ This guide provides essential information for AI assistants (like Claude) workin
 - **Feature Components**: Organize in kebab-case folders with index.ts barrel exports
 - **Actions**:
   - Feature-specific actions: co-locate in component folder as `actions.ts`
-  - Shared actions: place in `src/components/actions/`
+  - Shared actions: place in `src/components/shared-actions/`
 - **Ministry Platform Structure**:
   - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
   - Zod schemas (generated): `src/lib/providers/ministry-platform/models/*Schema.ts` - for optional runtime validation
@@ -56,7 +56,7 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ```
 src/components/
-├── actions/              # Shared actions used across features
+├── shared-actions/       # Shared actions used across features
 ├── ui/                   # shadcn/ui components
 ├── feature-name/         # Feature components (kebab-case)
 │   ├── feature-name.tsx
@@ -86,11 +86,8 @@ import { MPHelper } from '@/lib/providers/ministry-platform';
 // Feature-specific actions (relative path within same folder)
 import { searchContacts } from './actions';
 
-// Cross-feature actions
-import { getCurrentUserProfile } from '@/components/user-menu/actions';
-
-// Shared actions
-import { sharedAction } from '@/components/actions/shared';
+// Shared actions (used across multiple features)
+import { getCurrentUserProfile } from '@/components/shared-actions/user';
 
 // Named exports (required)
 export function MyComponent() { ... }  // ✅ Correct
@@ -143,3 +140,9 @@ await mp.createTableRecords('Contact_Log', records, {
   $userId: currentUser.Contact_ID
 });
 ```
+
+## Reference Documents
+
+For detailed context on specific areas, see:
+
+- **[Components Reference](.claude/references/components.md)** - Detailed inventory of all components, their purposes, server actions, and compliance status

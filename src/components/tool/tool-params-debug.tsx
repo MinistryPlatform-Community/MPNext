@@ -63,7 +63,7 @@ export function ToolParamsDebug({ params }: ToolParamsDebugProps) {
         {Object.entries(params).map(([key, value]) => {
           // Skip pageData - it's rendered inline with pageID
           if (key === 'pageData' || key === 'recordDescription') return null;
-          
+
           return (
             <div
               key={key}

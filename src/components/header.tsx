@@ -5,15 +5,13 @@ import Image from "next/image";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 import { Sidebar } from "@/components/sidebar";
-import { UserMenu } from "@/components/user-menu/user-menu";
+import { UserMenu } from "@/components/user-menu";
 import { useAppSession, useUser } from "@/contexts";
 
 export function Header() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { userProfile, isLoading } = useUser();
   const session = useAppSession();
-
-  console.log("Header rendered session: ", session);
 
   return (
     <>
