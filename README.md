@@ -8,6 +8,8 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
+  - [Quick Setup with Claude Code](#quick-setup-with-claude-code)
+  - [Manual Setup](#manual-setup)
   - [OAuth Setup](#oauth-setup)
 - [Project Structure](#project-structure)
 - [Ministry Platform Integration](#ministry-platform-integration)
@@ -15,6 +17,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - [Services](#services)
 - [Testing](#testing)
 - [Development](#development)
+- [Claude Code Commands](#claude-code-commands)
 - [Documentation](#documentation)
 - [Code Style & Conventions](#code-style--conventions)
 
@@ -62,20 +65,58 @@ NextAuth v5 (beta) with custom Ministry Platform OAuth provider (`src/auth.ts`)
 
 ## Getting Started
 
-### 1. Clone the Repository
+### Quick Setup with Claude Code
+
+If you have [Claude Code](https://claude.ai/code) installed, the setup process is automated:
+
+```bash
+git clone https://github.com/MinistryPlatform-Community/MPNext.git
+cd MPNext
+npm install
+npm run setup
+```
+
+The interactive setup command will:
+1. Verify Node.js version (v18+ required)
+2. Check git status
+3. Create `.env.local` from `.env.example` (if needed)
+4. Prompt for missing environment variables
+5. Auto-generate `NEXTAUTH_SECRET` (optional)
+6. Install and update dependencies
+7. Generate Ministry Platform types
+8. Run a production build to verify configuration
+
+**Additional setup options:**
+```bash
+npm run setup:check     # Validation only (no changes)
+npm run setup -- --clean       # Clean install (delete node_modules first)
+npm run setup -- --skip-install # Skip npm install/update
+npm run setup -- --verbose     # Extra output
+npm run setup -- --help        # Show all options
+```
+
+Once setup completes, run `npm run dev` and visit http://localhost:3000.
+
+---
+
+### Manual Setup
+
+If you prefer manual setup or don't have Claude Code:
+
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/MinistryPlatform-Community/MPNext.git
 cd MPNext
 ```
 
-### 2. Install Dependencies
+#### 2. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Environment Configuration
+#### 3. Environment Configuration
 
 Copy the example environment file and configure it with your Ministry Platform credentials:
 
@@ -629,6 +670,83 @@ npm start
 ```
 
 > **Note**: The build process includes TypeScript type checking. Ensure all generated types are up to date by running `npm run mp:generate:models` before building.
+
+## Claude Code Commands
+
+This project includes custom [Claude Code](https://claude.ai/code) commands (skills) to streamline development workflows. These commands are invoked using the `/command` syntax in Claude Code.
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/audit-deps` | Security and update audit for dependencies |
+| `/branch-commit [args]` | Create branch and commit changes, optionally linked to GitHub issue |
+| `/pr [args]` | Create a pull request with validation |
+
+### `/audit-deps` - Dependency Audit
+
+Performs a comprehensive security and update analysis of project dependencies.
+
+**What it does:**
+- Runs `npm audit` for vulnerability detection
+- Searches for recent CVEs affecting major dependencies
+- Categorizes updates as safe (patch/minor) or major (breaking changes)
+- Generates a prioritized action plan
+
+**Usage:**
+```
+/audit-deps
+```
+
+### `/branch-commit` - Branch and Commit
+
+Creates a new branch from the current branch, stages all changes, and commits with detailed notes. Can auto-generate branch name and commit message from a GitHub issue.
+
+**Usage:**
+```
+/branch-commit                           # Prompts for branch name and commit message
+/branch-commit #123                      # Auto-generates from GitHub issue #123
+/branch-commit feature/my-change: Add new feature  # Manual branch and commit message
+/branch-commit #123 fix/custom-name: Custom message  # Issue reference with custom names
+```
+
+**Branch naming convention:**
+- `fix/issue-<id>-<slug>` - For bug fixes (issues with "bug" label)
+- `feature/issue-<id>-<slug>` - For features/enhancements
+
+### `/pr` - Pull Request
+
+Creates a pull request after validating all prerequisites are met.
+
+**Validations performed:**
+- Not on main/master/dev branch
+- No uncommitted changes
+- Branch pushed to origin
+- No existing open PR for branch
+
+**Usage:**
+```
+/pr                    # Create PR to main branch
+/pr --base dev         # Create PR to dev branch
+/pr --draft            # Create as draft PR
+/pr #123               # Link to specific GitHub issue
+```
+
+**PR format includes:**
+- Summary section with bullet points
+- Test plan checklist
+- Issue links (auto-detected from commits)
+- Claude Code attribution
+
+### Command Files
+
+Command definitions are stored in `.claude/commands/`:
+```
+.claude/commands/
+├── audit-deps.md      # Dependency audit command
+├── branch-commit.md   # Branch and commit command
+└── pr.md              # Pull request command
+```
 
 ## Documentation
 

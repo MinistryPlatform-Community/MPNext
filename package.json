@@ -11,7 +11,9 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "mp:generate": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts",
-    "mp:generate:models": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean"
+    "mp:generate:models": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean",
+    "setup": "tsx scripts/setup.ts",
+    "setup:check": "tsx scripts/setup.ts --check"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -45,6 +47,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@inquirer/prompts": "^7.0.0",
     "@tailwindcss/postcss": "^4",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.9.1",
@@ -56,6 +59,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.21",
+    "chalk": "^5.3.0",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
     "jsdom": "^27.4.0",
