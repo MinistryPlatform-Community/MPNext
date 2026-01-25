@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
-import { confirm, input, password } from '@inquirer/prompts';
+import { confirm, input, password, select } from '@inquirer/prompts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +49,13 @@ interface EnvVar {
   defaultValue?: string;
 }
 
+interface CloneDetectionResult {
+  isClone: boolean;
+  remoteUrl?: string;
+  hasGit: boolean;
+  hasOrigin: boolean;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -68,6 +75,12 @@ const MODELS_PATH = path.join(
 const NEXT_BUILD_PATH = path.join(PROJECT_ROOT, '.next');
 
 const REQUIRED_NODE_VERSION = 18;
+
+// Patterns to detect if this is a clone of the MPNext template repository
+const TEMPLATE_REPO_PATTERNS = [
+  'MinistryPlatform-Community/mpnext',
+  'MinistryPlatform-Community/ccm-pwa',
+];
 
 const ENV_VARS: EnvVar[] = [
   // Required variables
@@ -388,6 +401,160 @@ async function generateNextAuthSecret(): Promise<string> {
   return randomBytes(32).toString('base64');
 }
 
+function normalizeMPHost(input: string): string {
+  // Remove protocol if present
+  let host = input.trim();
+  host = host.replace(/^https?:\/\//, '');
+  // Remove trailing slashes and paths
+  host = host.split('/')[0];
+  return host;
+}
+
+function deriveMPUrls(host: string): {
+  baseUrl: string;
+  wellKnownUrl: string;
+  fileUrl: string;
+} {
+  const normalizedHost = normalizeMPHost(host);
+  return {
+    baseUrl: `https://${normalizedHost}/ministryplatformapi`,
+    wellKnownUrl: `https://${normalizedHost}/ministryplatformapi/oauth/.well-known/openid-configuration`,
+    fileUrl: `https://${normalizedHost}/ministryplatformapi/files`,
+  };
+}
+
+function detectTemplateClone(): CloneDetectionResult {
+  const gitPath = path.join(PROJECT_ROOT, '.git');
+
+  // Check if .git directory exists
+  if (!fs.existsSync(gitPath)) {
+    return { isClone: false, hasGit: false, hasOrigin: false };
+  }
+
+  // Try to get the origin remote URL
+  const result = execCommand('git remote get-url origin', { silent: true });
+
+  if (!result.success || !result.output.trim()) {
+    return { isClone: false, hasGit: true, hasOrigin: false };
+  }
+
+  const remoteUrl = result.output.trim();
+
+  // Check if the remote URL matches any of the template repo patterns
+  const isClone = TEMPLATE_REPO_PATTERNS.some(
+    (pattern) =>
+      remoteUrl.includes(pattern) ||
+      remoteUrl.toLowerCase().includes(pattern.toLowerCase())
+  );
+
+  return { isClone, remoteUrl, hasGit: true, hasOrigin: true };
+}
+
+function checkCloneStatus(): StepResult {
+  const detection = detectTemplateClone();
+
+  if (!detection.hasGit) {
+    return {
+      success: true,
+      message: 'No git repository (will be initialized if needed)',
+    };
+  }
+
+  if (!detection.hasOrigin) {
+    return {
+      success: true,
+      message: 'Git repository has no origin remote',
+    };
+  }
+
+  if (detection.isClone) {
+    return {
+      success: true,
+      warning: true,
+      message: 'Still connected to MPNext template repository',
+      details: detection.remoteUrl,
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Git origin is not the template repository',
+  };
+}
+
+function convertToFork(): StepResult {
+  // Check if upstream already exists
+  const upstreamCheck = execCommand('git remote get-url upstream', { silent: true });
+
+  if (upstreamCheck.success) {
+    return {
+      success: false,
+      message: 'Remote "upstream" already exists',
+      details: 'Cannot rename origin to upstream. Remove or rename the existing upstream remote first.',
+    };
+  }
+
+  // Rename origin to upstream
+  const result = execCommand('git remote rename origin upstream', { silent: true });
+
+  if (!result.success) {
+    return {
+      success: false,
+      message: 'Failed to rename origin to upstream',
+      details: result.error,
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Renamed origin to upstream',
+  };
+}
+
+function reinitializeGit(): StepResult {
+  const gitPath = path.join(PROJECT_ROOT, '.git');
+
+  // Remove .git directory
+  try {
+    fs.rmSync(gitPath, { recursive: true, force: true });
+  } catch (error) {
+    const err = error as Error;
+    return {
+      success: false,
+      message: 'Failed to remove .git directory',
+      details: err.message,
+    };
+  }
+
+  // Initialize new git repository
+  const initResult = execCommand('git init', { silent: true });
+
+  if (!initResult.success) {
+    return {
+      success: false,
+      message: 'Failed to initialize new git repository',
+      details: initResult.error,
+    };
+  }
+
+  // Set default branch to main
+  const branchResult = execCommand('git branch -M main', { silent: true });
+
+  if (!branchResult.success) {
+    // Non-critical, just warn
+    return {
+      success: true,
+      warning: true,
+      message: 'Initialized new git repository (could not rename branch to main)',
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Initialized new git repository with main branch',
+  };
+}
+
 // ============================================================================
 // Step Functions
 // ============================================================================
@@ -579,7 +746,7 @@ function runCheckMode(): number {
   const results: { name: string; result: StepResult }[] = [];
 
   // Step 1: Node.js version
-  process.stdout.write(chalk.cyan('[1/7] Node.js version...        '));
+  process.stdout.write(chalk.cyan('[1/8] Node.js version...        '));
   const nodeResult = checkNodeVersion();
   results.push({ name: 'Node.js', result: nodeResult });
   if (nodeResult.success) {
@@ -588,8 +755,20 @@ function runCheckMode(): number {
     console.log(chalk.red(`✗ ${nodeResult.message}`));
   }
 
-  // Step 2: Git status
-  process.stdout.write(chalk.cyan('[2/7] Git status...             '));
+  // Step 2: Template clone status
+  process.stdout.write(chalk.cyan('[2/8] Template clone status...  '));
+  const cloneResult = checkCloneStatus();
+  results.push({ name: 'Clone status', result: cloneResult });
+  if (cloneResult.success && !cloneResult.warning) {
+    console.log(chalk.green(`✓ ${cloneResult.message}`));
+  } else if (cloneResult.warning) {
+    console.log(chalk.yellow(`⚠ ${cloneResult.message}`));
+  } else {
+    console.log(chalk.red(`✗ ${cloneResult.message}`));
+  }
+
+  // Step 3: Git status
+  process.stdout.write(chalk.cyan('[3/8] Git status...             '));
   const gitResult = checkGitStatus();
   results.push({ name: 'Git', result: gitResult });
   if (gitResult.success && !gitResult.warning) {
@@ -600,8 +779,8 @@ function runCheckMode(): number {
     console.log(chalk.red(`✗ ${gitResult.message}`));
   }
 
-  // Step 3: Environment file
-  process.stdout.write(chalk.cyan('[3/7] Environment file...       '));
+  // Step 4: Environment file
+  process.stdout.write(chalk.cyan('[4/8] Environment file...       '));
   const envFileResult = checkEnvFileExists();
   results.push({ name: 'Env file', result: envFileResult });
   if (envFileResult.success) {
@@ -610,8 +789,8 @@ function runCheckMode(): number {
     console.log(chalk.red('✗ Missing .env.local'));
   }
 
-  // Step 4: Environment variables
-  process.stdout.write(chalk.cyan('[4/7] Environment variables...  '));
+  // Step 5: Environment variables
+  process.stdout.write(chalk.cyan('[5/8] Environment variables...  '));
   const { result: envVarsResult, missing, empty } = validateEnvVars();
   results.push({ name: 'Env vars', result: envVarsResult });
   if (envVarsResult.success) {
@@ -621,8 +800,8 @@ function runCheckMode(): number {
     console.log(chalk.red(`✗ Missing: ${issues.join(', ')}`));
   }
 
-  // Step 5: Dependencies
-  process.stdout.write(chalk.cyan('[5/7] Dependencies...           '));
+  // Step 6: Dependencies
+  process.stdout.write(chalk.cyan('[6/8] Dependencies...           '));
   const depsResult = checkNodeModules();
   results.push({ name: 'Dependencies', result: depsResult });
   if (depsResult.success) {
@@ -631,8 +810,8 @@ function runCheckMode(): number {
     console.log(chalk.red('✗ node_modules missing'));
   }
 
-  // Step 6: MP types
-  process.stdout.write(chalk.cyan('[6/7] MP types...               '));
+  // Step 7: MP types
+  process.stdout.write(chalk.cyan('[7/8] MP types...               '));
   const typesResult = checkMPTypes();
   results.push({ name: 'MP types', result: typesResult });
   if (typesResult.success) {
@@ -642,8 +821,8 @@ function runCheckMode(): number {
     console.log(chalk.red('✗ No generated types'));
   }
 
-  // Step 7: Build cache
-  process.stdout.write(chalk.cyan('[7/7] Build cache...            '));
+  // Step 8: Build cache
+  process.stdout.write(chalk.cyan('[8/8] Build cache...            '));
   const buildResult = checkBuildCache();
   results.push({ name: 'Build', result: buildResult });
   if (buildResult.success) {
@@ -670,7 +849,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   console.log(chalk.bold.blue('\nMPNext Setup'));
   console.log(chalk.blue('============'));
 
-  const totalSteps = 9;
+  const totalSteps = 10;
   let passedSteps = 0;
   let warnings = 0;
   let failedSteps = 0;
@@ -686,8 +865,97 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   }
   passedSteps++;
 
-  // Step 2: Git status check
-  printStepHeader(2, totalSteps, 'Checking git status');
+  // Step 2: Project initialization (template clone detection)
+  printStepHeader(2, totalSteps, 'Checking project origin');
+  const detection = detectTemplateClone();
+
+  if (detection.isClone) {
+    console.log(chalk.yellow('  ⚠ This appears to be a clone of the MPNext template'));
+    if (detection.remoteUrl) {
+      console.log(chalk.gray(`    ${detection.remoteUrl}`));
+    }
+
+    const choice = await select({
+      message: 'How would you like to proceed?',
+      choices: [
+        {
+          name: 'Convert to fork (rename origin → upstream, track template updates)',
+          value: 'fork',
+        },
+        {
+          name: 'Start fresh (delete git history, initialize new repo)',
+          value: 'fresh',
+        },
+        {
+          name: 'Keep as-is (skip this step)',
+          value: 'skip',
+        },
+      ],
+    });
+
+    if (choice === 'fork') {
+      const forkResult = convertToFork();
+      printResult(forkResult);
+
+      if (forkResult.success) {
+        console.log(chalk.cyan('    Add your own remote with: git remote add origin <your-repo-url>'));
+        passedSteps++;
+      } else {
+        failedSteps++;
+      }
+    } else if (choice === 'fresh') {
+      const shouldProceed = await confirm({
+        message: 'This will delete all git history. Continue?',
+        default: false,
+      });
+
+      if (shouldProceed) {
+        const freshResult = reinitializeGit();
+        printResult(freshResult);
+
+        if (freshResult.success) {
+          console.log(chalk.cyan('    Create initial commit with: git add -A && git commit -m "Initial commit"'));
+          passedSteps++;
+        } else {
+          failedSteps++;
+        }
+      } else {
+        console.log(chalk.gray('  Skipped git reinitialization'));
+        passedSteps++;
+      }
+    } else {
+      console.log(chalk.green('  ✓ Keeping current git configuration'));
+      passedSteps++;
+    }
+  } else if (!detection.hasGit) {
+    console.log(chalk.yellow('  ⚠ No git repository found'));
+
+    const shouldInit = await confirm({
+      message: 'Initialize a new git repository?',
+      default: true,
+    });
+
+    if (shouldInit) {
+      const initResult = execCommand('git init', { silent: true });
+      if (initResult.success) {
+        execCommand('git branch -M main', { silent: true });
+        console.log(chalk.green('  ✓ Initialized new git repository with main branch'));
+        passedSteps++;
+      } else {
+        console.log(chalk.red('  ✗ Failed to initialize git repository'));
+        failedSteps++;
+      }
+    } else {
+      console.log(chalk.gray('  Skipped git initialization'));
+      passedSteps++;
+    }
+  } else {
+    console.log(chalk.green('  ✓ Git origin is not the template repository'));
+    passedSteps++;
+  }
+
+  // Step 3: Git status check
+  printStepHeader(3, totalSteps, 'Checking git status');
   const gitResult = checkGitStatus();
   printResult(gitResult);
 
@@ -696,8 +964,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   }
   passedSteps++;
 
-  // Step 3: .env.local existence
-  printStepHeader(3, totalSteps, 'Checking environment file');
+  // Step 4: .env.local existence
+  printStepHeader(4, totalSteps, 'Checking environment file');
   let envFileResult = checkEnvFileExists();
 
   if (!envFileResult.success && fs.existsSync(ENV_EXAMPLE_PATH)) {
@@ -724,17 +992,121 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     passedSteps++;
   }
 
-  // Step 4: Environment variable validation
-  printStepHeader(4, totalSteps, 'Validating environment variables');
+  // Step 5: Environment variable validation
+  printStepHeader(5, totalSteps, 'Validating environment variables');
+
+  // Variables that are auto-derived from the MP host
+  const mpDerivedVars = [
+    'MINISTRY_PLATFORM_BASE_URL',
+    'OIDC_WELL_KNOWN_URL',
+    'NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL',
+  ];
+
+  const updates = new Map<string, string>();
+
+  // Always ask for MP host first - extract current value if exists
+  const currentEnv = parseEnvFile(ENV_LOCAL_PATH);
+  const currentBaseUrl = currentEnv.get('MINISTRY_PLATFORM_BASE_URL') || '';
+  let currentHost = '';
+  if (currentBaseUrl) {
+    // Extract host from existing URL (e.g., https://mpi.ministryplatform.com/ministryplatformapi -> mpi.ministryplatform.com)
+    const match = currentBaseUrl.match(/https?:\/\/([^/]+)/);
+    if (match) {
+      currentHost = match[1];
+    }
+  }
+
+  console.log(chalk.yellow('\n  Ministry Platform Configuration'));
+  console.log(chalk.gray('  The OIDC, API, and File URLs will be derived from your MP host'));
+
+  const mpHost = await input({
+    message: 'Enter your Ministry Platform host (e.g., mpi.ministryplatform.com):',
+    default: currentHost || undefined,
+  });
+
+  if (mpHost) {
+    const derived = deriveMPUrls(mpHost);
+    updates.set('MINISTRY_PLATFORM_BASE_URL', derived.baseUrl);
+    updates.set('OIDC_WELL_KNOWN_URL', derived.wellKnownUrl);
+    updates.set('NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL', derived.fileUrl);
+
+    console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_BASE_URL = ${derived.baseUrl}`));
+    console.log(chalk.green(`  ✓ OIDC_WELL_KNOWN_URL = ${derived.wellKnownUrl}`));
+    console.log(chalk.green(`  ✓ NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL = ${derived.fileUrl}`));
+  }
+
+  // Always ask for OIDC_CLIENT_ID with default
+  console.log(chalk.yellow('\n  OAuth Client Configuration'));
+  const currentOidcClientId = currentEnv.get('OIDC_CLIENT_ID') || 'TM.Widgets';
+
+  const oidcClientId = await input({
+    message: 'Enter OIDC_CLIENT_ID (OAuth client ID for user authentication):',
+    default: currentOidcClientId,
+  });
+
+  if (oidcClientId) {
+    updates.set('OIDC_CLIENT_ID', oidcClientId);
+    console.log(chalk.green(`  ✓ OIDC_CLIENT_ID = ${oidcClientId}`));
+  }
+
+  // Ask for OIDC_CLIENT_SECRET, showing the client ID for reference
+  const oidcClientSecret = await password({
+    message: `Enter OIDC_CLIENT_SECRET (${oidcClientId}):`,
+  });
+
+  if (oidcClientSecret) {
+    updates.set('OIDC_CLIENT_SECRET', oidcClientSecret);
+    console.log(chalk.green(`  ✓ OIDC_CLIENT_SECRET = ********`));
+  }
+
+  // Always ask for MINISTRY_PLATFORM_CLIENT_ID with default
+  console.log(chalk.yellow('\n  Ministry Platform API Client Configuration'));
+  const currentMpClientId = currentEnv.get('MINISTRY_PLATFORM_CLIENT_ID') || 'MPNext';
+
+  const mpClientId = await input({
+    message: 'Enter MINISTRY_PLATFORM_CLIENT_ID (API client ID for data access):',
+    default: currentMpClientId,
+  });
+
+  if (mpClientId) {
+    updates.set('MINISTRY_PLATFORM_CLIENT_ID', mpClientId);
+    console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_CLIENT_ID = ${mpClientId}`));
+  }
+
+  // Ask for MINISTRY_PLATFORM_CLIENT_SECRET, showing the client ID for reference
+  const mpClientSecret = await password({
+    message: `Enter MINISTRY_PLATFORM_CLIENT_SECRET (${mpClientId}):`,
+  });
+
+  if (mpClientSecret) {
+    updates.set('MINISTRY_PLATFORM_CLIENT_SECRET', mpClientSecret);
+    console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_CLIENT_SECRET = ********`));
+  }
+
+  // Variables handled specially (skip in regular loop)
+  const speciallyHandledVars = [
+    ...mpDerivedVars,
+    'OIDC_CLIENT_ID',
+    'OIDC_CLIENT_SECRET',
+    'MINISTRY_PLATFORM_CLIENT_ID',
+    'MINISTRY_PLATFORM_CLIENT_SECRET',
+  ];
+
+  // Now check for other missing/empty required variables
   let { result: envVarsResult, missing, empty } = validateEnvVars();
 
   if (!envVarsResult.success) {
     printResult(envVarsResult);
 
     const issues = [...missing, ...empty];
-    const updates = new Map<string, string>();
 
+    // Process remaining variables (skip the ones we already handled)
     for (const varDef of issues) {
+      // Skip variables that were handled specially
+      if (speciallyHandledVars.includes(varDef.name)) {
+        continue;
+      }
+
       console.log(chalk.yellow(`\n  ${varDef.name}: ${varDef.description}`));
 
       if (varDef.autoGenerate && varDef.name === 'NEXTAUTH_SECRET') {
@@ -772,28 +1144,26 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
         }
       }
     }
-
-    if (updates.size > 0) {
-      updateEnvFile(ENV_LOCAL_PATH, updates);
-      console.log(chalk.green(`\n  ✓ Updated .env.local with ${updates.size} variable(s)`));
-    }
-
-    // Re-validate
-    const revalidation = validateEnvVars();
-    envVarsResult = revalidation.result;
-    if (envVarsResult.success) {
-      passedSteps++;
-    } else {
-      printResult(envVarsResult);
-      failedSteps++;
-    }
-  } else {
-    printResult(envVarsResult);
-    passedSteps++;
   }
 
-  // Step 5: npm install
-  printStepHeader(5, totalSteps, 'Installing dependencies');
+  if (updates.size > 0) {
+    updateEnvFile(ENV_LOCAL_PATH, updates);
+    console.log(chalk.green(`\n  ✓ Updated .env.local with ${updates.size} variable(s)`));
+  }
+
+  // Re-validate after all updates
+  const revalidation = validateEnvVars();
+  envVarsResult = revalidation.result;
+  if (envVarsResult.success) {
+    printResult(envVarsResult);
+    passedSteps++;
+  } else {
+    printResult(envVarsResult);
+    failedSteps++;
+  }
+
+  // Step 6: npm install
+  printStepHeader(6, totalSteps, 'Installing dependencies');
 
   if (options.skipInstall) {
     console.log(chalk.gray('  Skipped (--skip-install)'));
@@ -830,8 +1200,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     }
   }
 
-  // Step 6: npm update
-  printStepHeader(6, totalSteps, 'Updating dependencies');
+  // Step 7: npm update
+  printStepHeader(7, totalSteps, 'Updating dependencies');
 
   if (options.skipInstall) {
     console.log(chalk.gray('  Skipped (--skip-install)'));
@@ -850,8 +1220,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     }
   }
 
-  // Step 7: MP type generation
-  printStepHeader(7, totalSteps, 'Generating Ministry Platform types');
+  // Step 8: MP type generation
+  printStepHeader(8, totalSteps, 'Generating Ministry Platform types');
   console.log(chalk.gray('  Running mp:generate:models...'));
 
   const generateResult = await execCommandStreaming(
@@ -872,8 +1242,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     failedSteps++;
   }
 
-  // Step 8: Build validation
-  printStepHeader(8, totalSteps, 'Building project');
+  // Step 9: Build validation
+  printStepHeader(9, totalSteps, 'Building project');
   console.log(chalk.gray('  Running npm run build...'));
 
   const buildResult = await execCommandStreaming('npm', ['run', 'build'], options.verbose);
