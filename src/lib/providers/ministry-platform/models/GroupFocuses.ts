@@ -1,8 +1,8 @@
 /**
  * Interface for Group_Focuses
 * Table: Group_Focuses
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface GroupFocuses {

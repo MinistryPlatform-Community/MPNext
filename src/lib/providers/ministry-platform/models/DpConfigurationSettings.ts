@@ -1,8 +1,8 @@
 /**
  * Interface for dp_Configuration_Settings
 * Table: dp_Configuration_Settings
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWrite
+ * Special Permissions: DataExport
  * Generated from column metadata
  */
 export interface DpConfigurationSettings {

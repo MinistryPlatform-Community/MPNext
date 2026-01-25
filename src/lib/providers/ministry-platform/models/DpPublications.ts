@@ -1,8 +1,8 @@
 /**
  * Interface for dp_Publications
 * Table: dp_Publications
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface DpPublications {

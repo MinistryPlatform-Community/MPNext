@@ -1,8 +1,8 @@
 /**
  * Interface for Contribution_Statements
 * Table: Contribution_Statements
- * Access Level: ReadWrite
- * Special Permissions: FileAttach
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface ContributionStatements {

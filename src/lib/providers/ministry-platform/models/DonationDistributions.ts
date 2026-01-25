@@ -1,8 +1,8 @@
 /**
  * Interface for Donation_Distributions
 * Table: Donation_Distributions
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface DonationDistributions {

@@ -1,8 +1,8 @@
 /**
  * Interface for Pledge_Frequencies
 * Table: Pledge_Frequencies
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface PledgeFrequencies {

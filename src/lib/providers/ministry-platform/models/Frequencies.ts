@@ -1,7 +1,7 @@
 /**
  * Interface for Frequencies
 * Table: Frequencies
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

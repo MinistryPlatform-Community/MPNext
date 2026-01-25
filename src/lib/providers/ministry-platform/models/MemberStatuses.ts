@@ -1,7 +1,7 @@
 /**
  * Interface for Member_Statuses
 * Table: Member_Statuses
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

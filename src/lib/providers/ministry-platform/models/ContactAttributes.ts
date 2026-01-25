@@ -1,8 +1,8 @@
 /**
  * Interface for Contact_Attributes
 * Table: Contact_Attributes
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface ContactAttributes {

@@ -1,7 +1,7 @@
 /**
  * Interface for RSVP_Statuses
 * Table: RSVP_Statuses
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

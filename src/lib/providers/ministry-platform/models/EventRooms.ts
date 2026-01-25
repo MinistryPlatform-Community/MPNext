@@ -1,8 +1,8 @@
 /**
  * Interface for Event_Rooms
 * Table: Event_Rooms
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface EventRooms {

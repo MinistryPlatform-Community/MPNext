@@ -1,8 +1,8 @@
 /**
  * Interface for Household_Sources
 * Table: Household_Sources
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface HouseholdSources {

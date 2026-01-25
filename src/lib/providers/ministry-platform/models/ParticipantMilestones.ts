@@ -1,8 +1,8 @@
 /**
  * Interface for Participant_Milestones
 * Table: Participant_Milestones
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface ParticipantMilestones {

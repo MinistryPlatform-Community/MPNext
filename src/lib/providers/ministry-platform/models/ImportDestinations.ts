@@ -1,7 +1,7 @@
 /**
  * Interface for Import_Destinations
 * Table: Import_Destinations
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

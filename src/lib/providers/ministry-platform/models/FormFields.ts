@@ -1,8 +1,8 @@
 /**
  * Interface for Form_Fields
 * Table: Form_Fields
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface FormFields {

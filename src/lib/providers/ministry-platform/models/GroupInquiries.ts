@@ -1,8 +1,8 @@
 /**
  * Interface for Group_Inquiries
 * Table: Group_Inquiries
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface GroupInquiries {

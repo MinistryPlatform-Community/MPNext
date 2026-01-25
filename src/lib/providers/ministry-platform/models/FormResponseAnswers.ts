@@ -2,7 +2,7 @@
  * Interface for Form_Response_Answers
 * Table: Form_Response_Answers
  * Access Level: ReadWriteAssignDelete
- * Special Permissions: FileAttach
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface FormResponseAnswers {

@@ -1,8 +1,8 @@
 /**
  * Interface for Pledge_Campaigns
 * Table: Pledge_Campaigns
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface PledgeCampaigns {

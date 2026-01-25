@@ -1,7 +1,7 @@
 /**
  * Interface for Event_Types
 * Table: Event_Types
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

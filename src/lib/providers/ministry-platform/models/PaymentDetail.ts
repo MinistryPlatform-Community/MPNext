@@ -1,8 +1,8 @@
 /**
  * Interface for Payment_Detail
 * Table: Payment_Detail
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface PaymentDetail {

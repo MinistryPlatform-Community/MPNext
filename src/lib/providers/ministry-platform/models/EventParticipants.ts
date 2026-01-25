@@ -2,7 +2,7 @@
  * Interface for Event_Participants
 * Table: Event_Participants
  * Access Level: ReadWriteAssignDelete
- * Special Permissions: None
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface EventParticipants {

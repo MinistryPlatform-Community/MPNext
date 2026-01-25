@@ -1,8 +1,8 @@
 /**
  * Interface for dp_Application_Labels
 * Table: dp_Application_Labels
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport
  * Generated from column metadata
  */
 export interface DpApplicationLabels {

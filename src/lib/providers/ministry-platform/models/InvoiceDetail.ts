@@ -2,7 +2,7 @@
  * Interface for Invoice_Detail
 * Table: Invoice_Detail
  * Access Level: ReadWriteAssignDelete
- * Special Permissions: None
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface InvoiceDetail {

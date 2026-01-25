@@ -1,8 +1,8 @@
 /**
  * Interface for Ministries
 * Table: Ministries
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface Ministries {

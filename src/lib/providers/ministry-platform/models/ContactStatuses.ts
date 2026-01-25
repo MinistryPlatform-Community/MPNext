@@ -1,7 +1,7 @@
 /**
  * Interface for Contact_Statuses
 * Table: Contact_Statuses
- * Access Level: ReadWrite
+ * Access Level: Read
  * Special Permissions: None
  * Generated from column metadata
  */

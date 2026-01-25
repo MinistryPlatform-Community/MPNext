@@ -1,8 +1,8 @@
 /**
  * Interface for Life_Stages
 * Table: Life_Stages
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface LifeStages {

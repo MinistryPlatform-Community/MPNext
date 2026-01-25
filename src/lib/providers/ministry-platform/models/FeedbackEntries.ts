@@ -1,8 +1,8 @@
 /**
  * Interface for Feedback_Entries
 * Table: Feedback_Entries
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface FeedbackEntries {

@@ -1,8 +1,8 @@
 /**
  * Interface for Group_Participants
 * Table: Group_Participants
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface GroupParticipants {

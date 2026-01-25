@@ -1,8 +1,8 @@
 /**
  * Interface for Programs
 * Table: Programs
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface Programs {

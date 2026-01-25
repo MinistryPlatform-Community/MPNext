@@ -1,8 +1,8 @@
 /**
  * Interface for dp_Contact_Publications
 * Table: dp_Contact_Publications
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport
  * Generated from column metadata
  */
 export interface DpContactPublications {

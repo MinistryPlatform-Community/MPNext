@@ -1,0 +1,38 @@
+import { z } from 'zod';
+
+export const SacramentsSchema = z.object({
+  Sacrament_ID: z.number().int(),
+  Sacrament_Type_ID: z.number().int(),
+  Date_Received: z.string().datetime().nullable(),
+  Date_Received_Accuracy_ID: z.number().int().nullable(),
+  Participant_ID: z.number().int(),
+  Participant_Name: z.string().max(100).nullable(),
+  Performed_By_ID: z.number().int().nullable(),
+  Performed_By_Name: z.string().max(100).nullable(),
+  Place_ID: z.number().int().nullable(),
+  Place_Name: z.string().max(128).nullable(),
+  Volume: z.string().max(10).nullable(),
+  Page: z.number().int().nullable(),
+  Entry: z.number().int().nullable(),
+  Place_of_Birth: z.string().max(128).nullable(),
+  Father_ID: z.number().int().nullable(),
+  Name_of_Father: z.string().max(100).nullable(),
+  Mother_ID: z.number().int().nullable(),
+  Name_of_Mother: z.string().max(100).nullable(),
+  Profession_of_Faith: z.boolean().nullable(),
+  Profession_of_Faith_Date: z.string().datetime().nullable(),
+  Verified: z.boolean().nullable(),
+  Notification_Received: z.boolean().nullable(),
+  Place_of_Burial: z.string().max(128).nullable(),
+  Date_of_Burial: z.string().datetime().nullable(),
+  Spouse_ID: z.number().int().nullable(),
+  Spouse_Name: z.string().max(100).nullable(),
+  Interfaith: z.boolean().nullable(),
+  Annulment: z.boolean().nullable(),
+  Protocol_Number: z.string().max(15).nullable(),
+  Confirmation_Saint: z.string().max(100).nullable(),
+  Notes: z.string().max(2000).nullable(),
+  Ordination_Type_ID: z.number().int().nullable(),
+});
+
+export type SacramentsInput = z.infer<typeof SacramentsSchema>;

@@ -1,8 +1,8 @@
 /**
  * Interface for dp_Communication_Publications
 * Table: dp_Communication_Publications
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport
  * Generated from column metadata
  */
 export interface DpCommunicationPublications {

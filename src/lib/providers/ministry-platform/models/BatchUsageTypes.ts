@@ -1,7 +1,7 @@
 /**
  * Interface for Batch_Usage_Types
 * Table: Batch_Usage_Types
- * Access Level: Read
+ * Access Level: ReadWriteAssignDelete
  * Special Permissions: None
  * Generated from column metadata
  */

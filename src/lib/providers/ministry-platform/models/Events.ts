@@ -1,8 +1,8 @@
 /**
  * Interface for Events
 * Table: Events
- * Access Level: ReadWrite
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport, SecureRecord
  * Generated from column metadata
  */
 export interface Events {

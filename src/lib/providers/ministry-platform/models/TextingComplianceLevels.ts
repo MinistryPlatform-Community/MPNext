@@ -1,8 +1,8 @@
 /**
  * Interface for Texting_Compliance_Levels
 * Table: Texting_Compliance_Levels
- * Access Level: Read
- * Special Permissions: None
+ * Access Level: ReadWriteAssignDelete
+ * Special Permissions: FileAttach, DataExport
  * Generated from column metadata
  */
 export interface TextingComplianceLevels {
