@@ -423,7 +423,7 @@ function generateTypeDefinition(table: TableMetadata, tableName?: string): strin
   return generateDetailedTypeDefinition(table, undefined, tableName);
 }
 
-function generateTableDocumentation(table: TableMetadata, tableName: string): string {
+function generateTableDocumentation(table: TableMetadata, tableName: string, outputDir: string): string {
   const primaryKey = table.Columns?.find(col => col.IsPrimaryKey);
   const primaryKeyName = primaryKey?.Name || `${tableName}_ID`;
 
@@ -433,9 +433,13 @@ function generateTableDocumentation(table: TableMetadata, tableName: string): st
   const permissionsInfo = table.SpecialPermissions ? ` | Permissions: ${table.SpecialPermissions}` : '';
   const description = `${accessInfo}${permissionsInfo}` || 'Standard table';
 
+  const typeName = sanitizeTypeName(tableName);
+
   let md = `### ${tableName}\n\n`;
   md += `${description}\n\n`;
   md += `- **Primary Key:** \`${primaryKeyName}\`\n`;
+  md += `- **Type:** \`${outputDir}/${typeName}.ts\`\n`;
+  md += `- **Schema:** \`${outputDir}/${typeName}Schema.ts\`\n`;
 
   if (foreignKeys.length > 0) {
     md += `- **Foreign Keys:**\n`;
@@ -448,7 +452,7 @@ function generateTableDocumentation(table: TableMetadata, tableName: string): st
   return md;
 }
 
-function generateSchemaDocument(tables: TableMetadata[]): string {
+function generateSchemaDocument(tables: TableMetadata[], outputDir: string): string {
   const validTables = tables
     .filter(table => {
       const name = getTableName(table);
@@ -468,7 +472,7 @@ function generateSchemaDocument(tables: TableMetadata[]): string {
 
   validTables.forEach(table => {
     const tableName = getTableName(table)!;
-    md += generateTableDocumentation(table, tableName);
+    md += generateTableDocumentation(table, tableName, outputDir);
   });
 
   return md;
@@ -646,7 +650,7 @@ async function main() {
     // Generate schema documentation
     console.log("\n📝 Generating schema documentation...");
     const schemaDocPath = path.resolve(process.cwd(), '.claude/references/ministryplatform.schema.md');
-    const schemaDocContent = generateSchemaDocument(tables);
+    const schemaDocContent = generateSchemaDocument(tables, options.outputDir);
 
     const schemaDocDir = path.dirname(schemaDocPath);
     if (!fs.existsSync(schemaDocDir)) {
