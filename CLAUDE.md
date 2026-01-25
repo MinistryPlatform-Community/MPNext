@@ -146,3 +146,4 @@ await mp.createTableRecords('Contact_Log', records, {
 For detailed context on specific areas, see:
 
 - **[Components Reference](.claude/references/components.md)** - Detailed inventory of all components, their purposes, server actions, and compliance status
+- **[Ministry Platform Schema](.claude/references/ministryplatform.schema.md)** - Auto-generated summary of Ministry Platform database tables, primary keys, and foreign key relationships
