@@ -24,6 +24,24 @@ const mockGetGlobalFilters = vi.fn();
 const mockRefreshMetadata = vi.fn();
 const mockGetTables = vi.fn();
 
+// Procedure Service mocks
+const mockGetProcedures = vi.fn();
+const mockExecuteProcedure = vi.fn();
+const mockExecuteProcedureWithBody = vi.fn();
+
+// Communication Service mocks
+const mockCreateCommunication = vi.fn();
+const mockSendMessage = vi.fn();
+
+// File Service mocks
+const mockGetFilesByRecord = vi.fn();
+const mockUploadFiles = vi.fn();
+const mockUpdateFile = vi.fn();
+const mockDeleteFile = vi.fn();
+const mockGetFileContentByUniqueId = vi.fn();
+const mockGetFileMetadata = vi.fn();
+const mockGetFileMetadataByUniqueId = vi.fn();
+
 vi.mock('@/lib/providers/ministry-platform/provider', () => ({
   MinistryPlatformProvider: {
     getInstance: vi.fn(() => ({
@@ -35,6 +53,21 @@ vi.mock('@/lib/providers/ministry-platform/provider', () => ({
       getGlobalFilters: mockGetGlobalFilters,
       refreshMetadata: mockRefreshMetadata,
       getTables: mockGetTables,
+      // Procedure Service
+      getProcedures: mockGetProcedures,
+      executeProcedure: mockExecuteProcedure,
+      executeProcedureWithBody: mockExecuteProcedureWithBody,
+      // Communication Service
+      createCommunication: mockCreateCommunication,
+      sendMessage: mockSendMessage,
+      // File Service
+      getFilesByRecord: mockGetFilesByRecord,
+      uploadFiles: mockUploadFiles,
+      updateFile: mockUpdateFile,
+      deleteFile: mockDeleteFile,
+      getFileContentByUniqueId: mockGetFileContentByUniqueId,
+      getFileMetadata: mockGetFileMetadata,
+      getFileMetadataByUniqueId: mockGetFileMetadataByUniqueId,
     })),
   },
 }));
@@ -536,6 +569,371 @@ describe('MPHelper', () => {
       await expect(
         mpHelper.createTableRecords('Test', records, { schema: Schema })
       ).rejects.toThrow('Validation failed for record 1');
+    });
+  });
+
+  describe('Procedure Service Methods', () => {
+    it('should get procedures list', async () => {
+      const procedures = [
+        { Procedure_ID: 1, Procedure_Name: 'api_Get_Contact_Info' },
+        { Procedure_ID: 2, Procedure_Name: 'api_Update_Contact' },
+      ];
+      mockGetProcedures.mockResolvedValueOnce(procedures);
+
+      const result = await mpHelper.getProcedures();
+
+      expect(mockGetProcedures).toHaveBeenCalledWith(undefined);
+      expect(result).toEqual(procedures);
+    });
+
+    it('should search procedures by name', async () => {
+      const procedures = [
+        { Procedure_ID: 1, Procedure_Name: 'api_Get_Contact_Info' },
+      ];
+      mockGetProcedures.mockResolvedValueOnce(procedures);
+
+      const result = await mpHelper.getProcedures('contact');
+
+      expect(mockGetProcedures).toHaveBeenCalledWith('contact');
+      expect(result).toEqual(procedures);
+    });
+
+    it('should execute procedure with query params', async () => {
+      const procedureResult = [[{ Contact_ID: 1, Display_Name: 'John Doe' }]];
+      mockExecuteProcedure.mockResolvedValueOnce(procedureResult);
+
+      const result = await mpHelper.executeProcedure('api_Get_Contact_Info', {
+        ContactID: 1,
+      });
+
+      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Get_Contact_Info', {
+        ContactID: 1,
+      });
+      expect(result).toEqual(procedureResult);
+    });
+
+    it('should execute procedure without params', async () => {
+      const procedureResult = [[{ Count: 100 }]];
+      mockExecuteProcedure.mockResolvedValueOnce(procedureResult);
+
+      const result = await mpHelper.executeProcedure('api_Get_Stats');
+
+      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Get_Stats', undefined);
+      expect(result).toEqual(procedureResult);
+    });
+
+    it('should execute procedure with body parameters', async () => {
+      const procedureResult = [[{ Success: true }]];
+      mockExecuteProcedureWithBody.mockResolvedValueOnce(procedureResult);
+
+      const parameters = {
+        ContactID: 1,
+        Notes: 'Test notes',
+        Date: '2024-01-01',
+      };
+
+      const result = await mpHelper.executeProcedureWithBody(
+        'api_Create_Contact_Log',
+        parameters
+      );
+
+      expect(mockExecuteProcedureWithBody).toHaveBeenCalledWith(
+        'api_Create_Contact_Log',
+        parameters
+      );
+      expect(result).toEqual(procedureResult);
+    });
+
+    it('should propagate procedure execution errors', async () => {
+      mockExecuteProcedure.mockRejectedValueOnce(new Error('Procedure not found'));
+
+      await expect(
+        mpHelper.executeProcedure('NonExistent')
+      ).rejects.toThrow('Procedure not found');
+    });
+  });
+
+  describe('Communication Service Methods', () => {
+    it('should create communication without attachments', async () => {
+      const communicationInfo = {
+        Author_User_ID: 1,
+        Subject: 'Test Subject',
+        Body: '<p>Test body</p>',
+        Start_Date: '2024-01-01',
+        From_Contact: 123,
+        Reply_to_Contact: 123,
+        To_Contact_List: '456,789',
+      };
+      const createdCommunication = {
+        Communication_ID: 1,
+        ...communicationInfo,
+      };
+      mockCreateCommunication.mockResolvedValueOnce(createdCommunication);
+
+      const result = await mpHelper.createCommunication(communicationInfo);
+
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, undefined);
+      expect(result).toEqual(createdCommunication);
+    });
+
+    it('should create communication with attachments', async () => {
+      const communicationInfo = {
+        Author_User_ID: 1,
+        Subject: 'Test with Attachment',
+        Body: '<p>See attached</p>',
+        Start_Date: '2024-01-01',
+        From_Contact: 123,
+        Reply_to_Contact: 123,
+        To_Contact_List: '456',
+      };
+      const mockFile = new File(['test content'], 'test.pdf', { type: 'application/pdf' });
+      const createdCommunication = { Communication_ID: 1, ...communicationInfo };
+      mockCreateCommunication.mockResolvedValueOnce(createdCommunication);
+
+      const result = await mpHelper.createCommunication(communicationInfo, [mockFile]);
+
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, [mockFile]);
+      expect(result).toEqual(createdCommunication);
+    });
+
+    it('should send message without attachments', async () => {
+      const messageInfo = {
+        From: 'sender@example.com',
+        To: 'recipient@example.com',
+        Subject: 'Test Message',
+        Body: '<p>Hello</p>',
+      };
+      const sentMessage = { Communication_ID: 1, ...messageInfo };
+      mockSendMessage.mockResolvedValueOnce(sentMessage);
+
+      const result = await mpHelper.sendMessage(messageInfo);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, undefined);
+      expect(result).toEqual(sentMessage);
+    });
+
+    it('should send message with attachments', async () => {
+      const messageInfo = {
+        From: 'sender@example.com',
+        To: 'recipient@example.com',
+        Subject: 'Test with Attachment',
+        Body: '<p>Please see attached</p>',
+      };
+      const mockFile = new File(['data'], 'report.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const sentMessage = { Communication_ID: 2, ...messageInfo };
+      mockSendMessage.mockResolvedValueOnce(sentMessage);
+
+      const result = await mpHelper.sendMessage(messageInfo, [mockFile]);
+
+      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, [mockFile]);
+      expect(result).toEqual(sentMessage);
+    });
+  });
+
+  describe('File Service Methods', () => {
+    describe('getFilesByRecord', () => {
+      it('should get files for a record', async () => {
+        const files = [
+          { File_ID: 1, File_Name: 'photo.jpg', Unique_Name: 'abc-123' },
+          { File_ID: 2, File_Name: 'document.pdf', Unique_Name: 'def-456' },
+        ];
+        mockGetFilesByRecord.mockResolvedValueOnce(files);
+
+        const result = await mpHelper.getFilesByRecord({
+          table: 'Contacts',
+          recordId: 123,
+        });
+
+        expect(mockGetFilesByRecord).toHaveBeenCalledWith('Contacts', 123, undefined);
+        expect(result).toEqual(files);
+      });
+
+      it('should get only default file when defaultOnly is true', async () => {
+        const files = [{ File_ID: 1, File_Name: 'default.jpg', Is_Default: true }];
+        mockGetFilesByRecord.mockResolvedValueOnce(files);
+
+        const result = await mpHelper.getFilesByRecord({
+          table: 'Contacts',
+          recordId: 123,
+          defaultOnly: true,
+        });
+
+        expect(mockGetFilesByRecord).toHaveBeenCalledWith('Contacts', 123, true);
+        expect(result).toEqual(files);
+      });
+    });
+
+    describe('uploadFiles', () => {
+      it('should upload files to a record', async () => {
+        const mockFile = new File(['image data'], 'photo.jpg', { type: 'image/jpeg' });
+        const uploadedFiles = [
+          { File_ID: 1, File_Name: 'photo.jpg', Unique_Name: 'new-123' },
+        ];
+        mockUploadFiles.mockResolvedValueOnce(uploadedFiles);
+
+        const result = await mpHelper.uploadFiles({
+          table: 'Contacts',
+          recordId: 123,
+          files: [mockFile],
+        });
+
+        expect(mockUploadFiles).toHaveBeenCalledWith('Contacts', 123, [mockFile], undefined);
+        expect(result).toEqual(uploadedFiles);
+      });
+
+      it('should upload files with upload parameters', async () => {
+        const mockFile = new File(['data'], 'doc.pdf', { type: 'application/pdf' });
+        const uploadParams = { IsDefault: true, Description: 'Main document' };
+        const uploadedFiles = [{ File_ID: 2, File_Name: 'doc.pdf' }];
+        mockUploadFiles.mockResolvedValueOnce(uploadedFiles);
+
+        const result = await mpHelper.uploadFiles({
+          table: 'Events',
+          recordId: 456,
+          files: [mockFile],
+          uploadParams,
+        });
+
+        expect(mockUploadFiles).toHaveBeenCalledWith('Events', 456, [mockFile], uploadParams);
+        expect(result).toEqual(uploadedFiles);
+      });
+    });
+
+    describe('updateFile', () => {
+      it('should update file metadata only', async () => {
+        const updateParams = { Description: 'Updated description' };
+        const updatedFile = { File_ID: 1, File_Name: 'photo.jpg', Description: 'Updated description' };
+        mockUpdateFile.mockResolvedValueOnce(updatedFile);
+
+        const result = await mpHelper.updateFile({
+          fileId: 1,
+          updateParams,
+        });
+
+        expect(mockUpdateFile).toHaveBeenCalledWith(1, undefined, updateParams);
+        expect(result).toEqual(updatedFile);
+      });
+
+      it('should update file content and metadata', async () => {
+        const mockFile = new File(['new content'], 'updated.jpg', { type: 'image/jpeg' });
+        const updateParams = { Description: 'New photo' };
+        const updatedFile = { File_ID: 1, File_Name: 'updated.jpg' };
+        mockUpdateFile.mockResolvedValueOnce(updatedFile);
+
+        const result = await mpHelper.updateFile({
+          fileId: 1,
+          file: mockFile,
+          updateParams,
+        });
+
+        expect(mockUpdateFile).toHaveBeenCalledWith(1, mockFile, updateParams);
+        expect(result).toEqual(updatedFile);
+      });
+    });
+
+    describe('deleteFile', () => {
+      it('should delete file by ID', async () => {
+        mockDeleteFile.mockResolvedValueOnce(undefined);
+
+        await mpHelper.deleteFile({ fileId: 1 });
+
+        expect(mockDeleteFile).toHaveBeenCalledWith(1, undefined);
+      });
+
+      it('should delete file with user ID for auditing', async () => {
+        mockDeleteFile.mockResolvedValueOnce(undefined);
+
+        await mpHelper.deleteFile({ fileId: 1, userId: 123 });
+
+        expect(mockDeleteFile).toHaveBeenCalledWith(1, 123);
+      });
+    });
+
+    describe('getFileContentByUniqueId', () => {
+      it('should get file content by unique ID', async () => {
+        const fileBlob = new Blob(['file content'], { type: 'image/jpeg' });
+        mockGetFileContentByUniqueId.mockResolvedValueOnce(fileBlob);
+
+        const result = await mpHelper.getFileContentByUniqueId({
+          uniqueFileId: 'abc-123-def',
+        });
+
+        expect(mockGetFileContentByUniqueId).toHaveBeenCalledWith('abc-123-def', undefined);
+        expect(result).toEqual(fileBlob);
+      });
+
+      it('should get thumbnail when requested', async () => {
+        const thumbnailBlob = new Blob(['thumbnail'], { type: 'image/jpeg' });
+        mockGetFileContentByUniqueId.mockResolvedValueOnce(thumbnailBlob);
+
+        const result = await mpHelper.getFileContentByUniqueId({
+          uniqueFileId: 'abc-123-def',
+          thumbnail: true,
+        });
+
+        expect(mockGetFileContentByUniqueId).toHaveBeenCalledWith('abc-123-def', true);
+        expect(result).toEqual(thumbnailBlob);
+      });
+    });
+
+    describe('getFileMetadata', () => {
+      it('should get file metadata by ID', async () => {
+        const fileMetadata = {
+          File_ID: 1,
+          File_Name: 'photo.jpg',
+          File_Size: 12345,
+          Content_Type: 'image/jpeg',
+        };
+        mockGetFileMetadata.mockResolvedValueOnce(fileMetadata);
+
+        const result = await mpHelper.getFileMetadata({ fileId: 1 });
+
+        expect(mockGetFileMetadata).toHaveBeenCalledWith(1);
+        expect(result).toEqual(fileMetadata);
+      });
+    });
+
+    describe('getFileMetadataByUniqueId', () => {
+      it('should get file metadata by unique ID', async () => {
+        const fileMetadata = {
+          File_ID: 1,
+          Unique_Name: 'abc-123-def',
+          File_Name: 'document.pdf',
+          File_Size: 54321,
+        };
+        mockGetFileMetadataByUniqueId.mockResolvedValueOnce(fileMetadata);
+
+        const result = await mpHelper.getFileMetadataByUniqueId({
+          uniqueFileId: 'abc-123-def',
+        });
+
+        expect(mockGetFileMetadataByUniqueId).toHaveBeenCalledWith('abc-123-def');
+        expect(result).toEqual(fileMetadata);
+      });
+    });
+
+    describe('File Service Error Handling', () => {
+      it('should propagate file upload errors', async () => {
+        mockUploadFiles.mockRejectedValueOnce(new Error('Upload failed: file too large'));
+
+        await expect(
+          mpHelper.uploadFiles({
+            table: 'Contacts',
+            recordId: 1,
+            files: [new File(['x'.repeat(10000000)], 'large.bin')],
+          })
+        ).rejects.toThrow('Upload failed: file too large');
+      });
+
+      it('should propagate file not found errors', async () => {
+        mockGetFileMetadata.mockRejectedValueOnce(new Error('File not found'));
+
+        await expect(
+          mpHelper.getFileMetadata({ fileId: 99999 })
+        ).rejects.toThrow('File not found');
+      });
     });
   });
 });
