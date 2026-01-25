@@ -1,9 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/app/providers";
-import { AuthWrapper } from "@/components/auth-wrapper";
-import { Header } from "@/components/header";
-import { DynamicBreadcrumb } from "@/components/dynamic-breadcrumb";
+import { AuthWrapper, Header, DynamicBreadcrumb } from "@/components/layout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
