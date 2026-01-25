@@ -423,6 +423,57 @@ function generateTypeDefinition(table: TableMetadata, tableName?: string): strin
   return generateDetailedTypeDefinition(table, undefined, tableName);
 }
 
+function generateTableDocumentation(table: TableMetadata, tableName: string): string {
+  const primaryKey = table.Columns?.find(col => col.IsPrimaryKey);
+  const primaryKeyName = primaryKey?.Name || `${tableName}_ID`;
+
+  const foreignKeys = table.Columns?.filter(col => col.IsForeignKey && col.ReferencedTable) || [];
+
+  const accessInfo = table.AccessLevel ? `Access: ${table.AccessLevel}` : '';
+  const permissionsInfo = table.SpecialPermissions ? ` | Permissions: ${table.SpecialPermissions}` : '';
+  const description = `${accessInfo}${permissionsInfo}` || 'Standard table';
+
+  let md = `### ${tableName}\n\n`;
+  md += `${description}\n\n`;
+  md += `- **Primary Key:** \`${primaryKeyName}\`\n`;
+
+  if (foreignKeys.length > 0) {
+    md += `- **Foreign Keys:**\n`;
+    foreignKeys.forEach(fk => {
+      md += `  - \`${fk.Name}\` -> \`${fk.ReferencedTable}.${fk.ReferencedColumn}\`\n`;
+    });
+  }
+
+  md += '\n';
+  return md;
+}
+
+function generateSchemaDocument(tables: TableMetadata[]): string {
+  const validTables = tables
+    .filter(table => {
+      const name = getTableName(table);
+      return name && typeof name === 'string';
+    })
+    .sort((a, b) => {
+      const nameA = getTableName(a) || '';
+      const nameB = getTableName(b) || '';
+      return nameA.localeCompare(nameB);
+    });
+
+  let md = `# Ministry Platform Schema Reference\n\n`;
+  md += `This document provides a summary of Ministry Platform database tables for LLM assistants working on the MPNext project.\n\n`;
+  md += `**Generated:** ${new Date().toISOString()}\n`;
+  md += `**Tables:** ${validTables.length}\n\n`;
+  md += `---\n\n`;
+
+  validTables.forEach(table => {
+    const tableName = getTableName(table)!;
+    md += generateTableDocumentation(table, tableName);
+  });
+
+  return md;
+}
+
 function generateIndexFile(tables: TableMetadata[], generatedFiles: string[]): string {
   // Filter tables to only include those that were successfully generated
   const validTables = tables.filter(table => {
@@ -589,8 +640,21 @@ async function main() {
     const indexPath = path.join(options.outputDir, "index.ts");
     const indexContent = generateIndexFile(tables, generatedFiles);
     fs.writeFileSync(indexPath, indexContent);
-    
+
     console.log(`  ✓ index.ts (barrel export)`);
+
+    // Generate schema documentation
+    console.log("\n📝 Generating schema documentation...");
+    const schemaDocPath = path.resolve(process.cwd(), '.claude/references/ministryplatform.schema.md');
+    const schemaDocContent = generateSchemaDocument(tables);
+
+    const schemaDocDir = path.dirname(schemaDocPath);
+    if (!fs.existsSync(schemaDocDir)) {
+      fs.mkdirSync(schemaDocDir, { recursive: true });
+    }
+
+    fs.writeFileSync(schemaDocPath, schemaDocContent);
+    console.log(`  ✓ ministryplatform.schema.md`);
 
     const zodSchemaCount = options.zodSchemas ? successfulTables : 0;
     console.log(`\n🎉 Successfully generated ${successfulTables} table types${zodSchemaCount > 0 ? ` + ${zodSchemaCount} Zod schemas` : ''} (${generatedFiles.length} total files) in ${options.outputDir}`);
