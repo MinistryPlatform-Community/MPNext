@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['./src/test/setup.ts'],
+    setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', '.next'],
     coverage: {
@@ -16,7 +16,7 @@ export default defineConfig({
       exclude: [
         'node_modules/',
         '.next/',
-        'src/test/',
+        'src/test-setup.ts',
         '**/*.d.ts',
         'src/lib/providers/ministry-platform/models/', // Auto-generated files
       ],

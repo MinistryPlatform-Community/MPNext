@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar } from "./sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { useAppSession, useUser } from "@/contexts";
 
