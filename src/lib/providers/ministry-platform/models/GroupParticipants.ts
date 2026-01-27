@@ -44,6 +44,31 @@ export interface GroupParticipants {
 
   _Last_Attendance?: string /* ISO datetime */ | null; // Read Only
 
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_1?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_2?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_3?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_4?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 50 characters
+   */
+  ACS_List_5?: string /* max 50 chars */ | null;
+
   Show_Email: boolean; // Has Default
 
   Show_Phone: boolean; // Has Default

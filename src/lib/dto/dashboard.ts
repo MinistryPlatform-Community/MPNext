@@ -5,7 +5,11 @@ export interface PeriodMetrics {
   periodStart: string; // ISO date
   periodEnd: string; // ISO date
   averageAttendance: number;
+  averageInPersonAttendance: number;
+  averageOnlineAttendance: number;
   uniqueAttendees: number;
+  uniqueInPersonAttendees: number;
+  uniqueOnlineAttendees: number;
   totalEvents: number;
 }
 
@@ -40,8 +44,14 @@ export interface EventTypeMetrics {
   eventTypeName: string;
   eventCount: number;
   averageAttendance: number;
+  averageInPersonAttendance: number;
+  averageOnlineAttendance: number;
   uniqueAttendees: number;
+  uniqueInPersonAttendees: number;
+  uniqueOnlineAttendees: number;
   totalAttendance: number;
+  totalInPersonAttendance: number;
+  totalOnlineAttendance: number;
 }
 
 /**
@@ -55,6 +65,26 @@ export interface SmallGroupTrend {
 }
 
 /**
+ * Community attendance trend data (weekly Sunday gatherings)
+ */
+export interface CommunityAttendanceTrend {
+  weekStartDate: string; // ISO date for the week start (Sunday)
+  communityAttendance: { [communityName: string]: number }; // Map of community name to average attendance
+}
+
+/**
+ * Monthly worship service attendance trend data
+ */
+export interface MonthlyAttendanceTrend {
+  month: string; // YYYY-MM
+  monthName: string; // e.g., "September"
+  averageInPersonAttendance: number;
+  averageOnlineAttendance: number;
+  averageTotalAttendance: number;
+  eventCount: number;
+}
+
+/**
  * Complete dashboard data
  */
 export interface DashboardData {
@@ -64,5 +94,8 @@ export interface DashboardData {
   eventTypeMetrics: EventTypeMetrics[];
   yearOverYear: YearOverYearMetrics[];
   smallGroupTrends: SmallGroupTrend[];
+  communityAttendanceTrends: CommunityAttendanceTrend[];
+  monthlyAttendanceTrends: MonthlyAttendanceTrend[];
+  previousYearMonthlyAttendanceTrends: MonthlyAttendanceTrend[];
   generatedAt: string;
 }

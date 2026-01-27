@@ -50,8 +50,6 @@ export const EventsSchema = z.object({
   Minor_Registration: z.boolean(),
   Allow_Email: z.boolean(),
   Show_Building_Room_Info: z.boolean(),
-  Allow_QR_Check_In: z.boolean(),
-  QR_Redirect_Url: z.string().max(300).nullable(),
   Allow_Fastpass: z.boolean(),
 });
 

@@ -51,6 +51,8 @@ export interface Participants {
 
   _Background_Check_Date?: string /* ISO datetime */ | null; // Read Only
 
+  Date_Joined?: string /* ISO datetime */ | null;
+
   Church_of_Record?: number /* 32-bit integer */ | null; // Foreign Key -> Households.Household_ID
 
   /**

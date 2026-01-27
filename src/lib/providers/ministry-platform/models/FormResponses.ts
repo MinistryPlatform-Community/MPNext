@@ -35,10 +35,7 @@ export interface FormResponses {
    */
   Email_Address?: string /* email, max 254 chars */ | null;
 
-  /**
-   * Max length: 50 characters
-   */
-  Phone_Number?: string /* max 50 chars */ | null;
+  Phone_Number?: string /* phone number */ | null;
 
   /**
    * Max length: 75 characters

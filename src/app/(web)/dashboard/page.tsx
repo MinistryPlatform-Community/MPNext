@@ -13,7 +13,7 @@ export default async function DashboardPage() {
       <div className="space-y-2">
         <h1 className="text-4xl font-bold tracking-tight">Executive Dashboard</h1>
         <p className="text-muted-foreground">
-          Ministry year metrics from September through May
+          Worship Services attendance and group participation metrics for ministry year (September - May)
         </p>
       </div>
 

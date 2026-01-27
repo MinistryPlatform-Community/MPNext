@@ -17,6 +17,8 @@ export const DonorsSchema = z.object({
   _Last_Donation_Date: z.string().datetime().nullable(),
   Donation_Frequency_ID: z.number().int().nullable(),
   Donation_Level_ID: z.number().int().nullable(),
+  Major_Donor: z.boolean().nullable(),
+  Recurring_Donor: z.boolean().nullable(),
   Donor_Code: z.string().max(16).nullable(),
 });
 

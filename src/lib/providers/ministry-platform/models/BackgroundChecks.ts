@@ -20,9 +20,9 @@ export interface BackgroundChecks {
   All_Clear?: boolean | null;
 
   /**
-   * Max length: 500 characters
+   * Max length: 1000 characters
    */
-  Notes?: string /* max 500 chars */ | null;
+  Notes?: string /* max 1000 chars */ | null;
 
   Theft?: boolean | null;
 
@@ -122,6 +122,16 @@ export interface BackgroundChecks {
    * Max length: 50 characters
    */
   DL_State?: string /* max 50 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  ACS_Description?: string /* max 75 chars */ | null;
+
+  /**
+   * Max length: 75 characters
+   */
+  ACS_Status?: string /* max 75 chars */ | null;
 
   Background_Check_Expires?: string /* ISO datetime */ | null;
 

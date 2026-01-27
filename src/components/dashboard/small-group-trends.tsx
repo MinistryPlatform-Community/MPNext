@@ -5,9 +5,10 @@ import { SmallGroupTrend } from '@/lib/dto';
 
 interface SmallGroupTrendsProps {
   data: SmallGroupTrend[];
+  height?: number;
 }
 
-export function SmallGroupTrends({ data }: SmallGroupTrendsProps) {
+export function SmallGroupTrends({ data, height = 300 }: SmallGroupTrendsProps) {
   const chartData = data.map(item => ({
     month: new Date(item.month).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
     groups: item.activeGroupCount,
@@ -16,14 +17,14 @@ export function SmallGroupTrends({ data }: SmallGroupTrendsProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+      <div className={`h-[${height}px] flex items-center justify-center text-muted-foreground`}>
         No small group trend data available
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis dataKey="month" className="text-xs" />

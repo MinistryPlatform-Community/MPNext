@@ -20,6 +20,14 @@ export interface CareTypes {
   Description?: string /* max 255 chars */ | null;
 
   User_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Users.User_ID
+
+  Move_to_Feedback?: boolean | null;
+
+  Move_to_Contact_Log?: boolean | null;
+
+  Move_to_Opportunity_Responses?: boolean | null;
+
+  Assign_to_Program?: number /* 32-bit integer */ | null; // Foreign Key -> Programs.Program_ID
 }
 
 export type CareTypesRecord = CareTypes;

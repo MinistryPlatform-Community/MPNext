@@ -59,8 +59,6 @@ export interface PledgeCampaigns {
 
   Show_On_My_Pledges: boolean; // Has Default
 
-  Congregation_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Congregations.Congregation_ID
-
   Credit_Parishes: boolean; // Has Default
 
   Auto_Create_Pledge: boolean; // Has Default

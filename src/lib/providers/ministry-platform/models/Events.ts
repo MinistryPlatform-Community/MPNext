@@ -123,13 +123,6 @@ export interface Events {
 
   Show_Building_Room_Info: boolean; // Has Default
 
-  Allow_QR_Check_In: boolean; // Has Default
-
-  /**
-   * Max length: 300 characters
-   */
-  QR_Redirect_Url?: string /* max 300 chars */ | null;
-
   Allow_Fastpass: boolean; // Has Default
 }
 

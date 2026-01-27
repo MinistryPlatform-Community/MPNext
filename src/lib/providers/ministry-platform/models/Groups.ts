@@ -99,6 +99,10 @@ export interface Groups {
 
   Next_Scheduled_Meeting?: string /* ISO datetime */ | null;
 
+  Born_From?: string /* ISO datetime */ | null;
+
+  Born_To?: string /* ISO datetime */ | null;
+
   Available_On_App?: boolean | null;
 }
 

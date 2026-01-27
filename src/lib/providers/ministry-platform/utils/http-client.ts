@@ -11,7 +11,7 @@ export class HttpClient {
 
     async get<T = unknown>(endpoint: string, queryParams?: QueryParams): Promise<T> {
         const url = this.buildUrl(endpoint, queryParams);
-        
+
         const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -21,7 +21,14 @@ export class HttpClient {
         });
 
         if (!response.ok) {
-            throw new Error(`GET ${endpoint} failed: ${response.status} ${response.statusText}`);
+            let errorDetails = '';
+            try {
+                const errorBody = await response.text();
+                errorDetails = errorBody ? ` - ${errorBody}` : '';
+            } catch (e) {
+                // If we can't read the error body, just continue without it
+            }
+            throw new Error(`GET ${endpoint} failed: ${response.status} ${response.statusText}${errorDetails}`);
         }
 
         return await response.json() as T;

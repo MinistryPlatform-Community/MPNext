@@ -52,9 +52,9 @@ export interface Pledges {
 
   Send_Pledge_Statement: boolean; // Has Default
 
-  _Original_Amount?: number /* currency amount */ | null; // Read Only
-
   _Last_Installment_Date?: string /* ISO datetime */ | null; // Read Only, Computed
+
+  _Original_Amount?: number /* currency amount */ | null; // Read Only
 
   Batch_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Batches.Batch_ID
 }

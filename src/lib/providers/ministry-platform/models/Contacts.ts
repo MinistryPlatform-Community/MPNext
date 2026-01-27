@@ -101,6 +101,11 @@ export interface Contacts {
 
   HS_Graduation_Year?: number /* 16-bit integer */ | null;
 
+  /**
+   * Max length: 254 characters
+   */
+  Employer?: string /* max 254 chars */ | null;
+
   Bulk_Email_Opt_Out: boolean; // Has Default
 
   Email_Unlisted: boolean; // Has Default

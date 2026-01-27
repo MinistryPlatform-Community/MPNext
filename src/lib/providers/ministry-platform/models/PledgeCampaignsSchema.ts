@@ -21,7 +21,6 @@ export const PledgeCampaignsSchema = z.object({
   Online_Thank_You_Message: z.string().max(255).nullable(),
   Pledge_Beyond_End_Date: z.boolean(),
   Show_On_My_Pledges: z.boolean(),
-  Congregation_ID: z.number().int().nullable(),
   Credit_Parishes: z.boolean(),
   Auto_Create_Pledge: z.boolean(),
   Auto_Increase_Total: z.boolean(),

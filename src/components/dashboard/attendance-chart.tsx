@@ -1,36 +1,77 @@
 'use client';
 
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { EventTypeMetrics } from '@/lib/dto';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { MonthlyAttendanceTrend } from '@/lib/dto';
 
 interface AttendanceChartProps {
-  data: EventTypeMetrics[];
+  currentYear: MonthlyAttendanceTrend[];
+  previousYear: MonthlyAttendanceTrend[];
+  height?: number;
 }
 
-export function AttendanceChart({ data }: AttendanceChartProps) {
-  const chartData = data.map(item => ({
-    name: item.eventTypeName,
-    average: item.averageAttendance,
-    unique: item.uniqueAttendees
-  }));
+export function AttendanceChart({ currentYear, previousYear, height = 300 }: AttendanceChartProps) {
+  // Filter out months with 0 average and combine data by month name
+  const currentFiltered = currentYear.filter(item => item.averageTotalAttendance > 0);
+  const previousFiltered = previousYear.filter(item => item.averageTotalAttendance > 0);
+
+  // Create a map of all unique months that have data
+  const monthsMap = new Map<string, {
+    name: string;
+    currentInPerson?: number;
+    currentOnline?: number;
+    currentTotal?: number;
+    previousInPerson?: number;
+    previousOnline?: number;
+    previousTotal?: number;
+  }>();
+
+  // Add current year data
+  currentFiltered.forEach(item => {
+    monthsMap.set(item.monthName, {
+      name: item.monthName,
+      currentInPerson: item.averageInPersonAttendance,
+      currentOnline: item.averageOnlineAttendance,
+      currentTotal: item.averageTotalAttendance
+    });
+  });
+
+  // Add previous year data
+  previousFiltered.forEach(item => {
+    const existing = monthsMap.get(item.monthName);
+    if (existing) {
+      existing.previousInPerson = item.averageInPersonAttendance;
+      existing.previousOnline = item.averageOnlineAttendance;
+      existing.previousTotal = item.averageTotalAttendance;
+    } else {
+      monthsMap.set(item.monthName, {
+        name: item.monthName,
+        previousInPerson: item.averageInPersonAttendance,
+        previousOnline: item.averageOnlineAttendance,
+        previousTotal: item.averageTotalAttendance
+      });
+    }
+  });
+
+  // Convert to array and sort by ministry year order (Sept - May)
+  const monthOrder = ['September', 'October', 'November', 'December', 'January', 'February', 'March', 'April', 'May'];
+  const chartData = Array.from(monthsMap.values()).sort((a, b) => {
+    return monthOrder.indexOf(a.name) - monthOrder.indexOf(b.name);
+  });
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-        No event attendance data available
+      <div className={`h-[${height}px] flex items-center justify-center text-muted-foreground`}>
+        No attendance data available
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={chartData}>
+    <ResponsiveContainer width="100%" height={height}>
+      <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis
           dataKey="name"
-          angle={-45}
-          textAnchor="end"
-          height={100}
           className="text-xs"
         />
         <YAxis className="text-xs" />
@@ -42,9 +83,13 @@ export function AttendanceChart({ data }: AttendanceChartProps) {
           }}
         />
         <Legend />
-        <Bar dataKey="average" fill="#3b82f6" name="Avg Attendance" />
-        <Bar dataKey="unique" fill="#10b981" name="Unique Attendees" />
-      </BarChart>
+        <Line dataKey="currentInPerson" stroke="#3b82f6" strokeWidth={2} name="In-Person (Current)" />
+        <Line dataKey="previousInPerson" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" name="In-Person (Previous)" />
+        <Line dataKey="currentOnline" stroke="#10b981" strokeWidth={2} name="Online (Current)" />
+        <Line dataKey="previousOnline" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" name="Online (Previous)" />
+        <Line dataKey="currentTotal" stroke="#f59e0b" strokeWidth={2} name="Total (Current)" />
+        <Line dataKey="previousTotal" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" name="Total (Previous)" />
+      </LineChart>
     </ResponsiveContainer>
   );
 }

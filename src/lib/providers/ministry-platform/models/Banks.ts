@@ -27,6 +27,11 @@ export interface Banks {
    * Max length: 25 characters
    */
   Accounting_Company?: string /* max 25 chars */ | null;
+
+  /**
+   * Max length: 5 characters
+   */
+  ACS_Source?: string /* max 5 chars */ | null;
 }
 
 export type BanksRecord = Banks;

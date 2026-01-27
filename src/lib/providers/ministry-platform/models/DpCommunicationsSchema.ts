@@ -24,7 +24,6 @@ export const DpCommunicationsSchema = z.object({
   Expire_Date: z.string().datetime().nullable(),
   Template_User: z.number().int().nullable(),
   Template_User_Group: z.number().int().nullable(),
-  Communication_GUID: z.string().uuid(),
   Alternate_Email_Type_ID: z.number().int().nullable(),
   Publication_ID: z.number().int().nullable(),
 });

@@ -59,8 +59,6 @@ export interface DpCommunications {
 
   Template_User_Group?: number /* 32-bit integer */ | null; // Foreign Key -> dp_User_Groups.User_Group_ID
 
-  Communication_GUID: string /* GUID/UUID */; // Has Default
-
   Alternate_Email_Type_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Alternate_Email_Types.Alternate_Email_Type_ID
 
   Publication_ID?: number /* 32-bit integer */ | null; // Foreign Key -> dp_Publications.Publication_ID

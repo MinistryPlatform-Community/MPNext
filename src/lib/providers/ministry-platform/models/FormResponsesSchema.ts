@@ -9,7 +9,7 @@ export const FormResponsesSchema = z.object({
   First_Name: z.string().max(50).nullable(),
   Last_Name: z.string().max(50).nullable(),
   Email_Address: z.string().email().max(254).nullable(),
-  Phone_Number: z.string().max(50).nullable(),
+  Phone_Number: z.string().nullable(),
   Address_Line_1: z.string().max(75).nullable(),
   Address_Line_2: z.string().max(75).nullable(),
   Address_City: z.string().max(50).nullable(),

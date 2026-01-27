@@ -44,6 +44,8 @@ export const GroupsSchema = z.object({
   Default_Meeting_Room: z.number().int().nullable(),
   Create_Next_Meeting: z.boolean(),
   Next_Scheduled_Meeting: z.string().datetime().nullable(),
+  Born_From: z.string().datetime().nullable(),
+  Born_To: z.string().datetime().nullable(),
   Available_On_App: z.boolean().nullable(),
 });
 

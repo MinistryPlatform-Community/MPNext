@@ -2,8 +2,8 @@
 
 This document provides a summary of Ministry Platform database tables for LLM assistants working on the MPNext project.
 
-**Generated:** 2026-01-25T00:52:33.294Z
-**Tables:** 301
+**Generated:** 2026-01-27T19:37:15.057Z
+**Tables:** 278
 
 ---
 
@@ -37,6 +37,17 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
   - `Alternate_Pledge_Campaign` -> `Pledge_Campaigns.Pledge_Campaign_ID`
   - `Statement_Cutoff_Automation_ID` -> `Statement_Cutoff_Automation.Statement_Cutoff_Automation_ID`
   - `Standard_Statement` -> `dp_Reports.Report_ID`
+
+### ACS_Relationship_Mapping
+
+Access: ReadWriteAssignDelete | Permissions: DataExport
+
+- **Primary Key:** `ACS_Relationship_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/AcsRelationshipMapping.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/AcsRelationshipMappingSchema.ts`
+- **Foreign Keys:**
+  - `Relationship_ID` -> `Relationships.Relationship_ID`
+  - `Recip_Relationship_ID` -> `Relationships.Relationship_ID`
 
 ### Activity_Log
 
@@ -86,14 +97,6 @@ Access: ReadWriteAssignDelete | Permissions: None
 - **Foreign Keys:**
   - `Contact_ID` -> `Contacts.Contact_ID`
   - `Alternate_Email_Type_ID` -> `Alternate_Email_Types.Alternate_Email_Type_ID`
-
-### Assignment_Roles
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Assignment_Role_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/AssignmentRoles.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/AssignmentRolesSchema.ts`
 
 ### Attribute_Types
 
@@ -251,43 +254,13 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
   - `Batch_Usage_Type_ID` -> `Batch_Usage_Types.Batch_Usage_Type_ID`
   - `Pledge_Campaign_ID` -> `Pledge_Campaigns.Pledge_Campaign_ID`
 
-### Beneficiary_Relationships
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Beneficiary_Relationship_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/BeneficiaryRelationships.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/BeneficiaryRelationshipsSchema.ts`
-
-### Benefit_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Benefit_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/BenefitTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/BenefitTypesSchema.ts`
-
-### Book_Checkouts
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Book_Checkout_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/BookCheckouts.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/BookCheckoutsSchema.ts`
-- **Foreign Keys:**
-  - `Book_Checkout_ID` -> `Book_Checkouts.Book_Checkout_ID`
-  - `Book_ID` -> `Books.Book_ID`
-  - `Contact_ID` -> `Contacts.Contact_ID`
-
 ### Books
 
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
+Access: ReadWriteAssignDelete | Permissions: None
 
 - **Primary Key:** `Book_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/Books.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/BooksSchema.ts`
-- **Foreign Keys:**
-  - `Genre_ID` -> `Genres.Genre_ID`
 
 ### Buildings
 
@@ -352,6 +325,7 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
 - **Schema:** `src/lib/providers/ministry-platform/models/CareTypesSchema.ts`
 - **Foreign Keys:**
   - `User_ID` -> `dp_Users.User_ID`
+  - `Assign_to_Program` -> `Programs.Program_ID`
 
 ### Certification_Types
 
@@ -386,26 +360,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
 - **Schema:** `src/lib/providers/ministry-platform/models/ChurchAssociationsSchema.ts`
 - **Foreign Keys:**
   - `Address_ID` -> `Addresses.Address_ID`
-
-### Citizenship_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Citizenship_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/CitizenshipTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/CitizenshipTypesSchema.ts`
-
-### Congregation_Audits
-
-Access: ReadWriteAssignDelete | Permissions: None
-
-- **Primary Key:** `Congregation_Audit_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/CongregationAudits.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/CongregationAuditsSchema.ts`
-- **Foreign Keys:**
-  - `Household_ID` -> `Households.Household_ID`
-  - `Prior_Congregation` -> `Congregations.Congregation_ID`
-  - `New_Congregation` -> `Congregations.Congregation_ID`
 
 ### Congregations
 
@@ -607,14 +561,6 @@ Access: Read | Permissions: None
 - **Primary Key:** `Currency_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/Currencies.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/CurrenciesSchema.ts`
-
-### Custom_Widget_DS
-
-Access: ReadWriteAssignDelete | Permissions: DataExport
-
-- **Primary Key:** `Custom_Widget_DS_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/CustomWidgetDs.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/CustomWidgetDsSchema.ts`
 
 ### Date_Accuracies
 
@@ -1010,6 +956,27 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
   - `Template_ID` -> `dp_Communication_Templates.Communication_Template_ID`
   - `User_Group_ID` -> `dp_User_Groups.User_Group_ID`
 
+### dp_Page_Fields
+
+Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
+
+- **Primary Key:** `Page_Field_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/DpPageFields.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/DpPageFieldsSchema.ts`
+- **Foreign Keys:**
+  - `Page_ID` -> `dp_Pages.Page_ID`
+
+### dp_Page_View_Rules
+
+Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
+
+- **Primary Key:** `Rule_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/DpPageViewRules.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/DpPageViewRulesSchema.ts`
+- **Foreign Keys:**
+  - `Page_View_ID` -> `dp_Page_Views.Page_View_ID`
+  - `Format_As` -> `dp_Field_Format_Types.Field_Format_Type_ID`
+
 ### dp_Page_Views
 
 Access: ReadWriteAssignDelete | Permissions: None
@@ -1133,6 +1100,17 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
   - `User_Group_ID` -> `dp_User_Groups.User_Group_ID`
   - `Congregation_ID` -> `Congregations.Congregation_ID`
   - `Texting_Compliance_Level` -> `Texting_Compliance_Levels.Texting_Compliance_Level_ID`
+
+### dp_Sub_Page_View_Rules
+
+Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
+
+- **Primary Key:** `Rule_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/DpSubPageViewRules.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/DpSubPageViewRulesSchema.ts`
+- **Foreign Keys:**
+  - `Sub_Page_View_ID` -> `dp_Sub_Page_Views.Sub_Page_View_ID`
+  - `Format_As` -> `dp_Field_Format_Types.Field_Format_Type_ID`
 
 ### dp_Sub_Page_Views
 
@@ -1394,14 +1372,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
   - `Parent_Event_ID` -> `Events.Event_ID`
   - `Priority_ID` -> `Priorities.Priority_ID`
 
-### Faith_Backgrounds
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Faith_Background_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/FaithBackgrounds.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/FaithBackgroundsSchema.ts`
-
 ### Feedback_Entries
 
 Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
@@ -1512,14 +1482,6 @@ Access: Read | Permissions: None
 - **Primary Key:** `Gender_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/Genders.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/GendersSchema.ts`
-
-### Genres
-
-Access: Read | Permissions: None
-
-- **Primary Key:** `Genre_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/Genres.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/GenresSchema.ts`
 
 ### Group_Activities
 
@@ -1850,25 +1812,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
 - **Primary Key:** `Location_Category_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/LocationCategories.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/LocationCategoriesSchema.ts`
-
-### Location_Group_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Location_Group_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/LocationGroupTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/LocationGroupTypesSchema.ts`
-
-### Location_Groups
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Location_Group_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/LocationGroups.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/LocationGroupsSchema.ts`
-- **Foreign Keys:**
-  - `Location_Group_Type_ID` -> `Location_Group_Types.Location_Group_Type_ID`
-  - `Parent_Location_Group` -> `Location_Groups.Location_Group_ID`
 
 ### Location_Types
 
@@ -2255,65 +2198,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
   - `Congregation_ID` -> `Congregations.Congregation_ID`
   - `Invoice_ID` -> `Invoices.Invoice_ID`
 
-### Personnel
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/Personnel.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelSchema.ts`
-- **Foreign Keys:**
-  - `Contact_ID` -> `Contacts.Contact_ID`
-  - `Personnel_Type_ID` -> `Personnel_Types.Personnel_Type_ID`
-  - `Personnel_Record_Status_ID` -> `Personnel_Record_Statuses.Personnel_Record_Status_ID`
-  - `Congregation_ID` -> `Congregations.Congregation_ID`
-  - `Citizenship_Type_ID` -> `Citizenship_Types.Citizenship_Type_ID`
-  - `Personnel_Category_ID` -> `Personnel_Categories.Personnel_Category_ID`
-
-### Personnel_Assignment_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Assignment_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelAssignmentTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelAssignmentTypesSchema.ts`
-
-### Personnel_Assignments
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Assignment_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelAssignments.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelAssignmentsSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Personnel_Assignment_Type_ID` -> `Personnel_Assignment_Types.Personnel_Assignment_Type_ID`
-  - `Location_ID` -> `Locations.Location_ID`
-  - `Assignment_Role_ID` -> `Assignment_Roles.Assignment_Role_ID`
-
-### Personnel_Beneficiaries
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Beneficiary_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelBeneficiaries.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelBeneficiariesSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Contact_ID` -> `Contacts.Contact_ID`
-  - `Beneficiary_Relationship_ID` -> `Beneficiary_Relationships.Beneficiary_Relationship_ID`
-
-### Personnel_Benefits
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Benefit_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelBenefits.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelBenefitsSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Benefit_Type_ID` -> `Benefit_Types.Benefit_Type_ID`
-
 ### Personnel_Categories
 
 Access: Read | Permissions: None
@@ -2321,85 +2205,6 @@ Access: Read | Permissions: None
 - **Primary Key:** `Personnel_Category_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/PersonnelCategories.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/PersonnelCategoriesSchema.ts`
-
-### Personnel_Comment_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Comment_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelCommentTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelCommentTypesSchema.ts`
-
-### Personnel_Comments
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Comment_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelComments.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelCommentsSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Personnel_Comment_Type_ID` -> `Personnel_Comment_Types.Personnel_Comment_Type_ID`
-
-### Personnel_Estate_Plans
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Estate_Plan_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelEstatePlans.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelEstatePlansSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-
-### Personnel_Ordination
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Ordination_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelOrdination.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelOrdinationSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Deacon_Ordained_Here` -> `Church_Associations.Church_Association_ID`
-  - `Religious_Order_ID` -> `Religious_Orders.Religious_Order_ID`
-  - `Religious_Order_Status_ID` -> `Religious_Order_Statuses.Religious_Order_Status_ID`
-  - `Priesthood_Ordained_Here` -> `Church_Associations.Church_Association_ID`
-
-### Personnel_Record_Statuses
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Record_Status_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelRecordStatuses.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelRecordStatusesSchema.ts`
-
-### Personnel_Resume_Item_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Resume_Item_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelResumeItemTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelResumeItemTypesSchema.ts`
-
-### Personnel_Resume_Items
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Resume_Item_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelResumeItems.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelResumeItemsSchema.ts`
-- **Foreign Keys:**
-  - `Personnel_ID` -> `Personnel.Personnel_ID`
-  - `Resume_Item_Type_ID` -> `Personnel_Resume_Item_Types.Resume_Item_Type_ID`
-  - `Location_ID` -> `Locations.Location_ID`
-
-### Personnel_Types
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Personnel_Type_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/PersonnelTypes.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/PersonnelTypesSchema.ts`
 
 ### Perspectives
 
@@ -2461,7 +2266,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
   - `Event_ID` -> `Events.Event_ID`
   - `Program_ID` -> `Programs.Program_ID`
   - `Registration_Form` -> `Forms.Form_ID`
-  - `Congregation_ID` -> `Congregations.Congregation_ID`
 
 ### Pledge_Frequencies
 
@@ -2649,14 +2453,6 @@ Access: Read | Permissions: None
 - **Primary Key:** `Religious_Order_Status_ID`
 - **Type:** `src/lib/providers/ministry-platform/models/ReligiousOrderStatuses.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/ReligiousOrderStatusesSchema.ts`
-
-### Religious_Orders
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Religious_Order_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/ReligiousOrders.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/ReligiousOrdersSchema.ts`
 
 ### Request_Statuses
 
@@ -2891,16 +2687,6 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
 - **Type:** `src/lib/providers/ministry-platform/models/SponsorTypes.ts`
 - **Schema:** `src/lib/providers/ministry-platform/models/SponsorTypesSchema.ts`
 
-### Staff
-
-Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport
-
-- **Primary Key:** `Staff_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/Staff.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/StaffSchema.ts`
-- **Foreign Keys:**
-  - `Contact_ID` -> `Contacts.Contact_ID`
-
 ### Statement_Cutoff_Automation
 
 Access: Read | Permissions: None
@@ -2999,6 +2785,14 @@ Access: ReadWriteAssignDelete | Permissions: FileAttach, DataExport, SecureRecor
 - **Foreign Keys:**
   - `Contact_ID` -> `Contacts.Contact_ID`
 
+### vw_Moody_Distribution_RO
+
+Access: Read | Permissions: DataExport
+
+- **Primary Key:** `Donation_Distribution_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/VwMoodyDistributionRo.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/VwMoodyDistributionRoSchema.ts`
+
 ### vw_mp_Campaign_Goals
 
 Access: Read | Permissions: FileAttach, DataExport, SecureRecord
@@ -3009,22 +2803,6 @@ Access: Read | Permissions: FileAttach, DataExport, SecureRecord
 - **Foreign Keys:**
   - `Campaign_Goal_ID` -> `Campaign_Goals.Campaign_Goal_ID`
   - `Pledge_Campaign_ID` -> `Pledge_Campaigns.Pledge_Campaign_ID`
-
-### vw_mp_Contact_Details
-
-Access: Read | Permissions: None
-
-- **Primary Key:** `ID`
-- **Type:** `src/lib/providers/ministry-platform/models/VwMpContactDetails.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/VwMpContactDetailsSchema.ts`
-
-### vw_mp_contact_mail_name
-
-Access: Read | Permissions: DataExport
-
-- **Primary Key:** `Contact_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/VwMpContactMailName.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/VwMpContactMailNameSchema.ts`
 
 ### vw_mp_giving_unit_summary
 
@@ -3064,14 +2842,6 @@ Access: Read | Permissions: DataExport
   - `Certification_Type_ID` -> `Certification_Types.Certification_Type_ID`
   - `Milestone_ID` -> `Milestones.Milestone_ID`
   - `Custom_Form_ID` -> `Forms.Form_ID`
-
-### vw_mp_Personnel_Audit_Overview
-
-Access: Read | Permissions: FileAttach, DataExport, SecureRecord
-
-- **Primary Key:** `Audit_Item_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/VwMpPersonnelAuditOverview.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/VwMpPersonnelAuditOverviewSchema.ts`
 
 ### vw_mp_Projected_Scheduled_Donations
 
@@ -3127,15 +2897,21 @@ Access: Read | Permissions: DataExport
   - `Contact_ID` -> `Contacts.Contact_ID`
   - `User_ID` -> `dp_Users.User_ID`
 
-### Weekly_Snapshots
+### vw_nh_donations
 
-Access: Read | Permissions: None
+Access: Read | Permissions: FileAttach, DataExport, SecureRecord
 
-- **Primary Key:** `Weekly_Snapshot_ID`
-- **Type:** `src/lib/providers/ministry-platform/models/WeeklySnapshots.ts`
-- **Schema:** `src/lib/providers/ministry-platform/models/WeeklySnapshotsSchema.ts`
-- **Foreign Keys:**
-  - `Congregation_ID` -> `Congregations.Congregation_ID`
+- **Primary Key:** `Donation_Distribution_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/VwNhDonations.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/VwNhDonationsSchema.ts`
+
+### vw_nh_donors
+
+Access: Read | Permissions: FileAttach, DataExport, SecureRecord
+
+- **Primary Key:** `Donor_ID`
+- **Type:** `src/lib/providers/ministry-platform/models/VwNhDonors.ts`
+- **Schema:** `src/lib/providers/ministry-platform/models/VwNhDonorsSchema.ts`
 
 ### Wifi_Device_Sessions
 

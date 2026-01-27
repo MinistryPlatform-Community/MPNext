@@ -33,6 +33,7 @@ export const ContactsSchema = z.object({
   Occupation_ID: z.number().int().nullable(),
   Current_School: z.string().max(75).nullable(),
   HS_Graduation_Year: z.number().int().nullable(),
+  Employer: z.string().max(254).nullable(),
   Bulk_Email_Opt_Out: z.boolean(),
   Email_Unlisted: z.boolean(),
   Do_Not_Text: z.boolean(),

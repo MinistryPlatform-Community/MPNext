@@ -7,6 +7,7 @@ export const BanksSchema = z.object({
   Address_ID: z.number().int().nullable(),
   Account_Number: z.string().max(25).nullable(),
   Accounting_Company: z.string().max(25).nullable(),
+  ACS_Source: z.string().max(5).nullable(),
 });
 
 export type BanksInput = z.infer<typeof BanksSchema>;

@@ -42,6 +42,10 @@ export interface Donors {
 
   Donation_Level_ID?: number /* 32-bit integer */ | null; // Foreign Key -> Donation_Levels.Donation_Level_ID
 
+  Major_Donor?: boolean | null;
+
+  Recurring_Donor?: boolean | null;
+
   /**
    * Max length: 16 characters
    */

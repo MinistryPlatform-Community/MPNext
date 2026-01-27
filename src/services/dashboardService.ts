@@ -5,7 +5,8 @@ import {
   EventTypeMetrics,
   PeriodMetrics,
   YearOverYearMetrics,
-  SmallGroupTrend
+  SmallGroupTrend,
+  MonthlyAttendanceTrend
 } from '@/lib/dto';
 
 /**
@@ -74,13 +75,19 @@ export class DashboardService {
       previousPeriod,
       groupTypeMetrics,
       eventTypeMetrics,
-      smallGroupTrends
+      smallGroupTrends,
+      communityAttendanceTrends,
+      monthlyAttendanceTrends,
+      previousYearMonthlyAttendanceTrends
     ] = await Promise.all([
       this.getPeriodMetrics(currentYearStart, currentYearEnd),
       this.getPeriodMetrics(previousYearStart, previousYearEnd),
       this.getGroupTypeMetrics(currentYearStart, currentYearEnd),
       this.getEventTypeMetrics(currentYearStart, currentYearEnd),
-      this.getSmallGroupTrends(currentYearStart, currentYearEnd)
+      this.getSmallGroupTrends(currentYearStart, currentYearEnd),
+      this.getCommunityAttendanceTrends(currentYearStart, currentYearEnd),
+      this.getMonthlyAttendanceTrends(currentYearStart, currentYearEnd),
+      this.getMonthlyAttendanceTrends(previousYearStart, previousYearEnd)
     ]);
 
     // Calculate year-over-year comparisons
@@ -98,6 +105,9 @@ export class DashboardService {
       eventTypeMetrics,
       yearOverYear,
       smallGroupTrends,
+      communityAttendanceTrends,
+      monthlyAttendanceTrends,
+      previousYearMonthlyAttendanceTrends,
       generatedAt: new Date().toISOString()
     };
   }
@@ -117,42 +127,102 @@ export class DashboardService {
     const endIso = endDate.toISOString();
 
     try {
-      // Query aggregated group participation data
-      const results = await this.mp!.getTableRecords<{
+      // Step 1: Get active groups for the period
+      const groups = await this.mp!.getTableRecords<{
+        Group_ID: number;
         Group_Type_ID: number;
-        Group_Type: string;
-        Active_Group_Count: number;
-        Total_Participants: number;
-        Unique_Participants: number;
       }>({
-        table: 'Group_Participants',
-        select: `
-          Group_Participants.Group_ID_Table.Group_Type_ID_Table.Group_Type_ID,
-          Group_Participants.Group_ID_Table.Group_Type_ID_Table.Group_Type,
-          COUNT(DISTINCT Group_Participants.Group_ID) AS Active_Group_Count,
-          COUNT(Group_Participants.Group_Participant_ID) AS Total_Participants,
-          COUNT(DISTINCT Group_Participants.Participant_ID) AS Unique_Participants
-        `,
+        table: 'Groups',
+        select: 'Group_ID,Group_Type_ID',
         filter: `
-          Group_Participants.Start_Date <= '${endIso}' AND
-          (Group_Participants.End_Date IS NULL OR Group_Participants.End_Date >= '${startIso}') AND
-          Group_Participants.Group_ID_Table.Start_Date <= '${endIso}' AND
-          (Group_Participants.Group_ID_Table.End_Date IS NULL OR Group_Participants.Group_ID_Table.End_Date >= '${startIso}')
-        `,
-        groupBy: `
-          Group_Participants.Group_ID_Table.Group_Type_ID_Table.Group_Type_ID,
-          Group_Participants.Group_ID_Table.Group_Type_ID_Table.Group_Type
+          Groups.Start_Date <= '${endIso}' AND
+          (Groups.End_Date IS NULL OR Groups.End_Date >= '${startIso}')
         `
       });
 
-      return results.map(r => ({
-        groupTypeId: r.Group_Type_ID,
-        groupTypeName: r.Group_Type,
-        activeGroupCount: r.Active_Group_Count,
-        totalParticipants: r.Total_Participants,
-        uniqueParticipants: r.Unique_Participants,
-        averageGroupSize: r.Active_Group_Count > 0
-          ? Math.round(r.Unique_Participants / r.Active_Group_Count)
+      if (groups.length === 0) return [];
+
+      // Step 2: Get all group types to identify which to exclude
+      const groupTypeIds = new Set(groups.map(g => g.Group_Type_ID));
+      const groupTypes = await this.mp!.getTableRecords<{
+        Group_Type_ID: number;
+        Group_Type: string;
+      }>({
+        table: 'Group_Types',
+        select: 'Group_Type_ID,Group_Type',
+        filter: `Group_Type_ID IN (${Array.from(groupTypeIds).join(',')})`
+      });
+
+      // Identify childcare group type IDs
+      const childcareTypeIds = new Set(
+        groupTypes
+          .filter(gt => gt.Group_Type === 'Childcare')
+          .map(gt => gt.Group_Type_ID)
+      );
+
+      // Filter out childcare groups
+      const filteredGroups = groups.filter(g => !childcareTypeIds.has(g.Group_Type_ID));
+      const activeGroupIds = new Set(filteredGroups.map(g => g.Group_ID));
+      if (activeGroupIds.size === 0) return [];
+
+      // Filter out childcare from group types
+      const filteredGroupTypes = groupTypes.filter(gt => gt.Group_Type !== 'Childcare');
+      const groupTypeMap = new Map(filteredGroupTypes.map(gt => [gt.Group_Type_ID, gt.Group_Type]));
+      const groupToTypeMap = new Map(filteredGroups.map(g => [g.Group_ID, g.Group_Type_ID]));
+
+      // Step 3: Get group participants for active groups
+      const groupParticipants = await this.mp!.getTableRecords<{
+        Group_Participant_ID: number;
+        Group_ID: number;
+        Participant_ID: number;
+      }>({
+        table: 'Group_Participants',
+        select: 'Group_Participant_ID,Group_ID,Participant_ID',
+        filter: `
+          Group_Participants.Group_ID IN (${Array.from(activeGroupIds).join(',')}) AND
+          Group_Participants.Start_Date <= '${endIso}' AND
+          (Group_Participants.End_Date IS NULL OR Group_Participants.End_Date >= '${startIso}')
+        `
+      });
+
+      // Aggregate by group type
+      const metricsMap = new Map<number, {
+        groupTypeName: string;
+        groupIds: Set<number>;
+        participantIds: Set<number>;
+        totalParticipants: number;
+      }>();
+
+      for (const gp of groupParticipants) {
+        const groupTypeId = groupToTypeMap.get(gp.Group_ID);
+        if (!groupTypeId) continue;
+
+        const groupTypeName = groupTypeMap.get(groupTypeId) || 'Unknown';
+
+        if (!metricsMap.has(groupTypeId)) {
+          metricsMap.set(groupTypeId, {
+            groupTypeName,
+            groupIds: new Set(),
+            participantIds: new Set(),
+            totalParticipants: 0
+          });
+        }
+
+        const metrics = metricsMap.get(groupTypeId)!;
+        metrics.groupIds.add(gp.Group_ID);
+        metrics.participantIds.add(gp.Participant_ID);
+        metrics.totalParticipants++;
+      }
+
+      // Convert to array format
+      return Array.from(metricsMap.entries()).map(([groupTypeId, metrics]) => ({
+        groupTypeId,
+        groupTypeName: metrics.groupTypeName,
+        activeGroupCount: metrics.groupIds.size,
+        totalParticipants: metrics.totalParticipants,
+        uniqueParticipants: metrics.participantIds.size,
+        averageGroupSize: metrics.groupIds.size > 0
+          ? Math.round(metrics.participantIds.size / metrics.groupIds.size)
           : 0
       }));
     } catch (error) {
@@ -176,42 +246,112 @@ export class DashboardService {
     const endIso = endDate.toISOString();
 
     try {
-      // Query aggregated event participation data
-      const results = await this.mp!.getTableRecords<{
+      // Step 1: Get events for the period (Event_Type_ID = 7 for Worship Services)
+      const events = await this.mp!.getTableRecords<{
+        Event_ID: number;
         Event_Type_ID: number;
-        Event_Type: string;
-        Event_Count: number;
-        Total_Attendance: number;
-        Unique_Attendees: number;
       }>({
-        table: 'Event_Participants',
-        select: `
-          Event_Participants.Event_ID_Table.Event_Type_ID_Table.Event_Type_ID,
-          Event_Participants.Event_ID_Table.Event_Type_ID_Table.Event_Type,
-          COUNT(DISTINCT Event_Participants.Event_ID) AS Event_Count,
-          COUNT(Event_Participants.Event_Participant_ID) AS Total_Attendance,
-          COUNT(DISTINCT Event_Participants.Participant_ID) AS Unique_Attendees
-        `,
+        table: 'Events',
+        select: 'Event_ID,Event_Type_ID',
         filter: `
-          Event_Participants.Event_ID_Table.Event_Start_Date >= '${startIso}' AND
-          Event_Participants.Event_ID_Table.Event_End_Date <= '${endIso}' AND
-          Event_Participants.Event_ID_Table.Cancelled = 0 AND
-          Event_Participants.Participation_Status_ID = 3
-        `,
-        groupBy: `
-          Event_Participants.Event_ID_Table.Event_Type_ID_Table.Event_Type_ID,
-          Event_Participants.Event_ID_Table.Event_Type_ID_Table.Event_Type
+          Events.Event_Start_Date >= '${startIso}' AND
+          Events.Event_End_Date <= '${endIso}' AND
+          Events.Cancelled = 0 AND
+          Events.Event_Type_ID = 7
         `
       });
 
-      return results.map(r => ({
-        eventTypeId: r.Event_Type_ID,
-        eventTypeName: r.Event_Type,
-        eventCount: r.Event_Count,
-        totalAttendance: r.Total_Attendance,
-        uniqueAttendees: r.Unique_Attendees,
-        averageAttendance: r.Event_Count > 0
-          ? Math.round(r.Total_Attendance / r.Event_Count)
+      const eventIds = new Set(events.map(e => e.Event_ID));
+      if (eventIds.size === 0) return [];
+
+      // Step 2: Get event types
+      const eventTypeIds = new Set(events.map(e => e.Event_Type_ID));
+      const eventTypes = await this.mp!.getTableRecords<{
+        Event_Type_ID: number;
+        Event_Type: string;
+      }>({
+        table: 'Event_Types',
+        select: 'Event_Type_ID,Event_Type',
+        filter: `Event_Type_ID IN (${Array.from(eventTypeIds).join(',')})`
+      });
+
+      const eventTypeMap = new Map(eventTypes.map(et => [et.Event_Type_ID, et.Event_Type]));
+      const eventToTypeMap = new Map(events.map(e => [e.Event_ID, e.Event_Type_ID]));
+
+      // Step 3: Get attendance metrics from Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
+      const eventMetrics = await this.mp!.getTableRecords<{
+        Event_Metric_ID: number;
+        Event_ID: number;
+        Metric_ID: number;
+        Numerical_Value: number;
+      }>({
+        table: 'Event_Metrics',
+        select: 'Event_Metric_ID,Event_ID,Metric_ID,Numerical_Value',
+        filter: `
+          Event_Metrics.Event_ID IN (${Array.from(eventIds).join(',')}) AND
+          Event_Metrics.Metric_ID IN (2, 3)
+        `
+      });
+
+      // Aggregate by event type with online vs in-person breakdown
+      const metricsMap = new Map<number, {
+        eventTypeName: string;
+        eventIds: Set<number>;
+        totalAttendance: number;
+        inPersonAttendance: number;
+        onlineAttendance: number;
+      }>();
+
+      for (const metric of eventMetrics) {
+        const eventTypeId = eventToTypeMap.get(metric.Event_ID);
+        if (!eventTypeId) continue;
+
+        const eventTypeName = eventTypeMap.get(eventTypeId) || 'Unknown';
+
+        if (!metricsMap.has(eventTypeId)) {
+          metricsMap.set(eventTypeId, {
+            eventTypeName,
+            eventIds: new Set(),
+            totalAttendance: 0,
+            inPersonAttendance: 0,
+            onlineAttendance: 0
+          });
+        }
+
+        const metrics = metricsMap.get(eventTypeId)!;
+        metrics.eventIds.add(metric.Event_ID);
+
+        if (metric.Metric_ID === 2) {
+          // In-Person attendance
+          metrics.inPersonAttendance += metric.Numerical_Value;
+          metrics.totalAttendance += metric.Numerical_Value;
+        } else if (metric.Metric_ID === 3) {
+          // Online attendance
+          metrics.onlineAttendance += metric.Numerical_Value;
+          metrics.totalAttendance += metric.Numerical_Value;
+        }
+      }
+
+      // Convert to array format
+      return Array.from(metricsMap.entries()).map(([eventTypeId, metrics]) => ({
+        eventTypeId,
+        eventTypeName: metrics.eventTypeName,
+        eventCount: metrics.eventIds.size,
+        totalAttendance: metrics.totalAttendance,
+        totalInPersonAttendance: metrics.inPersonAttendance,
+        totalOnlineAttendance: metrics.onlineAttendance,
+        // Event_Metrics doesn't track individual participants, only headcounts
+        uniqueAttendees: 0,
+        uniqueInPersonAttendees: 0,
+        uniqueOnlineAttendees: 0,
+        averageAttendance: metrics.eventIds.size > 0
+          ? Math.round(metrics.totalAttendance / metrics.eventIds.size)
+          : 0,
+        averageInPersonAttendance: metrics.eventIds.size > 0
+          ? Math.round(metrics.inPersonAttendance / metrics.eventIds.size)
+          : 0,
+        averageOnlineAttendance: metrics.eventIds.size > 0
+          ? Math.round(metrics.onlineAttendance / metrics.eventIds.size)
           : 0
       }));
     } catch (error) {
@@ -235,35 +375,89 @@ export class DashboardService {
     const endIso = endDate.toISOString();
 
     try {
-      const results = await this.mp!.getTableRecords<{
-        Total_Events: number;
-        Total_Attendance: number;
-        Unique_Attendees: number;
+      // Step 1: Get events for the period (Event_Type_ID = 7 for Worship Services)
+      const events = await this.mp!.getTableRecords<{
+        Event_ID: number;
       }>({
-        table: 'Event_Participants',
-        select: `
-          COUNT(DISTINCT Event_Participants.Event_ID) AS Total_Events,
-          COUNT(Event_Participants.Event_Participant_ID) AS Total_Attendance,
-          COUNT(DISTINCT Event_Participants.Participant_ID) AS Unique_Attendees
-        `,
+        table: 'Events',
+        select: 'Event_ID',
         filter: `
-          Event_Participants.Event_ID_Table.Event_Start_Date >= '${startIso}' AND
-          Event_Participants.Event_ID_Table.Event_End_Date <= '${endIso}' AND
-          Event_Participants.Event_ID_Table.Cancelled = 0 AND
-          Event_Participants.Participation_Status_ID = 3
+          Events.Event_Start_Date >= '${startIso}' AND
+          Events.Event_End_Date <= '${endIso}' AND
+          Events.Cancelled = 0 AND
+          Events.Event_Type_ID = 7
         `
       });
 
-      const data = results[0] || { Total_Events: 0, Total_Attendance: 0, Unique_Attendees: 0 };
+      const eventIds = new Set(events.map(e => e.Event_ID));
+
+      if (eventIds.size === 0) {
+        return {
+          periodStart: startIso,
+          periodEnd: endIso,
+          averageAttendance: 0,
+          averageInPersonAttendance: 0,
+          averageOnlineAttendance: 0,
+          uniqueAttendees: 0,
+          uniqueInPersonAttendees: 0,
+          uniqueOnlineAttendees: 0,
+          totalEvents: 0
+        };
+      }
+
+      // Step 2: Get attendance metrics from Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
+      const eventMetrics = await this.mp!.getTableRecords<{
+        Event_Metric_ID: number;
+        Event_ID: number;
+        Metric_ID: number;
+        Numerical_Value: number;
+      }>({
+        table: 'Event_Metrics',
+        select: 'Event_Metric_ID,Event_ID,Metric_ID,Numerical_Value',
+        filter: `
+          Event_Metrics.Event_ID IN (${Array.from(eventIds).join(',')}) AND
+          Event_Metrics.Metric_ID IN (2, 3)
+        `
+      });
+
+      // Aggregate metrics and track which events have metrics
+      let totalInPerson = 0;
+      let totalOnline = 0;
+      const eventsWithMetrics = new Set<number>();
+
+      for (const metric of eventMetrics) {
+        eventsWithMetrics.add(metric.Event_ID);
+
+        if (metric.Metric_ID === 2) {
+          // In-Person attendance (Metric_ID = 2)
+          totalInPerson += metric.Numerical_Value;
+        } else if (metric.Metric_ID === 3) {
+          // Online attendance (Metric_ID = 3)
+          totalOnline += metric.Numerical_Value;
+        }
+      }
+
+      // Only count events that have metrics recorded
+      const totalEvents = eventsWithMetrics.size;
+      const totalAttendance = totalInPerson + totalOnline;
 
       return {
         periodStart: startIso,
         periodEnd: endIso,
-        totalEvents: data.Total_Events,
-        averageAttendance: data.Total_Events > 0
-          ? Math.round(data.Total_Attendance / data.Total_Events)
+        totalEvents,
+        averageAttendance: totalEvents > 0
+          ? Math.round(totalAttendance / totalEvents)
           : 0,
-        uniqueAttendees: data.Unique_Attendees
+        averageInPersonAttendance: totalEvents > 0
+          ? Math.round(totalInPerson / totalEvents)
+          : 0,
+        averageOnlineAttendance: totalEvents > 0
+          ? Math.round(totalOnline / totalEvents)
+          : 0,
+        // Note: Event_Metrics doesn't track individual participants, only headcounts
+        uniqueAttendees: 0,
+        uniqueInPersonAttendees: 0,
+        uniqueOnlineAttendees: 0
       };
     } catch (error) {
       console.error('Error fetching period metrics:', error);
@@ -271,7 +465,11 @@ export class DashboardService {
         periodStart: startIso,
         periodEnd: endIso,
         averageAttendance: 0,
+        averageInPersonAttendance: 0,
+        averageOnlineAttendance: 0,
         uniqueAttendees: 0,
+        uniqueInPersonAttendees: 0,
+        uniqueOnlineAttendees: 0,
         totalEvents: 0
       };
     }
@@ -322,6 +520,254 @@ export class DashboardService {
       return trends;
     } catch (error) {
       console.error('Error fetching small group trends:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Gets community attendance trends over time (weekly Sunday gatherings)
+   *
+   * @param startDate - Start date of period
+   * @param endDate - End date of period
+   * @returns Promise<CommunityAttendanceTrend[]> - Weekly community attendance data
+   */
+  private async getCommunityAttendanceTrends(
+    startDate: Date,
+    endDate: Date
+  ): Promise<import('@/lib/dto').CommunityAttendanceTrend[]> {
+    try {
+      // Step 1: Get Community group type ID
+      const groupTypes = await this.mp!.getTableRecords<{
+        Group_Type_ID: number;
+        Group_Type: string;
+      }>({
+        table: 'Group_Types',
+        select: 'Group_Type_ID,Group_Type',
+        filter: `Group_Type = 'Community'`
+      });
+
+      if (groupTypes.length === 0) {
+        console.log('No Community group type found');
+        return [];
+      }
+
+      const communityTypeId = groupTypes[0].Group_Type_ID;
+
+      // Step 2: Get all Community groups
+      const communityGroups = await this.mp!.getTableRecords<{
+        Group_ID: number;
+        Group_Name: string;
+        Group_Type_ID: number;
+      }>({
+        table: 'Groups',
+        select: 'Group_ID,Group_Name,Group_Type_ID',
+        filter: `Group_Type_ID = ${communityTypeId}`
+      });
+
+      if (communityGroups.length === 0) {
+        console.log('No Community groups found');
+        return [];
+      }
+
+      const communityGroupIds = communityGroups.map(g => g.Group_ID);
+      const communityNameMap = new Map(communityGroups.map(g => [g.Group_ID, g.Group_Name]));
+
+      console.log(`Found ${communityGroups.length} Community groups:`, communityGroupIds);
+
+      // Step 3: Get all events for these community groups on Sundays
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
+
+      const events = await this.mp!.getTableRecords<{
+        Event_ID: number;
+        Group_ID: number;
+        Event_Start_Date: string;
+      }>({
+        table: 'Events',
+        select: 'Event_ID,Group_ID,Event_Start_Date',
+        filter: `
+          Events.Group_ID IN (${communityGroupIds.join(',')}) AND
+          Events.Event_Start_Date >= '${startIso}' AND
+          Events.Event_End_Date <= '${endIso}' AND
+          Events.Cancelled = 0 AND
+          DATEPART(weekday, Events.Event_Start_Date) = 1
+        `
+      });
+
+      console.log(`Found ${events.length} Sunday events for Community groups`);
+
+      if (events.length === 0) return [];
+
+      const eventIds = events.map(e => e.Event_ID);
+
+      // Step 4: Get event participants for these events (Status 3 or 4 = present)
+      const eventParticipants = await this.mp!.getTableRecords<{
+        Event_Participant_ID: number;
+        Event_ID: number;
+        Participant_ID: number;
+        Participation_Status_ID: number;
+      }>({
+        table: 'Event_Participants',
+        select: 'Event_Participant_ID,Event_ID,Participant_ID,Participation_Status_ID',
+        filter: `
+          Event_Participants.Event_ID IN (${eventIds.join(',')}) AND
+          Event_Participants.Participation_Status_ID IN (3, 4)
+        `
+      });
+
+      console.log(`Found ${eventParticipants.length} event participants with status 3 or 4`);
+
+      // Build a map of Event_ID to total attendance (count of participants)
+      const eventAttendanceMap = new Map<number, number>();
+      for (const participant of eventParticipants) {
+        const currentCount = eventAttendanceMap.get(participant.Event_ID) || 0;
+        eventAttendanceMap.set(participant.Event_ID, currentCount + 1);
+      }
+
+      // Step 5: Group by week and community
+      const weeklyData = new Map<string, { [communityName: string]: number[] }>();
+
+      for (const event of events) {
+        const eventDate = new Date(event.Event_Start_Date);
+        // Get the Sunday of this week (assuming event is on Sunday)
+        const weekStart = new Date(eventDate);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekKey = weekStart.toISOString().split('T')[0];
+
+        const communityName = communityNameMap.get(event.Group_ID) || 'Unknown';
+        const attendance = eventAttendanceMap.get(event.Event_ID) || 0;
+
+        if (!weeklyData.has(weekKey)) {
+          weeklyData.set(weekKey, {});
+        }
+
+        const weekData = weeklyData.get(weekKey)!;
+        if (!weekData[communityName]) {
+          weekData[communityName] = [];
+        }
+        weekData[communityName].push(attendance);
+      }
+
+      // Step 6: Calculate averages and format output
+      const trends: import('@/lib/dto').CommunityAttendanceTrend[] = [];
+
+      for (const [weekKey, communities] of Array.from(weeklyData.entries()).sort()) {
+        const communityAttendance: { [communityName: string]: number } = {};
+
+        for (const [communityName, attendances] of Object.entries(communities)) {
+          const avg = attendances.reduce((sum, a) => sum + a, 0) / attendances.length;
+          communityAttendance[communityName] = Math.round(avg);
+        }
+
+        trends.push({
+          weekStartDate: weekKey,
+          communityAttendance
+        });
+      }
+
+      return trends;
+    } catch (error) {
+      console.error('Error fetching community attendance trends:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Gets monthly worship service attendance trends (September - May)
+   *
+   * @param startDate - Start date of period (September 1)
+   * @param endDate - End date of period (May 31)
+   * @returns Promise<MonthlyAttendanceTrend[]> - Monthly attendance data
+   */
+  private async getMonthlyAttendanceTrends(
+    startDate: Date,
+    endDate: Date
+  ): Promise<MonthlyAttendanceTrend[]> {
+    try {
+      const trends: MonthlyAttendanceTrend[] = [];
+      const currentDate = new Date(startDate);
+
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+
+      // Loop through each month in the ministry year (Sept - May)
+      while (currentDate <= endDate) {
+        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+
+        const monthStartIso = monthStart.toISOString();
+        const monthEndIso = monthEnd.toISOString();
+
+        // Get worship service events for this month (Event_Type_ID = 7)
+        const events = await this.mp!.getTableRecords<{
+          Event_ID: number;
+        }>({
+          table: 'Events',
+          select: 'Event_ID',
+          filter: `
+            Events.Event_Start_Date >= '${monthStartIso}' AND
+            Events.Event_End_Date <= '${monthEndIso}' AND
+            Events.Cancelled = 0 AND
+            Events.Event_Type_ID = 7
+          `
+        });
+
+        const eventIds = events.map(e => e.Event_ID);
+        let totalInPerson = 0;
+        let totalOnline = 0;
+        let eventCount = 0;
+
+        if (eventIds.length > 0) {
+          // Get attendance metrics from Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
+          const eventMetrics = await this.mp!.getTableRecords<{
+            Event_ID: number;
+            Metric_ID: number;
+            Numerical_Value: number;
+          }>({
+            table: 'Event_Metrics',
+            select: 'Event_ID,Metric_ID,Numerical_Value',
+            filter: `
+              Event_Metrics.Event_ID IN (${eventIds.join(',')}) AND
+              Event_Metrics.Metric_ID IN (2, 3)
+            `
+          });
+
+          // Track which events have metrics
+          const eventsWithMetrics = new Set<number>();
+
+          for (const metric of eventMetrics) {
+            eventsWithMetrics.add(metric.Event_ID);
+
+            if (metric.Metric_ID === 2) {
+              // In-Person attendance
+              totalInPerson += metric.Numerical_Value;
+            } else if (metric.Metric_ID === 3) {
+              // Online attendance
+              totalOnline += metric.Numerical_Value;
+            }
+          }
+
+          eventCount = eventsWithMetrics.size;
+        }
+
+        trends.push({
+          month: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`,
+          monthName: monthNames[currentDate.getMonth()],
+          averageInPersonAttendance: eventCount > 0 ? Math.round(totalInPerson / eventCount) : 0,
+          averageOnlineAttendance: eventCount > 0 ? Math.round(totalOnline / eventCount) : 0,
+          averageTotalAttendance: eventCount > 0 ? Math.round((totalInPerson + totalOnline) / eventCount) : 0,
+          eventCount
+        });
+
+        // Move to next month
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+
+      return trends;
+    } catch (error) {
+      console.error('Error fetching monthly attendance trends:', error);
       return [];
     }
   }

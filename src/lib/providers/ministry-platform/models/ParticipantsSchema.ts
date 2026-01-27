@@ -17,6 +17,7 @@ export const ParticipantsSchema = z.object({
   _Background_Check_Type: z.string().max(128).nullable(),
   _Background_Check_Status: z.string().max(50).nullable(),
   _Background_Check_Date: z.string().datetime().nullable(),
+  Date_Joined: z.string().datetime().nullable(),
   Church_of_Record: z.number().int().nullable(),
   Baptism_Parish_Name: z.string().max(75).nullable(),
   Baptism_Parish_Address: z.string().max(254).nullable(),
