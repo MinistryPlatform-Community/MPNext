@@ -525,7 +525,10 @@ export class DashboardService {
   }
 
   /**
-   * Gets community attendance trends over time (weekly Sunday gatherings)
+   * Gets community attendance trends over time
+   * Counts Event_Participants with status 3 or 4, filtered by:
+   * - Groups with Group_Type_ID = 11 (Community)
+   * - Events within ministry year date range
    *
    * @param startDate - Start date of period
    * @param endDate - End date of period
@@ -536,36 +539,18 @@ export class DashboardService {
     endDate: Date
   ): Promise<import('@/lib/dto').CommunityAttendanceTrend[]> {
     try {
-      // Step 1: Get Community group type ID
-      const groupTypes = await this.mp!.getTableRecords<{
-        Group_Type_ID: number;
-        Group_Type: string;
-      }>({
-        table: 'Group_Types',
-        select: 'Group_Type_ID,Group_Type',
-        filter: `Group_Type = 'Community'`
-      });
-
-      if (groupTypes.length === 0) {
-        console.log('No Community group type found');
-        return [];
-      }
-
-      const communityTypeId = groupTypes[0].Group_Type_ID;
-
-      // Step 2: Get all Community groups
+      // Step 1: Get all Community groups (Group_Type_ID = 11)
       const communityGroups = await this.mp!.getTableRecords<{
         Group_ID: number;
         Group_Name: string;
-        Group_Type_ID: number;
       }>({
         table: 'Groups',
-        select: 'Group_ID,Group_Name,Group_Type_ID',
-        filter: `Group_Type_ID = ${communityTypeId}`
+        select: 'Group_ID,Group_Name',
+        filter: `Group_Type_ID = 11`
       });
 
       if (communityGroups.length === 0) {
-        console.log('No Community groups found');
+        console.log('No Community groups found (Group_Type_ID = 11)');
         return [];
       }
 
@@ -574,68 +559,87 @@ export class DashboardService {
 
       console.log(`Found ${communityGroups.length} Community groups:`, communityGroupIds);
 
-      // Step 3: Get all events for these community groups on Sundays
+      // Step 2: Get all events within date range
       const startIso = startDate.toISOString();
       const endIso = endDate.toISOString();
 
       const events = await this.mp!.getTableRecords<{
         Event_ID: number;
-        Group_ID: number;
         Event_Start_Date: string;
+        Event_End_Date: string;
       }>({
         table: 'Events',
-        select: 'Event_ID,Group_ID,Event_Start_Date',
-        filter: `
-          Events.Group_ID IN (${communityGroupIds.join(',')}) AND
-          Events.Event_Start_Date >= '${startIso}' AND
-          Events.Event_End_Date <= '${endIso}' AND
-          Events.Cancelled = 0 AND
-          DATEPART(weekday, Events.Event_Start_Date) = 1
-        `
+        select: 'Event_ID,Event_Start_Date,Event_End_Date',
+        filter: `Events.Event_Start_Date >= '${startIso}' AND Events.Event_Start_Date <= '${endIso}' AND Events.Cancelled = 0`
       });
 
-      console.log(`Found ${events.length} Sunday events for Community groups`);
+      console.log(`Found ${events.length} total events in date range`);
 
       if (events.length === 0) return [];
 
       const eventIds = events.map(e => e.Event_ID);
+      const eventDateMap = new Map(events.map(e => [e.Event_ID, e.Event_Start_Date]));
 
-      // Step 4: Get event participants for these events (Status 3 or 4 = present)
-      const eventParticipants = await this.mp!.getTableRecords<{
+      // Step 3: Get Event_Participants with status 3 or 4 for these events AND community groups
+      // Use batching to avoid URL length limits with large IN() clauses
+      const BATCH_SIZE = 100;
+      const eventParticipants: Array<{
         Event_Participant_ID: number;
         Event_ID: number;
-        Participant_ID: number;
+        Group_ID: number;
         Participation_Status_ID: number;
-      }>({
-        table: 'Event_Participants',
-        select: 'Event_Participant_ID,Event_ID,Participant_ID,Participation_Status_ID',
-        filter: `
-          Event_Participants.Event_ID IN (${eventIds.join(',')}) AND
-          Event_Participants.Participation_Status_ID IN (3, 4)
-        `
-      });
+      }> = [];
 
-      console.log(`Found ${eventParticipants.length} event participants with status 3 or 4`);
-
-      // Build a map of Event_ID to total attendance (count of participants)
-      const eventAttendanceMap = new Map<number, number>();
-      for (const participant of eventParticipants) {
-        const currentCount = eventAttendanceMap.get(participant.Event_ID) || 0;
-        eventAttendanceMap.set(participant.Event_ID, currentCount + 1);
+      for (let i = 0; i < eventIds.length; i += BATCH_SIZE) {
+        const batchIds = eventIds.slice(i, i + BATCH_SIZE);
+        const batch = await this.mp!.getTableRecords<{
+          Event_Participant_ID: number;
+          Event_ID: number;
+          Group_ID: number;
+          Participation_Status_ID: number;
+        }>({
+          table: 'Event_Participants',
+          select: 'Event_Participant_ID,Event_ID,Group_ID,Participation_Status_ID',
+          filter: `Event_Participants.Event_ID IN (${batchIds.join(',')}) AND Event_Participants.Group_ID IN (${communityGroupIds.join(',')}) AND Event_Participants.Participation_Status_ID IN (3, 4)`
+        });
+        eventParticipants.push(...batch);
       }
+
+      console.log(`Found ${eventParticipants.length} event participants with status 3 or 4 in community groups`);
+
+      // Step 4: Count participants by event and group
+      const eventGroupAttendance = new Map<string, { eventDate: string; count: number }>();
+
+      for (const participant of eventParticipants) {
+        const eventDate = eventDateMap.get(participant.Event_ID);
+        if (!eventDate) continue; // Skip if event not in our filtered list
+
+        const key = `${participant.Event_ID}-${participant.Group_ID}`;
+        if (!eventGroupAttendance.has(key)) {
+          eventGroupAttendance.set(key, {
+            eventDate: eventDate,
+            count: 0
+          });
+        }
+        eventGroupAttendance.get(key)!.count++;
+      }
+
+      console.log(`Counted attendance for ${eventGroupAttendance.size} event/group combinations`);
 
       // Step 5: Group by week and community
       const weeklyData = new Map<string, { [communityName: string]: number[] }>();
 
-      for (const event of events) {
-        const eventDate = new Date(event.Event_Start_Date);
-        // Get the Sunday of this week (assuming event is on Sunday)
+      for (const [key, data] of eventGroupAttendance) {
+        const [eventIdStr, groupIdStr] = key.split('-');
+        const groupId = parseInt(groupIdStr);
+        const eventDate = new Date(data.eventDate);
+
+        // Use the event date as the week key (date without time)
         const weekStart = new Date(eventDate);
         weekStart.setHours(0, 0, 0, 0);
         const weekKey = weekStart.toISOString().split('T')[0];
 
-        const communityName = communityNameMap.get(event.Group_ID) || 'Unknown';
-        const attendance = eventAttendanceMap.get(event.Event_ID) || 0;
+        const communityName = communityNameMap.get(groupId) || 'Unknown';
 
         if (!weeklyData.has(weekKey)) {
           weeklyData.set(weekKey, {});
@@ -645,7 +649,7 @@ export class DashboardService {
         if (!weekData[communityName]) {
           weekData[communityName] = [];
         }
-        weekData[communityName].push(attendance);
+        weekData[communityName].push(data.count);
       }
 
       // Step 6: Calculate averages and format output
