@@ -141,6 +141,47 @@ await mp.createTableRecords('Contact_Log', records, {
 });
 ```
 
+## Memory & Context Management
+
+AI assistants should maintain context files in `.claude/` to track project state:
+
+### Context Files
+
+- **[work-in-progress.md](.claude/work-in-progress.md)** - Current implementation status, known issues, recent changes
+- **[session-summary-YYYY-MM-DD.md](.claude/)** - Dated session summaries (create new file per session)
+- **[community-attendance-debugging.md](.claude/community-attendance-debugging.md)** - Feature-specific debugging notes
+- **[references/components.md](.claude/references/components.md)** - Component inventory
+- **[references/ministryplatform.schema.md](.claude/references/ministryplatform.schema.md)** - DB schema (auto-generated)
+
+### Update Workflow
+
+**When to update context files:**
+1. **After completing significant features** → Update `work-in-progress.md` with current status
+2. **At end of coding session** → Create dated `session-summary-YYYY-MM-DD.md`
+3. **When fixing bugs** → Update feature-specific debugging docs
+4. **When patterns change** → Update this CLAUDE.md file
+
+**Detecting session end:**
+- AI assistants cannot automatically detect session end
+- **Proactively ask** when all todos are completed: "Should I create a session summary?"
+- **Respond to user cues**: "thanks", "that's all", "we're done", "end of session"
+- **User can request**: "Create a session summary" or "Update context files"
+- Update `work-in-progress.md` incrementally during session, create `session-summary` at end
+
+**What to include in session summaries:**
+- File paths with line numbers for changes
+- Algorithm/approach descriptions
+- Before/after comparisons for significant refactors
+- Known issues and their status
+- Testing notes and verification steps
+- Files modified organized by category (Core Logic, Components, Documentation)
+
+**Best practices:**
+- Keep dated session summaries separate (don't overwrite old ones)
+- Update `work-in-progress.md` as single source of truth for current state
+- Use clear status markers: ✅ COMPLETED, ⚠️ IN PROGRESS, ❌ BLOCKED
+- Session summaries are historical records; work-in-progress is living document
+
 ## Reference Documents
 
 For detailed context on specific areas, see:

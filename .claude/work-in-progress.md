@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-01-28)
+## Current Status (2026-01-29)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -60,12 +60,13 @@
 - **Behavior**: Continues fetching until receiving less than 1000 records
 - **Location**: `src/lib/providers/ministry-platform/helper.ts`
 
-#### Monthly Aggregation Algorithm
-1. Group Event_Participants by month (YYYY-MM format)
-2. Within each month, group by week (event date)
-3. Calculate average attendance per community per week
-4. Calculate monthly average as: average of weekly averages
-5. Excludes weeks with no data (doesn't count as 0)
+#### Monthly Aggregation Algorithm (Simplified - 2026-01-29)
+1. Get Event_Participants for all community groups (Group_Type_ID = 11)
+2. Get Event dates for those participants
+3. Filter to Sunday events only in JavaScript (date.getDay() === 0)
+4. Group by month and community
+5. Calculate average per group per month: unique Event_Participant_IDs / unique Event_IDs
+6. This gives average weekly attendance per month
 
 #### Attendance Tracking Methods
 - **Worship Services**: Use Event_Metrics table (Metric_ID 2 & 3) for headcount
@@ -88,47 +89,47 @@
 - **Ministry year**: September 1 - May 31
 - **Community groups**: Group_Type_ID = 11
 
-### Files Modified (Latest Session - 2026-01-28)
+### Files Modified
 
+#### Session 2026-01-28
 1. **src/lib/providers/ministry-platform/helper.ts**
    - Lines 85-157: Universal auto-pagination implementation
    - Automatically handles 1000 record limit for ALL queries
 
-2. **src/services/dashboardService.ts**
-   - Lines 543-580: Community groups query with duplicate detection logging
-   - Lines 583-621: Event_Participants batching (kept for URL length)
-   - Lines 625-633: Event_Participant deduplication by primary key
-   - Lines 629-683: Monthly aggregation with extensive debug logging
-   - Lines 685-720: Monthly average calculation with Fusion-specific debugging
-
-3. **src/components/dashboard/community-attendance-chart.tsx**
+2. **src/components/dashboard/community-attendance-chart.tsx**
    - Complete rewrite for stacked area chart
    - Lines 14-49: Custom tooltip component with sorting
    - Lines 60-76: Community sorting by average attendance
    - Lines 78-92: Date formatting with local timezone parsing
    - Lines 96-122: AreaChart with stacked areas
 
-4. **src/components/dashboard/attendance-chart.tsx**
+3. **src/components/dashboard/attendance-chart.tsx**
    - Lines 78-84: Updated tooltip background for readability
 
-5. **src/components/dashboard/group-participation-chart.tsx**
+4. **src/components/dashboard/group-participation-chart.tsx**
    - Lines 45-51: Updated tooltip background for readability
 
-6. **src/app/(web)/dashboard/page.tsx**
+5. **src/app/(web)/dashboard/page.tsx**
    - Line 5: Revalidate set to 3600 (1 hour cache)
 
-### Debug Logging (Temporary - Can Be Removed)
+#### Session 2026-01-29 (Simplified Logic)
+1. **src/services/dashboardService.ts**
+   - Lines 537-679: Complete rewrite of getCommunityAttendanceTrends()
+   - Simplified query flow: Groups → Event_Participants → Events → Filter Sundays → Calculate
+   - Removed all debug logging ([DEBUG], [WARNING])
+   - Direct calculation: unique participants / unique events per group per month
+   - No more complex weekly averaging or deduplication logic needed
 
-Current debug logs in dashboardService.ts:
-- All community groups with IDs and names
-- Warning for duplicate group names
-- Each Fusion event with Group_ID, dates, and participant count
-- Monthly event summary for Fusion
-- Before/after deduplication counts
-- Weekly averages and monthly calculations
+### Debug Logging
 
-To remove debug logs, search for `console.log('[DEBUG]` and `console.log('[WARNING]` in:
-- `src/services/dashboardService.ts`
+**Status (2026-01-29)**: All debug logging removed in simplified implementation.
+
+Only essential operational logs remain in getCommunityAttendanceTrends():
+- Community groups count
+- Event participants count
+- Events count
+- Filtered Sunday participants count
+- Monthly trends count
 
 ### Known Issues
 

@@ -1,8 +1,8 @@
 # Community Attendance Chart - RESOLVED ✅
 
-## Status: FIXED (2026-01-28)
+## Status: SIMPLIFIED (2026-01-29)
 
-The Community Sunday Gathering Attendance chart is now working correctly. Multiple issues were identified and resolved.
+The Community Sunday Gathering Attendance chart logic has been simplified and streamlined for better maintainability and clarity.
 
 ## Issues Found and Solutions
 
@@ -91,7 +91,7 @@ const date = new Date(year, month - 1, day); // month is 0-indexed
 </AreaChart>
 ```
 
-## Current Implementation
+## Current Implementation (Simplified - 2026-01-29)
 
 ### Query Flow
 
@@ -104,68 +104,57 @@ const communityGroups = await this.mp!.getTableRecords({
 });
 ```
 
-2. **Get All Events in Date Range**:
+2. **Get Event_Participants directly for community groups**:
 ```typescript
-const events = await this.mp!.getTableRecords({
-  table: 'Events',
-  select: 'Event_ID,Event_Start_Date,Event_End_Date',
-  filter: `Events.Event_Start_Date >= '${startIso}' AND
-           Events.Event_Start_Date <= '${endIso}' AND
-           Events.Cancelled = 0`
+const eventParticipants = await this.mp!.getTableRecords({
+  table: 'Event_Participants',
+  select: 'Event_Participant_ID,Event_ID,Group_ID,Participation_Status_ID',
+  filter: `Event_Participants.Group_ID IN (${communityGroupIds.join(',')}) AND
+           Event_Participants.Participation_Status_ID IN (3, 4)`
 });
 ```
 
-3. **Get Event_Participants** (batched for URL length):
+3. **Get Event dates** (batched for URL length):
 ```typescript
 const BATCH_SIZE = 100;
-for (let i = 0; i < eventIds.length; i += BATCH_SIZE) {
-  const batchIds = eventIds.slice(i, i + BATCH_SIZE);
+for (let i = 0; i < uniqueEventIds.length; i += BATCH_SIZE) {
   const batch = await this.mp!.getTableRecords({
-    table: 'Event_Participants',
-    select: 'Event_Participant_ID,Event_ID,Group_ID,Participation_Status_ID',
-    filter: `Event_Participants.Event_ID IN (${batchIds.join(',')}) AND
-             Event_Participants.Group_ID IN (${communityGroupIds.join(',')}) AND
-             Event_Participants.Participation_Status_ID IN (3, 4)`
+    table: 'Events',
+    select: 'Event_ID,Event_Start_Date',
+    filter: `Event_ID IN (${batchIds.join(',')}) AND Cancelled = 0`
   });
-  eventParticipants.push(...batch);
+  allEvents.push(...batch);
 }
 ```
 
-4. **Deduplicate**:
+4. **Filter to Sundays in JavaScript**:
 ```typescript
-const uniqueParticipants = Array.from(
-  new Map(eventParticipants.map(p => [p.Event_Participant_ID, p])).values()
-);
+const sundayParticipants = eventParticipants.filter(p => {
+  const eventDate = eventDateMap.get(p.Event_ID);
+  if (!eventDate) return false;
+  const date = new Date(eventDate);
+  if (date < startDate || date > endDate) return false;
+  return date.getDay() === 0; // Sunday
+});
 ```
 
-5. **Count by Event and Group**:
+5. **Calculate average per group per month**:
 ```typescript
-for (const participant of uniqueParticipants) {
-  const key = `${participant.Event_ID}-${participant.Group_ID}`;
-  if (!eventGroupAttendance.has(key)) {
-    eventGroupAttendance.set(key, { eventDate, count: 0 });
-  }
-  eventGroupAttendance.get(key)!.count++;
-}
+// For each month and group:
+// Average = unique Event_Participant_IDs / unique Event_IDs
+const average = data.participantIds.size / data.eventIds.size;
 ```
 
-6. **Aggregate by Month**:
-```typescript
-// Group by month → week → community → attendance counts
-// Calculate weekly averages, then monthly averages
-```
+## Debug Logging
 
-## Debug Logging (Currently Active)
+**Status**: All debug logging has been removed in the simplified implementation (2026-01-29).
 
-Temporary debug logs in `src/services/dashboardService.ts`:
-- Line 561-576: All community groups with IDs and names
-- Line 563-576: Warning for duplicate group names
-- Line 630-632: Before/after deduplication counts
-- Line 663-665: Each Fusion event with details
-- Line 686-694: Monthly event summary
-- Line 710-720: Weekly and monthly average calculations
-
-To remove, search for: `console.log('[DEBUG]` and `console.log('[WARNING]`
+Only essential console.log statements remain:
+- Community groups count
+- Event participants count
+- Events count
+- Filtered Sunday participants count
+- Monthly trends count
 
 ## Verification Steps
 

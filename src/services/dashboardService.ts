@@ -557,190 +557,122 @@ export class DashboardService {
       const communityGroupIds = communityGroups.map(g => g.Group_ID);
       const communityNameMap = new Map(communityGroups.map(g => [g.Group_ID, g.Group_Name]));
 
-      console.log(`Found ${communityGroups.length} Community groups:`, communityGroupIds);
-      console.log('[DEBUG] All community groups:', communityGroups.map(g => `${g.Group_ID}: ${g.Group_Name}`));
+      console.log(`Found ${communityGroups.length} Community groups`);
 
-      // Check for duplicate group names (like multiple "Fusion" groups)
-      const groupNameCounts = new Map<string, number>();
-      communityGroups.forEach(g => {
-        const count = groupNameCounts.get(g.Group_Name) || 0;
-        groupNameCounts.set(g.Group_Name, count + 1);
-      });
-      for (const [name, count] of groupNameCounts) {
-        if (count > 1) {
-          console.log(`[WARNING] Found ${count} groups with name "${name}"`);
-          const duplicateIds = communityGroups.filter(g => g.Group_Name === name).map(g => g.Group_ID);
-          console.log(`  Group IDs: ${duplicateIds.join(', ')}`);
-        }
-      }
-
-      // Step 2: Get all events within date range (auto-paginated by MPHelper)
-      const startIso = startDate.toISOString();
-      const endIso = endDate.toISOString();
-
-      const events = await this.mp!.getTableRecords<{
-        Event_ID: number;
-        Event_Start_Date: string;
-        Event_End_Date: string;
-      }>({
-        table: 'Events',
-        select: 'Event_ID,Event_Start_Date,Event_End_Date',
-        filter: `Events.Event_Start_Date >= '${startIso}' AND Events.Event_Start_Date <= '${endIso}' AND Events.Cancelled = 0`
-      });
-
-      console.log(`Found ${events.length} total events in date range`);
-
-      if (events.length === 0) return [];
-
-      const eventIds = events.map(e => e.Event_ID);
-      const eventDateMap = new Map(events.map(e => [e.Event_ID, e.Event_Start_Date]));
-
-      // Step 3: Get Event_Participants with status 3 or 4 for these events AND community groups
-      // Use batching to avoid URL length limits with large IN() clauses
-      const BATCH_SIZE = 100;
-      const eventParticipants: Array<{
+      // Step 2: Get Event_Participants for community groups with status 3 or 4 (Present)
+      const eventParticipants = await this.mp!.getTableRecords<{
         Event_Participant_ID: number;
         Event_ID: number;
         Group_ID: number;
         Participation_Status_ID: number;
+      }>({
+        table: 'Event_Participants',
+        select: 'Event_Participant_ID,Event_ID,Group_ID,Participation_Status_ID',
+        filter: `Event_Participants.Group_ID IN (${communityGroupIds.join(',')}) AND Event_Participants.Participation_Status_ID IN (3, 4)`
+      });
+
+      console.log(`Found ${eventParticipants.length} event participants for community groups`);
+
+      if (eventParticipants.length === 0) return [];
+
+      // Get unique Event_IDs from participants
+      const uniqueEventIds = Array.from(new Set(eventParticipants.map(p => p.Event_ID)));
+
+      // Step 3: Get Event details for those Event_IDs (to get dates and filter)
+      // Batch to avoid URL length limits
+      const BATCH_SIZE = 100;
+      const allEvents: Array<{
+        Event_ID: number;
+        Event_Start_Date: string;
       }> = [];
 
-      for (let i = 0; i < eventIds.length; i += BATCH_SIZE) {
-        const batchIds = eventIds.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < uniqueEventIds.length; i += BATCH_SIZE) {
+        const batchIds = uniqueEventIds.slice(i, i + BATCH_SIZE);
         const batch = await this.mp!.getTableRecords<{
-          Event_Participant_ID: number;
           Event_ID: number;
-          Group_ID: number;
-          Participation_Status_ID: number;
+          Event_Start_Date: string;
         }>({
-          table: 'Event_Participants',
-          select: 'Event_Participant_ID,Event_ID,Group_ID,Participation_Status_ID',
-          filter: `Event_Participants.Event_ID IN (${batchIds.join(',')}) AND Event_Participants.Group_ID IN (${communityGroupIds.join(',')}) AND Event_Participants.Participation_Status_ID IN (3, 4)`
+          table: 'Events',
+          select: 'Event_ID,Event_Start_Date',
+          filter: `Event_ID IN (${batchIds.join(',')}) AND Cancelled = 0`
         });
-        eventParticipants.push(...batch);
+        allEvents.push(...batch);
       }
 
-      console.log(`Found ${eventParticipants.length} event participants (before deduplication) with status 3 or 4 in community groups`);
+      console.log(`Found ${allEvents.length} events`);
 
-      // Deduplicate by Event_Participant_ID (primary key)
-      const uniqueParticipants = Array.from(
-        new Map(eventParticipants.map(p => [p.Event_Participant_ID, p])).values()
-      );
+      // Create a map of Event_ID to Event_Start_Date
+      const eventDateMap = new Map(allEvents.map(e => [e.Event_ID, e.Event_Start_Date]));
 
-      console.log(`After deduplication: ${uniqueParticipants.length} unique event participants`);
-      if (uniqueParticipants.length !== eventParticipants.length) {
-        console.log(`[WARNING] Removed ${eventParticipants.length - uniqueParticipants.length} duplicate Event_Participant records`);
-      }
+      // Filter Event_Participants to only include events within date range and on Sundays
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
 
-      // Step 4: Count participants by event and group
-      const eventGroupAttendance = new Map<string, { eventDate: string; count: number }>();
+      const sundayParticipants = eventParticipants.filter(p => {
+        const eventDate = eventDateMap.get(p.Event_ID);
+        if (!eventDate) return false;
 
-      for (const participant of uniqueParticipants) {
+        const date = new Date(eventDate);
+
+        // Check if within date range
+        if (date < startDate || date > endDate) return false;
+
+        // Check if Sunday (getDay() returns 0 for Sunday)
+        return date.getDay() === 0;
+      });
+
+      console.log(`After filtering to Sundays in date range: ${sundayParticipants.length} participants`);
+
+      if (sundayParticipants.length === 0) return [];
+
+      // Step 4: Calculate average weekly attendance per group per month
+      // Format: unique Event_Participant_IDs / unique Event_IDs per group per month
+
+      // Group data by month and group
+      const monthlyGroupData = new Map<string, Map<number, {
+        participantIds: Set<number>;
+        eventIds: Set<number>;
+      }>>();
+
+      for (const participant of sundayParticipants) {
         const eventDate = eventDateMap.get(participant.Event_ID);
-        if (!eventDate) continue; // Skip if event not in our filtered list
+        if (!eventDate) continue;
 
-        const key = `${participant.Event_ID}-${participant.Group_ID}`;
-        if (!eventGroupAttendance.has(key)) {
-          eventGroupAttendance.set(key, {
-            eventDate: eventDate,
-            count: 0
-          });
-        }
-        eventGroupAttendance.get(key)!.count++;
-      }
-
-      console.log(`Counted attendance for ${eventGroupAttendance.size} event/group combinations`);
-
-      // Step 5: Group by month, week, and community
-      const monthlyWeeklyData = new Map<string, Map<string, { [communityName: string]: number[] }>>();
-
-      for (const [key, data] of eventGroupAttendance) {
-        const [eventIdStr, groupIdStr] = key.split('-');
-        const groupId = parseInt(groupIdStr);
-        const eventDate = new Date(data.eventDate);
-
-        // Get month key (YYYY-MM format)
-        const monthKey = eventDate.toISOString().slice(0, 7); // "2025-09"
-
-        // Get week key (ISO week start date)
-        const weekStart = new Date(eventDate);
-        weekStart.setHours(0, 0, 0, 0);
-        const weekKey = weekStart.toISOString().split('T')[0];
-
-        const communityName = communityNameMap.get(groupId) || 'Unknown';
-
-        // Debug logging for Fusion in November
-        if (communityName.toLowerCase().includes('fusion')) {
-          console.log(`[DEBUG] Fusion event: Event ${eventIdStr}, Group_ID: ${groupId}, Group_Name: "${communityName}", Raw Date: ${data.eventDate}, Parsed Month: ${monthKey}, Week: ${weekKey}, Count: ${data.count}`);
-        }
+        const date = new Date(eventDate);
+        const monthKey = date.toISOString().slice(0, 7); // "2025-09"
 
         // Initialize month if not exists
-        if (!monthlyWeeklyData.has(monthKey)) {
-          monthlyWeeklyData.set(monthKey, new Map());
+        if (!monthlyGroupData.has(monthKey)) {
+          monthlyGroupData.set(monthKey, new Map());
         }
 
-        const monthData = monthlyWeeklyData.get(monthKey)!;
+        const monthData = monthlyGroupData.get(monthKey)!;
 
-        // Initialize week within month if not exists
-        if (!monthData.has(weekKey)) {
-          monthData.set(weekKey, {});
+        // Initialize group within month if not exists
+        if (!monthData.has(participant.Group_ID)) {
+          monthData.set(participant.Group_ID, {
+            participantIds: new Set(),
+            eventIds: new Set()
+          });
         }
 
-        const weekData = monthData.get(weekKey)!;
-        if (!weekData[communityName]) {
-          weekData[communityName] = [];
-        }
-        weekData[communityName].push(data.count);
+        const groupData = monthData.get(participant.Group_ID)!;
+        groupData.participantIds.add(participant.Event_Participant_ID);
+        groupData.eventIds.add(participant.Event_ID);
       }
 
-      // Debug: Log Fusion monthly event counts
-      console.log('[DEBUG] Fusion monthly event summary:');
-      for (const [monthKey, weeksData] of monthlyWeeklyData) {
-        for (const [weekKey, communities] of weeksData) {
-          for (const [communityName, attendances] of Object.entries(communities)) {
-            if (communityName.toLowerCase().includes('fusion')) {
-              console.log(`  ${monthKey} week ${weekKey}: ${attendances.length} events, counts: [${attendances.join(', ')}], total: ${attendances.reduce((sum, a) => sum + a, 0)}`);
-            }
-          }
-        }
-      }
-
-      // Step 6: Calculate monthly average attendance per community (average of weekly averages)
+      // Calculate averages and build trends
       const trends: import('@/lib/dto').CommunityAttendanceTrend[] = [];
 
-      for (const [monthKey, weeksData] of Array.from(monthlyWeeklyData.entries()).sort()) {
-        const communityWeeklyAverages = new Map<string, number[]>();
-
-        // For each week in the month, calculate average attendance per community
-        for (const [, communities] of weeksData) {
-          for (const [communityName, attendances] of Object.entries(communities)) {
-            const weekAvg = attendances.reduce((sum, a) => sum + a, 0) / attendances.length;
-
-            if (!communityWeeklyAverages.has(communityName)) {
-              communityWeeklyAverages.set(communityName, []);
-            }
-            communityWeeklyAverages.get(communityName)!.push(weekAvg);
-          }
-        }
-
-        // Calculate average of weekly averages for each community (omitting weeks with no data)
+      for (const [monthKey, groupsData] of Array.from(monthlyGroupData.entries()).sort()) {
         const communityAttendance: { [communityName: string]: number } = {};
-        for (const [communityName, weeklyAvgs] of communityWeeklyAverages) {
-          if (weeklyAvgs.length > 0) {
-            const monthlyAvg = weeklyAvgs.reduce((sum, a) => sum + a, 0) / weeklyAvgs.length;
-            communityAttendance[communityName] = Math.round(monthlyAvg);
 
-            // Debug logging for Fusion
-            if (communityName.toLowerCase().includes('fusion')) {
-              console.log(`[DEBUG] ${communityName} in ${monthKey}:`, {
-                weeklyAverages: weeklyAvgs,
-                numberOfWeeks: weeklyAvgs.length,
-                sum: weeklyAvgs.reduce((sum, a) => sum + a, 0),
-                monthlyAvg,
-                rounded: Math.round(monthlyAvg)
-              });
-            }
-          }
+        for (const [groupId, data] of groupsData) {
+          const communityName = communityNameMap.get(groupId) || 'Unknown';
+
+          // Average = unique participants / unique events
+          const average = data.participantIds.size / data.eventIds.size;
+          communityAttendance[communityName] = Math.round(average);
         }
 
         trends.push({
@@ -749,7 +681,7 @@ export class DashboardService {
         });
       }
 
-      console.log(`Returning ${trends.length} monthly trends:`, trends.map(t => t.weekStartDate));
+      console.log(`Returning ${trends.length} monthly trends`);
       return trends;
     } catch (error) {
       console.error('Error fetching community attendance trends:', error);
