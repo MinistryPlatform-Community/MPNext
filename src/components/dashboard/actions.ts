@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { DashboardService } from '@/services/dashboardService';
 import { DashboardData } from '@/lib/dto';
 
@@ -44,4 +45,29 @@ function getCurrentMinistryYear(): number {
   return currentMonth >= 8
     ? today.getFullYear()
     : today.getFullYear() - 1;
+}
+
+/**
+ * Manually refreshes the dashboard cache
+ * This action revalidates the dashboard page, forcing a fresh data fetch
+ *
+ * @returns Promise<{ success: boolean; timestamp: Date }>
+ */
+export async function refreshDashboardCache(): Promise<{
+  success: boolean;
+  timestamp: Date;
+}> {
+  try {
+    revalidatePath('/dashboard');
+    return {
+      success: true,
+      timestamp: new Date()
+    };
+  } catch (error) {
+    console.error('Error refreshing dashboard cache:', error);
+    return {
+      success: false,
+      timestamp: new Date()
+    };
+  }
 }

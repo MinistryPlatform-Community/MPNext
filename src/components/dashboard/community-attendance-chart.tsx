@@ -10,8 +10,22 @@ interface CommunityAttendanceChartProps {
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
+// Recharts tooltip types
+interface TooltipPayloadEntry {
+  value: number | undefined;
+  name: string;
+  fill?: string;
+  color?: string;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string;
+}
+
 // Custom tooltip component that sorts communities by value (largest first)
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   if (!active || !payload || payload.length === 0) return null;
 
   // Sort payload by value (descending: largest to smallest)
@@ -28,7 +42,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       }}
     >
       <p style={{ marginBottom: '8px', fontWeight: 'bold' }}>{label}</p>
-      {sortedPayload.map((entry: any, index: number) => (
+      {sortedPayload.map((entry, index: number) => (
         <div key={`item-${index}`} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
           <div
             style={{

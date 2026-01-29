@@ -1,8 +1,10 @@
 import { getDashboardMetrics } from '@/components/dashboard/actions';
 import { DashboardMetrics } from '@/components/dashboard/dashboard-metrics';
+import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 
-// Revalidate the dashboard data every hour (3600 seconds)
-export const revalidate = 3600;
+// Revalidate the dashboard data every 6 hours (21600 seconds)
+// This provides 4 refresh windows per day: 12am, 6am, 12pm, 6pm
+export const revalidate = 21600;
 
 export default async function DashboardPage() {
   // Fetch data on server
@@ -10,12 +12,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="container mx-auto p-8 space-y-8">
-      <div className="space-y-2">
-        <h1 className="text-4xl font-bold tracking-tight">Executive Dashboard</h1>
-        <p className="text-muted-foreground">
-          Worship Services attendance and group participation metrics for ministry year (September - May)
-        </p>
-      </div>
+      <DashboardHeader />
 
       {/* Pass data to client component for rendering */}
       <DashboardMetrics data={dashboardData} />
