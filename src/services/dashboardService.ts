@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import { MPHelper } from '@/lib/providers/ministry-platform';
 import {
   DashboardData,
@@ -50,6 +51,64 @@ export class DashboardService {
    */
   private async initialize(): Promise<void> {
     this.mp = new MPHelper();
+  }
+
+  /**
+   * Gets Group_Types with 24-hour cache
+   * Static data that rarely changes, safe to cache aggressively
+   *
+   * @param groupTypeIds - Set of group type IDs to fetch
+   * @returns Promise<Array> - Array of Group_Type records
+   */
+  private async getGroupTypesWithCache(groupTypeIds: Set<number>) {
+    const ids = Array.from(groupTypeIds).sort().join(',');
+
+    return unstable_cache(
+      async () => {
+        return this.mp!.getTableRecords<{
+          Group_Type_ID: number;
+          Group_Type: string;
+        }>({
+          table: 'Group_Types',
+          select: 'Group_Type_ID,Group_Type',
+          filter: `Group_Type_ID IN (${ids})`
+        });
+      },
+      ['group-types', ids],
+      {
+        revalidate: 86400, // 24 hours
+        tags: ['group-types']
+      }
+    )();
+  }
+
+  /**
+   * Gets Event_Types with 24-hour cache
+   * Static data that rarely changes, safe to cache aggressively
+   *
+   * @param eventTypeIds - Set of event type IDs to fetch
+   * @returns Promise<Array> - Array of Event_Type records
+   */
+  private async getEventTypesWithCache(eventTypeIds: Set<number>) {
+    const ids = Array.from(eventTypeIds).sort().join(',');
+
+    return unstable_cache(
+      async () => {
+        return this.mp!.getTableRecords<{
+          Event_Type_ID: number;
+          Event_Type: string;
+        }>({
+          table: 'Event_Types',
+          select: 'Event_Type_ID,Event_Type',
+          filter: `Event_Type_ID IN (${ids})`
+        });
+      },
+      ['event-types', ids],
+      {
+        revalidate: 86400, // 24 hours
+        tags: ['event-types']
+      }
+    )();
   }
 
   /**
@@ -142,16 +201,9 @@ export class DashboardService {
 
       if (groups.length === 0) return [];
 
-      // Step 2: Get all group types to identify which to exclude
+      // Step 2: Get all group types to identify which to exclude (cached 24 hours)
       const groupTypeIds = new Set(groups.map(g => g.Group_Type_ID));
-      const groupTypes = await this.mp!.getTableRecords<{
-        Group_Type_ID: number;
-        Group_Type: string;
-      }>({
-        table: 'Group_Types',
-        select: 'Group_Type_ID,Group_Type',
-        filter: `Group_Type_ID IN (${Array.from(groupTypeIds).join(',')})`
-      });
+      const groupTypes = await this.getGroupTypesWithCache(groupTypeIds);
 
       // Identify childcare group type IDs
       const childcareTypeIds = new Set(
@@ -264,16 +316,9 @@ export class DashboardService {
       const eventIds = new Set(events.map(e => e.Event_ID));
       if (eventIds.size === 0) return [];
 
-      // Step 2: Get event types
+      // Step 2: Get event types (cached 24 hours)
       const eventTypeIds = new Set(events.map(e => e.Event_Type_ID));
-      const eventTypes = await this.mp!.getTableRecords<{
-        Event_Type_ID: number;
-        Event_Type: string;
-      }>({
-        table: 'Event_Types',
-        select: 'Event_Type_ID,Event_Type',
-        filter: `Event_Type_ID IN (${Array.from(eventTypeIds).join(',')})`
-      });
+      const eventTypes = await this.getEventTypesWithCache(eventTypeIds);
 
       const eventTypeMap = new Map(eventTypes.map(et => [et.Event_Type_ID, et.Event_Type]));
       const eventToTypeMap = new Map(events.map(e => [e.Event_ID, e.Event_Type_ID]));
@@ -482,35 +527,117 @@ export class DashboardService {
    * @param endDate - End date of period
    * @returns Promise<SmallGroupTrend[]> - Monthly trend data
    */
+  /**
+   * Gets small group trends optimized to fetch all data once and aggregate by month
+   * Reduces API calls from 27 (9 months × 3 queries) to 3 queries total
+   *
+   * @param startDate - Start date of period
+   * @param endDate - End date of period
+   * @returns Promise<SmallGroupTrend[]> - Monthly small group participation trends
+   */
   private async getSmallGroupTrends(
     startDate: Date,
     endDate: Date
   ): Promise<SmallGroupTrend[]> {
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
     try {
+      // Step 1: Get all active groups for the entire period (1 query)
+      const groups = await this.mp!.getTableRecords<{
+        Group_ID: number;
+        Group_Type_ID: number;
+        Start_Date: string;
+        End_Date: string | null;
+      }>({
+        table: 'Groups',
+        select: 'Group_ID,Group_Type_ID,Start_Date,End_Date',
+        filter: `
+          Groups.Start_Date <= '${endIso}' AND
+          (Groups.End_Date IS NULL OR Groups.End_Date >= '${startIso}')
+        `
+      });
+
+      if (groups.length === 0) return [];
+
+      // Step 2: Get all group types to identify small groups (cached 24 hours)
+      const groupTypeIds = new Set(groups.map(g => g.Group_Type_ID));
+      const groupTypes = await this.getGroupTypesWithCache(groupTypeIds);
+
+      // Filter for small groups and create lookup maps
+      const smallGroupTypeIds = new Set(
+        groupTypes
+          .filter(gt =>
+            gt.Group_Type.toLowerCase().includes('small') ||
+            gt.Group_Type.toLowerCase().includes('life') ||
+            gt.Group_Type.toLowerCase().includes('community')
+          )
+          .map(gt => gt.Group_Type_ID)
+      );
+
+      const smallGroups = groups.filter(g => smallGroupTypeIds.has(g.Group_Type_ID));
+      const smallGroupIds = new Set(smallGroups.map(g => g.Group_ID));
+
+      if (smallGroupIds.size === 0) return [];
+
+      // Step 3: Get all group participants for the entire period (1 query)
+      const groupParticipants = await this.mp!.getTableRecords<{
+        Group_Participant_ID: number;
+        Group_ID: number;
+        Participant_ID: number;
+        Start_Date: string;
+        End_Date: string | null;
+      }>({
+        table: 'Group_Participants',
+        select: 'Group_Participant_ID,Group_ID,Participant_ID,Start_Date,End_Date',
+        filter: `
+          Group_Participants.Group_ID IN (${Array.from(smallGroupIds).join(',')}) AND
+          Group_Participants.Start_Date <= '${endIso}' AND
+          (Group_Participants.End_Date IS NULL OR Group_Participants.End_Date >= '${startIso}')
+        `
+      });
+
+      // Create a map of group ID to group info for quick lookup
+      const groupMap = new Map(smallGroups.map(g => [g.Group_ID, g]));
+
+      // Step 4: Aggregate by month in JavaScript
       const trends: SmallGroupTrend[] = [];
       const currentDate = new Date(startDate);
 
-      // Loop through each month in the period
       while (currentDate <= endDate) {
         const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
         const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
-        // Get group metrics for this month
-        const monthMetrics = await this.getGroupTypeMetrics(monthStart, monthEnd);
+        // Filter groups and participants active during this month
+        const activeGroupsThisMonth = new Set<number>();
+        const activeParticipantsThisMonth = new Set<number>();
 
-        // Filter for small groups/life groups
-        // Note: Adjust these filters based on actual group type names in MP
-        const smallGroups = monthMetrics.filter(m =>
-          m.groupTypeName.toLowerCase().includes('small') ||
-          m.groupTypeName.toLowerCase().includes('life') ||
-          m.groupTypeName.toLowerCase().includes('community')
-        );
+        for (const gp of groupParticipants) {
+          const group = groupMap.get(gp.Group_ID);
+          if (!group) continue;
+
+          const gpStart = new Date(gp.Start_Date);
+          const gpEnd = gp.End_Date ? new Date(gp.End_Date) : null;
+          const groupStart = new Date(group.Start_Date);
+          const groupEnd = group.End_Date ? new Date(group.End_Date) : null;
+
+          // Check if group participant was active during this month
+          const isGpActive = gpStart <= monthEnd && (!gpEnd || gpEnd >= monthStart);
+          const isGroupActive = groupStart <= monthEnd && (!groupEnd || groupEnd >= monthStart);
+
+          if (isGpActive && isGroupActive) {
+            activeGroupsThisMonth.add(gp.Group_ID);
+            activeParticipantsThisMonth.add(gp.Participant_ID);
+          }
+        }
 
         trends.push({
           month: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`,
-          activeGroupCount: smallGroups.reduce((sum, g) => sum + g.activeGroupCount, 0),
-          totalParticipants: smallGroups.reduce((sum, g) => sum + g.totalParticipants, 0),
-          averageAttendance: smallGroups.reduce((sum, g) => sum + g.averageGroupSize, 0)
+          activeGroupCount: activeGroupsThisMonth.size,
+          totalParticipants: activeParticipantsThisMonth.size,
+          averageAttendance: activeGroupsThisMonth.size > 0
+            ? Math.round(activeParticipantsThisMonth.size / activeGroupsThisMonth.size)
+            : 0
         });
 
         // Move to next month
@@ -605,9 +732,6 @@ export class DashboardService {
       const eventDateMap = new Map(allEvents.map(e => [e.Event_ID, e.Event_Start_Date]));
 
       // Filter Event_Participants to only include events within date range and on Sundays
-      const startIso = startDate.toISOString();
-      const endIso = endDate.toISOString();
-
       const sundayParticipants = eventParticipants.filter(p => {
         const eventDate = eventDateMap.get(p.Event_ID);
         if (!eventDate) return false;

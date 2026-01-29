@@ -2,6 +2,31 @@
 
 This guide provides essential information for AI assistants (like Claude) working on the MPNext project.
 
+## Git & Pull Request Workflow
+
+**IMPORTANT: This is a FORK repository**
+
+- **Origin**: `The-Moody-Church/mp-charts` (THIS fork - where we work)
+- **Upstream**: `MinistryPlatform-Community/MPNext` (upstream project)
+
+### Creating Pull Requests
+
+**CRITICAL**: ALWAYS create PRs on the FORK repository, NEVER on upstream!
+
+```bash
+# ✅ CORRECT: Create PR on fork
+gh pr create --repo The-Moody-Church/mp-charts --title "..." --body "..."
+
+# ❌ WRONG: Do NOT create PRs on upstream
+gh pr create --title "..." --body "..."  # This defaults to upstream!
+```
+
+**Why this matters**:
+- This is a fork of the upstream project
+- PRs should be created on the fork (The-Moody-Church/mp-charts) for review
+- Only create PRs on upstream when explicitly requested
+- Always use `--repo The-Moody-Church/mp-charts` flag with gh pr create
+
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)

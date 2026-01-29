@@ -25,7 +25,7 @@ export class HttpClient {
             try {
                 const errorBody = await response.text();
                 errorDetails = errorBody ? ` - ${errorBody}` : '';
-            } catch (e) {
+            } catch {
                 // If we can't read the error body, just continue without it
             }
             throw new Error(`GET ${endpoint} failed: ${response.status} ${response.statusText}${errorDetails}`);
