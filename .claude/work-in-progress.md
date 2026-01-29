@@ -16,12 +16,14 @@
    - Converted to stacked area chart for better visualization
    - Added custom tooltips with sorting
    - Implemented deduplication for Event_Participant records
-8. ✅ **Dashboard Caching Optimization - Phase 1 COMPLETE**
-   - Extended page-level cache from 1 hour to 6 hours
-   - Implemented manual refresh button with loading states
-   - Optimized small group trends query (27 API calls → 3 calls)
+8. ✅ **Dashboard Caching Optimization - COMPLETE (Phase 1 + 2)**
+   - **Phase 1**: Extended page-level cache from 1 hour to 6 hours
+   - **Phase 1**: Implemented manual refresh button with loading states
+   - **Phase 1**: Optimized small group trends query (27 API calls → 3 calls)
+   - **Phase 2**: Added unstable_cache() for Group_Types and Event_Types (24-hour cache)
+   - **Phase 2**: Implemented query-level caching for static lookups
    - Fixed pre-existing TypeScript lint errors
-   - Achieved ~85% reduction in database load
+   - **Combined achievement: ~91% reduction in database load**
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -158,6 +160,16 @@
    - **src/services/dashboardService.ts**
      - Lines 697-698: Removed unused startIso/endIso variables in getCommunityAttendanceTrends()
 
+#### Session 2026-01-29 (Late Afternoon: Phase 2 Query-Level Caching)
+1. **src/services/dashboardService.ts**
+   - Line 1: Added `unstable_cache` import from 'next/cache'
+   - Lines 56-111: Added two new cached helper methods
+     - `getGroupTypesWithCache()` - 24-hour cache for Group_Types lookups
+     - `getEventTypesWithCache()` - 24-hour cache for Event_Types lookups
+   - Line 205: Updated getGroupTypeMetrics() to use cached Group_Types
+   - Line 573: Updated getSmallGroupTrends() to use cached Group_Types
+   - Line 329: Updated getEventTypeMetrics() to use cached Event_Types
+
 ### Debug Logging
 
 **Status (2026-01-29)**: All debug logging removed in simplified implementation.
@@ -175,12 +187,7 @@ Only essential operational logs remain in getCommunityAttendanceTrends():
 
 ### Potential Future Enhancements
 
-1. **Phase 2 Caching Optimization** (Queued)
-   - Add `unstable_cache()` for static lookups (Group_Types, Event_Types)
-   - Implement query-level caching throughout DashboardService
-   - Expected reduction: ~32 queries → ~20 queries per dashboard load
-
-2. **Future Phase 3** (Long-term)
+1. **Future Phase 3** (Long-term)
    - Scheduled cache warming (4am daily cron job)
    - Redis/Vercel KV for distributed caching
    - Incremental data fetching (only new data since last update)

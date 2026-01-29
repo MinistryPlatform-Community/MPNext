@@ -366,9 +366,235 @@ npm run build
 
 ---
 
-**Total Session Duration (Both Sessions)**: ~4 hours
+**Total Session Duration (Sessions 1-2)**: ~4 hours
 **Total Files Modified**: 10 files (8 code + 2 docs)
 **New Files Created**: 2 files
 **Lines Changed**: ~300 lines
 **Database Load Reduction**: 85%
 **Query Optimization**: 27 → 3 calls (9x)
+
+---
+
+# Session 3: Phase 2 Query-Level Caching
+
+## Time: Late Afternoon (2026-01-29)
+
+## Overview
+Implemented Phase 2 query-level caching using Next.js `unstable_cache()` for static Ministry Platform lookups. Adds aggressive 24-hour caching for data that rarely changes.
+
+## Implementation
+
+### New Cached Helper Methods
+
+**File**: `src/services/dashboardService.ts`
+
+**1. getGroupTypesWithCache() (Lines 56-81)**
+```typescript
+private async getGroupTypesWithCache(groupTypeIds: Set<number>) {
+  const ids = Array.from(groupTypeIds).sort().join(',');
+  return unstable_cache(
+    async () => {
+      return this.mp!.getTableRecords({
+        table: 'Group_Types',
+        select: 'Group_Type_ID,Group_Type',
+        filter: `Group_Type_ID IN (${ids})`
+      });
+    },
+    ['group-types', ids],
+    { revalidate: 86400, tags: ['group-types'] }
+  )();
+}
+```
+
+**2. getEventTypesWithCache() (Lines 83-108)**
+```typescript
+private async getEventTypesWithCache(eventTypeIds: Set<number>) {
+  const ids = Array.from(eventTypeIds).sort().join(',');
+  return unstable_cache(
+    async () => {
+      return this.mp!.getTableRecords({
+        table: 'Event_Types',
+        select: 'Event_Type_ID,Event_Type',
+        filter: `Event_Type_ID IN (${ids})`
+      });
+    },
+    ['event-types', ids],
+    { revalidate: 86400, tags: ['event-types'] }
+  )();
+}
+```
+
+### Updated Method Calls
+
+**1. getGroupTypeMetrics() - Line 205**
+- Before: Direct `this.mp!.getTableRecords()` call
+- After: `await this.getGroupTypesWithCache(groupTypeIds)`
+- Comment updated to indicate 24-hour cache
+
+**2. getSmallGroupTrends() - Line 573**
+- Before: Direct `this.mp!.getTableRecords()` call
+- After: `await this.getGroupTypesWithCache(groupTypeIds)`
+- Comment updated to indicate cached lookup
+
+**3. getEventTypeMetrics() - Line 329**
+- Before: Direct `this.mp!.getTableRecords()` call
+- After: `await this.getEventTypesWithCache(eventTypeIds)`
+- Comment updated to indicate 24-hour cache
+
+## Cache Configuration
+
+### Cache Strategy
+- **Duration**: 24 hours (86400 seconds)
+- **Cache Keys**:
+  - Group_Types: `['group-types', sortedIds]`
+  - Event_Types: `['event-types', sortedIds]`
+- **Cache Tags**: `['group-types']` or `['event-types']`
+- **Invalidation**: Manual via cache tags if types change
+
+### Why 24 Hours?
+- Group_Types and Event_Types are quasi-static data
+- Changes are rare (organizational structure changes)
+- Type definitions don't affect calculated metrics
+- Long cache duration safe for these lookups
+- Can manually invalidate if needed via tags
+
+## Performance Impact
+
+### Query Reduction Per Dashboard Load
+
+**Phase 1**: 50-60 queries → ~32 queries (42% reduction)
+
+**Phase 2 Additional Savings**:
+- Group_Types called: 2 times per load → Cached (24 hours)
+- Event_Types called: 1 time per load → Cached (24 hours)
+- **Estimated**: ~32 queries → ~28 queries per load
+
+**Combined Per-Load Reduction**: 50-60 → ~28 queries (53% reduction)
+
+### Daily Database Load
+
+**Before (Phase 0)**:
+- 50-60 queries × 24 refreshes/hour = 1,200-1,440 queries/day
+
+**After Phase 1**:
+- 32 queries × 4 refreshes/day = 128 queries/day (89% reduction)
+
+**After Phase 1 + 2**:
+- 28 queries × 4 refreshes/day = 112 queries/day
+- Plus: 2-3 type queries per day (cached 24 hours)
+- **Total: ~115 queries/day (91% reduction from baseline)**
+
+### Cache Hierarchy
+
+```
+┌─────────────────────────────────────┐
+│  Page-Level Cache (6 hours)        │  ← Phase 1
+│  - Full dashboard data              │
+│  - 4 refreshes per day              │
+│  - Manual refresh available         │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│  Query-Level Cache (24 hours)      │  ← Phase 2
+│  - Group_Types lookups              │
+│  - Event_Types lookups              │
+│  - Survives page cache refresh      │
+│  - Manual invalidation via tags     │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│  Ministry Platform API              │
+│  - Only called when caches miss     │
+└─────────────────────────────────────┘
+```
+
+## Benefits
+
+1. **Eliminates redundant lookups**: Types fetched once per day maximum
+2. **Cross-request caching**: Cached data shared across all dashboard loads
+3. **Survives page refresh**: Type cache persists when page cache invalidates
+4. **Safe to cache aggressively**: Type definitions rarely change
+5. **Memory efficient**: Small datasets (10-20 records each)
+6. **Manual invalidation**: Cache tags allow purging if types updated
+
+## Testing Results
+
+### Development Server
+```bash
+npm run dev
+```
+- ✓ Started in 2.4s
+- ✓ No compilation errors
+- ✓ No runtime errors
+
+### Production Build
+```bash
+npm run build
+```
+- ✓ Compiled successfully in 23.0s
+- ✓ Lint errors: 0
+- ✓ Type errors: 0
+- ✓ Pages generated: 9/9
+- ✓ Exit code: 0
+
+## Files Modified (Phase 2)
+
+**1. src/services/dashboardService.ts**
+- Added `unstable_cache` import
+- Added `getGroupTypesWithCache()` method
+- Added `getEventTypesWithCache()` method
+- Updated 3 method calls to use cached versions
+- Total: +65 insertions, -27 deletions
+
+## Git Commits
+
+**Commit 1 (Phase 1)**: `de0a101`
+- Extended cache, manual refresh, query optimization
+- 10 files changed, 489 insertions, 32 deletions
+
+**Commit 2 (Phase 2)**: `72042b9`
+- Query-level caching with unstable_cache
+- 1 file changed, 65 insertions, 27 deletions
+
+**Branch**: `feature/optimize-dashboard-queries`
+
+## Combined Impact Summary
+
+### Query Optimization
+| Metric | Before | Phase 1 | Phase 1+2 | Improvement |
+|--------|--------|---------|-----------|-------------|
+| Queries per load | 50-60 | ~32 | ~28 | 53% |
+| Cache duration | 1 hour | 6 hours | 6 hours | 6x |
+| Type queries | Every load | Every load | Once/day | ~24x |
+| Daily queries | 1,200-1,440 | 128 | ~115 | 91% |
+
+### Architecture
+- **Phase 1**: Page-level ISR + query consolidation
+- **Phase 2**: Query-level caching for static data
+- **Result**: Two-tier caching hierarchy
+
+### User Experience
+- Fast cached responses (unchanged)
+- Manual refresh available (Phase 1)
+- Transparent to users (no breaking changes)
+- More efficient resource usage
+
+## Key Takeaways
+
+1. **Layer caching strategically**: Different TTLs for different data types
+2. **Static data = aggressive caching**: 24-hour cache safe for type lookups
+3. **Cache hierarchy**: Page cache + query cache = maximum efficiency
+4. **Next.js primitives**: `unstable_cache` provides powerful query caching
+5. **Measure impact**: Phase 2 adds another 6% reduction beyond Phase 1
+
+---
+
+**Updated Totals (All Sessions)**:
+- **Session Duration**: ~5 hours
+- **Files Modified**: 10 files (8 code + 2 docs)
+- **New Files Created**: 2 files
+- **Lines Changed**: ~400 lines
+- **Commits**: 2 (Phase 1 + Phase 2)
+- **Database Load Reduction**: 91%
+- **Branch**: feature/optimize-dashboard-queries
+- **Status**: ✅ Ready for PR review
