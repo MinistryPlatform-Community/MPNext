@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-01-29)
+## Current Status (2026-02-02)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -24,6 +24,12 @@
    - **Phase 2**: Implemented query-level caching for static lookups
    - Fixed pre-existing TypeScript lint errors
    - **Combined achievement: ~91% reduction in database load**
+9. ✅ **Baptisms Metric (Last 365 Days) - COMPLETE**
+   - Added new metric card showing baptism count from last 365 days
+   - Queries Participant_Milestones table (Milestone_ID = 3)
+   - Includes year-over-year comparison with previous 365-day period
+   - Clearly labeled with "(last 365 days)" to distinguish from Ministry Year metrics
+   - All Ministry Year metrics now labeled with "(Ministry Year)" suffix
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -179,6 +185,30 @@
      - Updated JSDoc to document both page-level and query-level cache invalidation
    - **Fix**: Manual refresh button now properly invalidates unstable_cache entries
 
+#### Session 2026-02-02 (Baptisms Metric Implementation)
+1. **src/lib/dto/dashboard.ts**
+   - Lines 100-101: Added `baptismsLastYear` and `baptismsPreviousYear` fields to DashboardData interface
+
+2. **src/services/dashboardService.ts**
+   - Lines 131-138: Added baptisms date range calculations (last 365 days and previous 365 days)
+   - Lines 150-151: Added baptismsLastYear and baptismsPreviousYear to Promise.all() parallel fetching
+   - Lines 170-171: Added baptisms data to return statement
+   - Lines 916-950: New `getBaptismsCount()` method
+     - Queries Participant_Milestones where Milestone_ID = 3 (Baptism)
+     - Accepts date range parameters for flexible period queries
+     - Returns count of baptisms in specified period
+
+3. **src/components/dashboard/dashboard-metrics.tsx**
+   - Lines 22-27: Updated attendance metric titles to include "(Ministry Year)" suffix
+   - Lines 35: Updated communities/small groups title to include "(Ministry Year)"
+   - Lines 44-49: Added new Baptisms metric card with 365-day label and YoY comparison
+   - Lines 57, 62, 81, 86: Updated chart titles to include "(Ministry Year)" suffix
+   - Lines 116, 121, 138, 143: Updated expanded chart titles to include "(Ministry Year)" suffix
+   - Lines 155-170: Wrapped Data Summary card in NODE_ENV === 'development' check
+
+4. **src/components/dashboard/metric-card.tsx**
+   - Line 56: Changed comparison text from "vs last year" to "vs previous period"
+
 ### Debug Logging
 
 **Status (2026-01-29)**: All debug logging removed in simplified implementation.
@@ -222,6 +252,8 @@ Currently showing on dashboard at bottom - can be removed once stable:
 - Events.Event_Type_ID: 7 = Worship Services
 - Groups.Group_Type_ID: 11 = Community
 - Group_Types.Group_Type: 'Community', 'Childcare' (exact case matters)
+- Participant_Milestones.Milestone_ID: 3 = Baptism
+- Participant_Milestones.Date_Accomplished: Date when milestone was achieved
 
 ### Testing Notes
 - Always check browser console for debug logs after refresh

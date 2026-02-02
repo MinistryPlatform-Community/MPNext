@@ -53,7 +53,7 @@ export function MetricCard({
             ) : (
               <ArrowDownIcon className="h-4 w-4 mr-1" />
             )}
-            <span>{Math.abs(change)}% vs last year</span>
+            <span>{Math.abs(change)}% vs previous period</span>
           </div>
         )}
       </CardContent>

@@ -128,6 +128,15 @@ export class DashboardService {
     const previousYearEnd = new Date(currentYearEnd);
     previousYearEnd.setFullYear(previousYearEnd.getFullYear() - 1);
 
+    // Calculate baptisms date ranges (last 365 days from today)
+    const today = new Date();
+    const currentBaptismsStart = new Date(today);
+    currentBaptismsStart.setFullYear(today.getFullYear() - 1);
+    const previousBaptismsEnd = new Date(currentBaptismsStart);
+    previousBaptismsEnd.setDate(previousBaptismsEnd.getDate() - 1);
+    const previousBaptismsStart = new Date(previousBaptismsEnd);
+    previousBaptismsStart.setFullYear(previousBaptismsEnd.getFullYear() - 1);
+
     // Fetch all metrics in parallel for better performance
     const [
       currentPeriod,
@@ -137,7 +146,9 @@ export class DashboardService {
       smallGroupTrends,
       communityAttendanceTrends,
       monthlyAttendanceTrends,
-      previousYearMonthlyAttendanceTrends
+      previousYearMonthlyAttendanceTrends,
+      baptismsLastYear,
+      baptismsPreviousYear
     ] = await Promise.all([
       this.getPeriodMetrics(currentYearStart, currentYearEnd),
       this.getPeriodMetrics(previousYearStart, previousYearEnd),
@@ -146,7 +157,9 @@ export class DashboardService {
       this.getSmallGroupTrends(currentYearStart, currentYearEnd),
       this.getCommunityAttendanceTrends(currentYearStart, currentYearEnd),
       this.getMonthlyAttendanceTrends(currentYearStart, currentYearEnd),
-      this.getMonthlyAttendanceTrends(previousYearStart, previousYearEnd)
+      this.getMonthlyAttendanceTrends(previousYearStart, previousYearEnd),
+      this.getBaptismsCount(currentBaptismsStart, today),
+      this.getBaptismsCount(previousBaptismsStart, previousBaptismsEnd)
     ]);
 
     // Calculate year-over-year comparisons
@@ -167,6 +180,8 @@ export class DashboardService {
       communityAttendanceTrends,
       monthlyAttendanceTrends,
       previousYearMonthlyAttendanceTrends,
+      baptismsLastYear,
+      baptismsPreviousYear,
       generatedAt: new Date().toISOString()
     };
   }
@@ -910,6 +925,42 @@ export class DashboardService {
     } catch (error) {
       console.error('Error fetching monthly attendance trends:', error);
       return [];
+    }
+  }
+
+  /**
+   * Gets the count of baptisms for a specific date range
+   * Queries Participant_Milestones for records where:
+   * - Milestone_ID = 3 (Baptism)
+   * - Date_Accomplished is within the specified date range
+   *
+   * @param startDate - Start date of the period (365 days ago from reference date)
+   * @param endDate - End date of the period (reference date, typically today)
+   * @returns Promise<number> - Count of baptisms in the specified period
+   */
+  private async getBaptismsCount(startDate: Date, endDate: Date): Promise<number> {
+    try {
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
+
+      // Query Participant_Milestones for baptisms (Milestone_ID = 3) in the date range
+      const participantMilestones = await this.mp!.getTableRecords<{
+        Participant_Milestone_ID: number;
+      }>({
+        table: 'Participant_Milestones',
+        select: 'Participant_Milestone_ID',
+        filter: `
+          Participant_Milestones.Milestone_ID = 3 AND
+          Participant_Milestones.Date_Accomplished >= '${startIso}' AND
+          Participant_Milestones.Date_Accomplished <= '${endIso}'
+        `
+      });
+
+      console.log(`Found ${participantMilestones.length} baptisms between ${startDate.toISOString().split('T')[0]} and ${endDate.toISOString().split('T')[0]}`);
+      return participantMilestones.length;
+    } catch (error) {
+      console.error('Error fetching baptisms count:', error);
+      return 0;
     }
   }
 

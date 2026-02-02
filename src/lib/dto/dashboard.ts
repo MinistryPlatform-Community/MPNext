@@ -97,5 +97,7 @@ export interface DashboardData {
   communityAttendanceTrends: CommunityAttendanceTrend[];
   monthlyAttendanceTrends: MonthlyAttendanceTrend[];
   previousYearMonthlyAttendanceTrends: MonthlyAttendanceTrend[];
+  baptismsLastYear: number;
+  baptismsPreviousYear: number;
   generatedAt: string;
 }
