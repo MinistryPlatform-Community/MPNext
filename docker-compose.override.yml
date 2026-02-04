@@ -1,0 +1,45 @@
+# Docker Compose Override for VS Code Codespace Development
+# This file is automatically merged with docker-compose.yml
+# Use: docker-compose up (no flags needed)
+
+services:
+  mp-charts:
+    # Override build to use development stage
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+
+    # Override image name for dev
+    image: mp-charts:dev
+
+    # Mount source code for hot reload
+    volumes:
+      - .:/app
+      - /app/node_modules  # Prevent overwriting node_modules
+      - /app/.next         # Prevent overwriting .next build cache
+
+    # Use dev server instead of production
+    command: npm run dev
+
+    # Override ports - expose directly in Codespace
+    ports:
+      - "3000:3000"
+
+    # Make caddy_network optional for dev environment
+    networks:
+      - default  # Use default bridge network
+
+    # Add development environment variables
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - WATCHPACK_POLLING=true  # Enable polling for file changes in container
+
+    # Override restart policy for easier debugging
+    restart: "no"
+
+# Use default bridge network for development (no external network needed)
+networks:
+  default:
+    driver: bridge

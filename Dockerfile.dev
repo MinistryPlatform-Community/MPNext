@@ -1,0 +1,23 @@
+# Development Dockerfile for VS Code Codespace
+# Optimized for hot reload and fast iteration
+
+FROM node:20-alpine AS development
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Copy source code (will be overridden by volume mount in docker-compose.override.yml)
+COPY . .
+
+# Expose Next.js dev server port
+EXPOSE 3000
+
+# Set environment
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Default command (can be overridden in docker-compose)
+CMD ["npm", "run", "dev"]

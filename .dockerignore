@@ -1,0 +1,49 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Next.js build output
+.next
+out
+
+# Environment files (will be added via env_file in compose)
+.env
+.env.local
+.env*.local
+
+# Testing
+coverage
+.vitest
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+
+# Documentation
+*.md
+!README.md
+
+# Claude context files
+.claude
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.log
+
+# Docker (keep config files but ignore override disabled files)
+docker-compose.override.yml.disabled
+DOCKER.md
