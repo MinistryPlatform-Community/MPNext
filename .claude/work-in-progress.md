@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-02-02)
+## Current Status (2026-02-04)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -30,6 +30,14 @@
    - Includes year-over-year comparison with previous 365-day period
    - Clearly labeled with "(last 365 days)" to distinguish from Ministry Year metrics
    - All Ministry Year metrics now labeled with "(Ministry Year)" suffix
+10. ✅ **Docker Deployment Configuration - COMPLETE**
+   - Added production-ready Dockerfile with multi-stage build
+   - Added development Dockerfile for hot reload in Codespaces
+   - Configured docker-compose.yml for production with Caddy network integration
+   - Created docker-compose.override.yml for local development environment
+   - Configured Next.js standalone output mode for optimized Docker builds
+   - Added comprehensive Docker deployment documentation (DOCKER.md)
+   - Created .dockerignore for build optimization
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -208,6 +216,53 @@
 
 4. **src/components/dashboard/metric-card.tsx**
    - Line 56: Changed comparison text from "vs last year" to "vs previous period"
+
+#### Session 2026-02-04 (Docker Deployment Configuration)
+1. **Dockerfile** (NEW)
+   - Multi-stage production build using Node.js 20 Alpine
+   - Stage 1 (deps): Install dependencies from package-lock.json
+   - Stage 2 (builder): Build Next.js application with standalone output
+   - Stage 3 (runner): Minimal production runtime with non-root user
+   - Security: Runs as nextjs user (UID 1001) instead of root
+   - Optimization: ~150MB final image size vs ~1GB unoptimized
+
+2. **Dockerfile.dev** (NEW)
+   - Single-stage development build for fast iteration
+   - Includes all dev dependencies
+   - Supports volume mounts for hot reload
+   - File watching enabled for container environments
+
+3. **docker-compose.yml** (NEW)
+   - Production configuration with external Caddy network
+   - Builds image from Dockerfile
+   - Uses .env file for environment variables
+   - Exposes port 3000 (optional, can be removed if Caddy handles routing)
+   - Restart policy: unless-stopped
+
+4. **docker-compose.override.yml** (NEW)
+   - Automatically used in development (no flags needed)
+   - Overrides build target to use Dockerfile.dev
+   - Mounts source code as volumes for hot reload
+   - Uses npm run dev instead of production server
+   - Default bridge network (no Caddy required)
+   - Enables WATCHPACK_POLLING for container file watching
+
+5. **.dockerignore** (NEW)
+   - Excludes node_modules, .next, coverage, .git
+   - Excludes environment files (added via env_file)
+   - Excludes IDE, documentation, and Claude context files
+   - Keeps override.yml but ignores .disabled files
+
+6. **DOCKER.md** (NEW)
+   - Comprehensive deployment guide (250 lines)
+   - Development vs production setup instructions
+   - Common commands and troubleshooting section
+   - How to switch between environments
+   - Caddy integration examples
+
+7. **next.config.ts**
+   - Line 5: Added `output: "standalone"` for Docker deployment
+   - Required for production Docker builds to work
 
 ### Debug Logging
 
