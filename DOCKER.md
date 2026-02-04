@@ -66,7 +66,7 @@ docker-compose up --build
 
 ## Production Deployment
 
-For production deployment with Caddy reverse proxy:
+For production deployment with Cloudflare Tunnel (or other reverse proxy):
 
 ### 1. Remove or rename the override file:
 
@@ -78,24 +78,18 @@ rm docker-compose.override.yml
 mv docker-compose.override.yml docker-compose.override.yml.disabled
 ```
 
-### 2. Ensure Caddy network exists:
+### 2. Ensure the network exists:
 
 ```bash
 docker network create caddy_network
 ```
 
-### 3. Update docker-compose.yml if needed:
+> **Note**: The network is named `caddy_network` for legacy/consistency reasons, but it works with any reverse proxy (Caddy, Cloudflare Tunnel, Nginx, etc.).
 
-Remove the `ports:` section if Caddy handles all routing:
+### 3. Pull the latest image:
 
-```yaml
-services:
-  mp-charts:
-    # ... other config ...
-    # ports:  # Remove this section
-    #   - "3000:3000"
-    networks:
-      - caddy_network
+```bash
+docker-compose pull
 ```
 
 ### 4. Start production container:
@@ -104,15 +98,194 @@ services:
 docker-compose up -d
 ```
 
-### 5. Configure Caddy:
+### 5. Configure your reverse proxy:
 
-Add to your Caddyfile:
+The container runs on port **3000** internally and is accessible by container name: `mp-charts`
 
+**For Cloudflare Tunnel:**
+```bash
+# In your cloudflared tunnel configuration
+cloudflared tunnel route dns <tunnel-name> your-domain.com
+
+# Configure the tunnel to route to:
+# Service: http://mp-charts:3000
+```
+
+**For Caddy (if still using):**
 ```caddyfile
 your-domain.com {
     reverse_proxy mp-charts:3000
 }
 ```
+
+**For Nginx:**
+```nginx
+location / {
+    proxy_pass http://mp-charts:3000;
+}
+```
+
+## CI/CD with GitHub Actions
+
+This project includes automated Docker image building and deployment using GitHub Actions.
+
+### Automated Workflow
+
+The workflow (`.github/workflows/docker-build-push.yml`) automatically:
+
+1. **Triggers on**:
+   - Pushes to `main` branch
+   - Pull requests to `main` branch
+
+2. **Build process**:
+   - Multi-platform build (linux/amd64, linux/arm64)
+   - Uses Docker Buildx for efficient caching
+   - Pushes image with Git SHA tag: `registry.gitlab.com/moodychurch/mp-charts:<sha>`
+
+3. **Security scanning**:
+   - Scans image with Trivy for vulnerabilities
+   - Fails build on CRITICAL or HIGH severity issues
+   - Ignores unfixed vulnerabilities
+
+4. **Tagging strategy**:
+   - Every build gets SHA tag (e.g., `abc123def`)
+   - `latest` tag only pushed on main branch commits
+   - Pull requests build and scan but don't push `latest`
+
+### Required GitHub Secrets
+
+Add these secrets to your GitHub repository (Settings → Secrets and variables → Actions):
+
+| Secret Name | Description | How to Generate |
+|-------------|-------------|-----------------|
+| `GITLAB_DEPLOY_USERNAME` | GitLab username for registry | Your GitLab username or `gitlab-ci-token` |
+| `GITLAB_DEPLOY_TOKEN` | GitLab deploy token | Create at GitLab Project → Settings → Repository → Deploy Tokens |
+
+### Creating GitLab Deploy Token
+
+1. Go to your GitLab project: `https://gitlab.com/moodychurch/mp-charts`
+2. Navigate to **Settings** → **Repository** → **Deploy Tokens**
+3. Create token with:
+   - **Name**: `github-actions-deploy`
+   - **Scopes**: `read_registry`, `write_registry`
+   - **Expiration**: Set appropriate date or leave blank
+4. Save the token (you'll only see it once!)
+5. Add to GitHub secrets:
+   - `GITLAB_DEPLOY_USERNAME`: Use the username shown (or your GitLab username)
+   - `GITLAB_DEPLOY_TOKEN`: The generated token
+
+### Pulling Images
+
+After the workflow runs, pull images from GitLab Container Registry:
+
+```bash
+# Login to GitLab registry
+docker login registry.gitlab.com
+
+# Pull latest image
+docker pull registry.gitlab.com/moodychurch/mp-charts:latest
+
+# Pull specific SHA
+docker pull registry.gitlab.com/moodychurch/mp-charts:abc123def
+```
+
+### Using Pre-built Images
+
+The production `docker-compose.yml` is already configured to use the GitLab Container Registry:
+
+```yaml
+services:
+  mp-charts:
+    image: registry.gitlab.com/moodychurch/mp-charts:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - caddy_network
+```
+
+**To deploy or update:**
+
+```bash
+# Pull latest image from registry
+docker-compose pull
+
+# Restart with new image
+docker-compose up -d
+
+# View logs
+docker-compose logs -f mp-charts
+```
+
+**To use a specific version:**
+
+```yaml
+services:
+  mp-charts:
+    image: registry.gitlab.com/moodychurch/mp-charts:abc123def  # Use specific SHA
+```
+
+### Workflow Features
+
+- **Build caching**: Uses registry cache for faster builds
+- **Multi-platform**: Supports both AMD64 and ARM64 architectures
+- **Security first**: Builds fail if critical vulnerabilities detected
+- **PR testing**: Pull requests are built and scanned without pushing
+- **Reproducible**: SHA tags allow exact version tracking
+
+## Dependency Management with Dependabot
+
+This project uses Dependabot to automatically keep dependencies up-to-date and secure.
+
+### What Dependabot Monitors
+
+The configuration (`.github/dependabot.yml`) monitors three areas:
+
+1. **GitHub Actions** (weekly)
+   - Updates workflow actions (e.g., `actions/checkout@v4` → `@v5`)
+   - Ensures CI/CD pipeline uses latest secure versions
+
+2. **Docker Base Images** (weekly)
+   - Updates `node:20-alpine` in Dockerfiles
+   - Keeps container base images patched
+
+3. **npm Dependencies** (weekly)
+   - Updates packages in `package.json` and `package-lock.json`
+   - Groups minor/patch updates to reduce PR noise
+   - Major version updates get individual PRs
+
+### How It Works
+
+- **Automatic PRs**: Dependabot creates pull requests for updates
+- **Security Priority**: Security updates are created immediately
+- **Grouped Updates**: Minor and patch updates grouped together
+- **Release Notes**: Each PR includes changelog and compatibility info
+- **CI Testing**: All PRs run through the full CI pipeline (build, scan, test)
+
+### Managing Dependabot PRs
+
+```bash
+# Review the PR on GitHub
+# Check CI status (all checks must pass)
+# Review changelog and breaking changes
+
+# Merge via GitHub UI or:
+gh pr merge <pr-number> --auto --squash
+```
+
+### Dependabot vs Trivy
+
+Both tools work together for comprehensive security:
+
+| Tool | What It Scans | When It Runs |
+|------|---------------|--------------|
+| **Dependabot** | Source code dependencies (npm, Docker base images, GitHub Actions) | Weekly + immediate for security |
+| **Trivy** | Built Docker images (OS packages, runtime dependencies) | Every commit/PR to main |
+
+**Example workflow:**
+1. Dependabot detects vulnerable `next` package → Creates PR
+2. PR triggers CI → Builds Docker image → Trivy scans image
+3. Both checks pass → Merge PR → Auto-deploy with updated dependency
 
 ## Environment Variables
 
@@ -231,6 +404,7 @@ docker-compose restart mp-charts
 - Standalone output mode (no node_modules in runtime)
 - Runs as non-root user for security
 - Optimized layer caching
+- Exposes port 3000 internally (no public ports, accessed via reverse proxy)
 
 ### Development Build (Dockerfile.dev)
 - Single stage for faster builds
@@ -238,6 +412,19 @@ docker-compose restart mp-charts
 - Includes all dev dependencies
 - File watching enabled
 - No build optimization
+- Exposes port 3000 for direct access
+
+### Network Architecture
+
+**Production:**
+- External `caddy_network` (legacy name, works with any reverse proxy)
+- No ports exposed to host (Cloudflare Tunnel or reverse proxy handles routing)
+- Container accessible at `http://mp-charts:3000` within the network
+
+**Development:**
+- Default bridge network (isolated)
+- Port 3000 exposed to host for direct access
+- Hot reload via volume mounts
 
 ## Next Steps
 

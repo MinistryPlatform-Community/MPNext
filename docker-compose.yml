@@ -1,14 +1,9 @@
 services:
   mp-charts:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: mp-charts:latest
+    image: registry.gitlab.com/moodychurch/mp-charts:latest
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "3000:3000"  # Remove this if Caddy handles all routing
     networks:
       - caddy_network
     # Uncomment if you need persistent storage
