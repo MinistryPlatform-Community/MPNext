@@ -1,12 +1,13 @@
 'use server';
 
-import { revalidatePath, revalidateTag } from 'next/cache';
+import { revalidatePath, revalidateTag, unstable_cache } from 'next/cache';
 import { DashboardService } from '@/services/dashboardService';
 import { DashboardData } from '@/lib/dto';
 
 /**
  * Fetches dashboard data for the specified ministry year
  * Defaults to current ministry year (Sept - May)
+ * Data is cached for 6 hours and tagged for manual invalidation
  *
  * @param year - Optional ministry year (defaults to current)
  * @returns Promise<DashboardData> - Complete dashboard metrics
@@ -14,21 +15,33 @@ import { DashboardData } from '@/lib/dto';
 export async function getDashboardMetrics(
   year?: number
 ): Promise<DashboardData> {
-  try {
-    const currentYear = year || getCurrentMinistryYear();
+  const currentYear = year || getCurrentMinistryYear();
 
-    // Ministry year runs Sept 1 - May 31
-    const startDate = new Date(currentYear, 8, 1); // September 1
-    const endDate = new Date(currentYear + 1, 4, 31); // May 31 of next calendar year
+  // Cache the dashboard data with tags for manual invalidation
+  const getCachedDashboardData = unstable_cache(
+    async (ministryYear: number) => {
+      try {
+        // Ministry year runs Sept 1 - May 31
+        const startDate = new Date(ministryYear, 8, 1); // September 1
+        const endDate = new Date(ministryYear + 1, 4, 31); // May 31 of next calendar year
 
-    const dashboardService = await DashboardService.getInstance();
-    const data = await dashboardService.getDashboardData(startDate, endDate);
+        const dashboardService = await DashboardService.getInstance();
+        const data = await dashboardService.getDashboardData(startDate, endDate);
 
-    return data;
-  } catch (error) {
-    console.error('Error fetching dashboard metrics:', error);
-    throw new Error('Failed to fetch dashboard metrics');
-  }
+        return data;
+      } catch (error) {
+        console.error('Error fetching dashboard metrics:', error);
+        throw new Error('Failed to fetch dashboard metrics');
+      }
+    },
+    ['dashboard-metrics', `ministry-year-${currentYear}`],
+    {
+      revalidate: 21600, // Cache for 6 hours
+      tags: ['dashboard-data', `year-${currentYear}`]
+    }
+  );
+
+  return getCachedDashboardData(currentYear);
 }
 
 /**
@@ -51,7 +64,7 @@ function getCurrentMinistryYear(): number {
  * Manually refreshes the dashboard cache
  * This action revalidates both page-level and query-level caches:
  * - Page-level: revalidates the dashboard page
- * - Query-level: invalidates Group_Types and Event_Types caches
+ * - Data-level: invalidates dashboard-data, Group_Types and Event_Types caches
  *
  * @returns Promise<{ success: boolean; timestamp: Date }>
  */
@@ -61,6 +74,7 @@ export async function refreshDashboardCache(): Promise<{
 }> {
   try {
     revalidatePath('/dashboard');
+    revalidateTag('dashboard-data'); // Invalidates getDashboardMetrics cache
     revalidateTag('group-types');
     revalidateTag('event-types');
     return {

@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-02-04)
+## Current Status (2026-02-06)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -42,6 +42,13 @@
    - **CI/CD**: Multi-platform builds (amd64/arm64) with Trivy security scanning
    - **CI/CD**: Automated tagging strategy (SHA + latest) with build caching
    - **Dependabot**: Automated dependency updates for npm, Docker, and GitHub Actions
+11. ✅ **Production Deployment Fixes - COMPLETE (2026-02-06)**
+   - Fixed AUTH_SECRET documentation for Docker deployments (.env.example)
+   - Added AUTH_TRUST_HOST configuration for reverse proxy deployments
+   - Resolved NextAuth UntrustedHost error in production
+   - Fixed dashboard caching performance issue (removed force-dynamic)
+   - Implemented proper data-level caching with unstable_cache()
+   - Application successfully deployed to production at dashboard.moodychurch.org
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -320,6 +327,28 @@
    - Fixes Docker build failure where Next.js tried to pre-render during build
    - Still uses ISR with 6-hour revalidation, but renders on first request
    - Prevents build-time API calls that require environment variables
+
+#### Session 2026-02-06 (Production Deployment Fixes)
+1. **.env.example**
+   - Lines 10-24: Enhanced AUTH_SECRET documentation with multiple generation methods
+   - Added openssl and Node.js crypto alternatives to npx auth secret
+   - Added Docker-specific deployment instructions
+   - Lines 28-30: Added AUTH_TRUST_HOST setting with documentation
+   - Documents requirement for reverse proxy deployments (Caddy, nginx, etc.)
+
+2. **src/app/(web)/dashboard/page.tsx**
+   - Lines 5-8: Removed `export const dynamic = 'force-dynamic'` that was disabling cache
+   - Kept `export const revalidate = 21600` for proper 6-hour ISR cache
+   - Fixed performance issue causing dashboard to reload data on every page load
+
+3. **src/components/dashboard/actions.ts**
+   - Line 3: Added `unstable_cache` import from 'next/cache'
+   - Lines 15-44: Wrapped `getDashboardMetrics()` with `unstable_cache()`
+   - Added cache key: `['dashboard-metrics', 'ministry-year-${currentYear}']`
+   - Added cache tags: `['dashboard-data', 'year-${currentYear}']`
+   - Added revalidate: 21600 (6 hours) to cache options
+   - Lines 51-77: Updated `refreshDashboardCache()` to invalidate `dashboard-data` tag
+   - Ensures manual refresh button properly clears unstable_cache entries
 
 ### Debug Logging
 

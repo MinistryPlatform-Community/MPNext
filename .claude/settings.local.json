@@ -19,7 +19,8 @@
       "Bash(npm run dev:*)",
       "Bash(gh pr create:*)",
       "Bash(npm audit:*)",
-      "Bash(npm update:*)"
+      "Bash(npm update:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
