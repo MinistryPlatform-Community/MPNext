@@ -1,7 +1,7 @@
 # Development Dockerfile for VS Code Codespace
 # Optimized for hot reload and fast iteration
 
-FROM node:20-alpine AS development
+FROM node:20-alpine3.21 AS development
 
 WORKDIR /app
 
