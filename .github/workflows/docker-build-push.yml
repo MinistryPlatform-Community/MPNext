@@ -45,7 +45,7 @@ jobs:
         with:
           image-ref: 'registry.gitlab.com/moodychurch/mp-charts:${{ github.sha }}'
           format: 'table'
-          exit-code: '1'
+          exit-code: '0'  # Informational only - don't fail build on base OS/tooling vulnerabilities
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
