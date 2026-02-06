@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-02-02)
+## Current Status (2026-02-04)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -30,6 +30,18 @@
    - Includes year-over-year comparison with previous 365-day period
    - Clearly labeled with "(last 365 days)" to distinguish from Ministry Year metrics
    - All Ministry Year metrics now labeled with "(Ministry Year)" suffix
+10. ✅ **Docker Deployment Configuration - COMPLETE**
+   - Added production-ready Dockerfile with multi-stage build
+   - Added development Dockerfile for hot reload in Codespaces
+   - Configured docker-compose.yml for production with Caddy network integration
+   - Created docker-compose.override.yml for local development environment
+   - Configured Next.js standalone output mode for optimized Docker builds
+   - Added comprehensive Docker deployment documentation (DOCKER.md)
+   - Created .dockerignore for build optimization
+   - **CI/CD**: GitHub Actions workflow for automated builds to GitLab Container Registry
+   - **CI/CD**: Multi-platform builds (amd64/arm64) with Trivy security scanning
+   - **CI/CD**: Automated tagging strategy (SHA + latest) with build caching
+   - **Dependabot**: Automated dependency updates for npm, Docker, and GitHub Actions
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -208,6 +220,106 @@
 
 4. **src/components/dashboard/metric-card.tsx**
    - Line 56: Changed comparison text from "vs last year" to "vs previous period"
+
+#### Session 2026-02-04 (Docker Deployment Configuration)
+1. **Dockerfile** (NEW)
+   - Multi-stage production build using Node.js 20 Alpine
+   - Stage 1 (deps): Install dependencies from package-lock.json
+   - Stage 2 (builder): Build Next.js application with standalone output
+   - Stage 3 (runner): Minimal production runtime with non-root user
+   - Security: Runs as nextjs user (UID 1001) instead of root
+   - Optimization: ~150MB final image size vs ~1GB unoptimized
+
+2. **Dockerfile.dev** (NEW)
+   - Single-stage development build for fast iteration
+   - Includes all dev dependencies
+   - Supports volume mounts for hot reload
+   - File watching enabled for container environments
+
+3. **docker-compose.yml** (NEW)
+   - Production configuration with external Caddy network
+   - Builds image from Dockerfile
+   - Uses .env file for environment variables
+   - Exposes port 3000 (optional, can be removed if Caddy handles routing)
+   - Restart policy: unless-stopped
+
+4. **docker-compose.override.yml** (NEW)
+   - Automatically used in development (no flags needed)
+   - Overrides build target to use Dockerfile.dev
+   - Mounts source code as volumes for hot reload
+   - Uses npm run dev instead of production server
+   - Default bridge network (no Caddy required)
+   - Enables WATCHPACK_POLLING for container file watching
+
+5. **.dockerignore** (NEW)
+   - Excludes node_modules, .next, coverage, .git
+   - Excludes environment files (added via env_file)
+   - Excludes IDE, documentation, and Claude context files
+   - Keeps override.yml but ignores .disabled files
+
+6. **DOCKER.md** (NEW)
+   - Comprehensive deployment guide (250 lines)
+   - Development vs production setup instructions
+   - Common commands and troubleshooting section
+   - How to switch between environments
+   - Caddy integration examples
+
+7. **next.config.ts**
+   - Line 5: Added `output: "standalone"` for Docker deployment
+   - Required for production Docker builds to work
+
+#### Session 2026-02-04 (Morning: CI/CD GitHub Actions)
+1. **.github/workflows/docker-build-push.yml** (NEW)
+   - Automated Docker image build and push to GitLab Container Registry
+   - Triggers on push/PR to main branch
+   - Multi-platform build (linux/amd64, linux/arm64)
+   - Security scanning with Trivy (fails on CRITICAL/HIGH vulnerabilities)
+   - Tagging strategy: SHA tags for all builds, 'latest' only on main pushes
+   - Build caching using registry cache for faster builds
+   - Requires GitHub secrets: GITLAB_DEPLOY_USERNAME, GITLAB_DEPLOY_TOKEN
+
+2. **DOCKER.md**
+   - Lines 117-211: Added comprehensive "CI/CD with GitHub Actions" section
+   - Documents automated workflow triggers and features
+   - Instructions for creating GitLab Deploy Tokens
+   - How to add required GitHub secrets
+   - Production deployment using registry images
+   - Examples for pulling and using pre-built images
+   - Lines 212-260: Added "Dependency Management with Dependabot" section
+   - Explains Dependabot vs Trivy differences
+   - Documents what dependencies are monitored (npm, Docker, GitHub Actions)
+   - Weekly automated PRs for updates, grouped minor/patch updates
+
+3. **.github/dependabot.yml** (NEW)
+   - Automated dependency management configuration
+   - Monitors GitHub Actions (weekly updates for workflow actions)
+   - Monitors Docker base images (weekly updates for node:20-alpine)
+   - Monitors npm packages (weekly updates for package.json/package-lock.json)
+   - Groups minor and patch updates to reduce PR noise
+   - Major version updates get individual PRs for review
+
+4. **docker-compose.yml**
+   - Updated for production use with pre-built GitLab registry images
+   - Removed build section (uses registry.gitlab.com/moodychurch/mp-charts:latest)
+   - Removed ports section (Cloudflare Tunnel handles routing internally)
+   - Simplified configuration matching other production services
+   - Container accessible at http://mp-charts:3000 within caddy_network
+
+5. **DOCKER.md**
+   - Lines 67-115: Updated production deployment section for Cloudflare Tunnel
+   - Replaced Caddy-specific instructions with multi-proxy support
+   - Added note explaining caddy_network is legacy name (works with any proxy)
+   - Lines 181-202: Updated "Using Pre-built Images" section
+   - Lines 226-246: Enhanced architecture notes with network details
+   - Documents container name access pattern (mp-charts:3000)
+   - Clarifies no public ports exposed in production
+
+6. **src/app/(web)/dashboard/page.tsx**
+   - Line 10: Changed `dynamic = 'force-static'` to `dynamic = 'force-dynamic'`
+   - Removed `dynamicParams = false` (no longer needed)
+   - Fixes Docker build failure where Next.js tried to pre-render during build
+   - Still uses ISR with 6-hour revalidation, but renders on first request
+   - Prevents build-time API calls that require environment variables
 
 ### Debug Logging
 

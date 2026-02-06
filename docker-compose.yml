@@ -1,0 +1,19 @@
+services:
+  mp-charts:
+    image: registry.gitlab.com/moodychurch/mp-charts:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - caddy_network
+    # Uncomment if you need persistent storage
+    # volumes:
+    #   - data:/app/data
+
+networks:
+  caddy_network:
+    external: true
+
+# Uncomment if you need volumes
+# volumes:
+#   data:

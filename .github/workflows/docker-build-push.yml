@@ -1,0 +1,57 @@
+name: Build, Scan, and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-scan-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitLab Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.gitlab.com
+          username: ${{ secrets.GITLAB_DEPLOY_USERNAME }}
+          password: ${{ secrets.GITLAB_DEPLOY_TOKEN }}
+
+      - name: Build and push with SHA tag
+        id: build_and_push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: registry.gitlab.com/moodychurch/mp-charts:${{ github.sha }}
+          cache-from: type=registry,ref=registry.gitlab.com/moodychurch/mp-charts:buildcache
+          cache-to: type=registry,ref=registry.gitlab.com/moodychurch/mp-charts:buildcache,mode=max
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'registry.gitlab.com/moodychurch/mp-charts:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'  # Informational only - don't fail build on base OS/tooling vulnerabilities
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push `latest` tag
+        # Only push the 'latest' tag when the workflow is triggered by a push to the main branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker buildx imagetools create registry.gitlab.com/moodychurch/mp-charts:${{ github.sha }} --tag registry.gitlab.com/moodychurch/mp-charts:latest

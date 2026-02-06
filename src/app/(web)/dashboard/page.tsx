@@ -6,12 +6,10 @@ import { DashboardHeader } from '@/components/dashboard/dashboard-header';
 // This provides 4 refresh windows per day: 12am, 6am, 12pm, 6pm
 export const revalidate = 21600;
 
-// Force this page to use static generation with ISR
-// This ensures the page is pre-rendered and served from cache
-export const dynamic = 'force-static';
-
-// Disable dynamic params to ensure static generation
-export const dynamicParams = false;
+// Use dynamic rendering with ISR (Incremental Static Regeneration)
+// Page will be rendered on first request, then cached for 6 hours
+// This allows the build to succeed without needing API access at build time
+export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   // Fetch data on server
