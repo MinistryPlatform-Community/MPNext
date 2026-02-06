@@ -314,6 +314,13 @@
    - Documents container name access pattern (mp-charts:3000)
    - Clarifies no public ports exposed in production
 
+6. **src/app/(web)/dashboard/page.tsx**
+   - Line 10: Changed `dynamic = 'force-static'` to `dynamic = 'force-dynamic'`
+   - Removed `dynamicParams = false` (no longer needed)
+   - Fixes Docker build failure where Next.js tried to pre-render during build
+   - Still uses ISR with 6-hour revalidation, but renders on first request
+   - Prevents build-time API calls that require environment variables
+
 ### Debug Logging
 
 **Status (2026-01-29)**: All debug logging removed in simplified implementation.

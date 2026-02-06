@@ -16,7 +16,10 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git checkout:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(gh pr create:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm update:*)"
     ],
     "deny": [],
     "ask": []
