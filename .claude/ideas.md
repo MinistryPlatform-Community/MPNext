@@ -10,6 +10,44 @@ Track current journeys from Ministry Platform and provide summary detail about w
 ### Volunteer Processing
 Provide up-to-date info about volunteer processing, particularly for children's ministry. Include an interface for staff to submit documentation like certificates and other documents/PDFs.
 
+#### Layout: Two-Tab Interface
+
+**Tab 1 — New Volunteers In Process (default)**
+- Displays volunteers currently working through the onboarding process (application, interview, references, background check, etc.)
+- Data source: `Group_Participants` for one or more specific Group IDs in Ministry Platform
+- _Implementation note: Claude should prompt for the specific Group ID(s) at development time_
+
+**Tab 2 — Approved Current Volunteers**
+- Displays approved children's ministry volunteers
+- Data source: `Participants` table (one record per person, 1:1 with actual people), filtered by:
+  - Specific **Group Roles** (`Group_Roles` → `Group_Participants` → `Participants`), OR
+  - Specific **Contact Milestones** (`Contact_Milestones` → `Participants` on `Contact_ID`)
+- _Implementation note: Claude should prompt for the Milestone IDs and Group Role IDs at development time_
+
+#### Card-Based Display (both tabs)
+
+People are displayed as cards in an alphabetical grid sorted by last name:
+
+- **Photo**: Participant's photo from their Contact record _(implementation note: ask how to retrieve the photo file — another tool in this app already pulls it from the Contact record attachment)_
+- **Name**: `[Nickname] [Last_Name]`, centered below the photo
+- **Requirement checklist**: A list of checkboxes representing required items and checks (e.g., application submitted, interview completed, references received, background check cleared, certifications on file). Each checkbox reflects whether the corresponding record/status exists in Ministry Platform.
+
+#### Detail Modal
+
+Clicking a card opens a modal with expanded information about that person:
+
+- More detailed status of each requirement/check
+- Links to the specific Ministry Platform page(s) for the person or related records
+- Additional context or notes about the volunteer's progress
+
+#### Write-Back to Ministry Platform
+
+This interface should not be read-only. The volunteer processing team should be able to:
+
+- Update statuses, check off completed requirements, and submit documentation (certificates, PDFs, etc.)
+- Changes should create or update the corresponding records in Ministry Platform
+- Goal: give the volunteer processing team a more efficient interface than navigating MP directly
+
 ### Pastoral Interface for Contact Logs
 A dedicated pastoral interface for viewing and managing contact logs.
 
