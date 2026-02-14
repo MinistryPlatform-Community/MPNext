@@ -1,8 +1,8 @@
-# Session Summary: 2026-02-14c — Next.js 16 Upgrade
+# Session Summary: 2026-02-14c — Next.js 16 Upgrade + Cache Components Migration
 
 ## Summary
 
-Upgraded the project from Next.js 15.5.6 to Next.js 16.1.6 LTS, addressing all breaking changes and ensuring compatibility across the codebase.
+Upgraded the project from Next.js 15.5.6 to Next.js 16.1.6 LTS, addressing all breaking changes. Then migrated all `unstable_cache` usage to the new `'use cache'` directive with `cacheTag` and `cacheLife`.
 
 ## Changes Made
 
@@ -53,17 +53,47 @@ Upgraded the project from Next.js 15.5.6 to Next.js 16.1.6 LTS, addressing all b
 - `unstable_cache` is legacy, replaced by `use cache` directive — kept as-is for backward compatibility
 
 ## Future Migration Items (Added to ideas.md)
-1. Migrate `unstable_cache` to Cache Components (`use cache` + `cacheTag` + `cacheLife`)
+1. ~~Migrate `unstable_cache` to Cache Components~~ ✅ Done (same session)
 2. Evaluate `middleware.ts` → `proxy.ts` migration (requires Node.js runtime compatibility check)
 
-## Files Modified
+---
+
+## Part 2: Cache Components Migration (`unstable_cache` → `use cache`)
+
+### Config Changes (`next.config.ts`)
+- Added `cacheComponents: true` to enable Cache Components
+- Defined custom `cacheLife` profiles:
+  - `dashboard`: stale 5min, revalidate 6hr, expire 1day
+  - `static-lookup`: stale 1hr, revalidate 24hr, expire 1week
+
+### `src/services/dashboardService.ts`
+- Replaced `unstable_cache` import with `cacheLife, cacheTag` from `next/cache`
+- Extracted `getGroupTypesWithCache` → standalone `fetchGroupTypes(ids)` with `'use cache'`
+- Extracted `getEventTypesWithCache` → standalone `fetchEventTypes(ids)` with `'use cache'`
+- Both use `cacheLife('static-lookup')` and `cacheTag('group-types')`/`cacheTag('event-types')`
+- Class methods now delegate to these standalone cached functions
+
+### `src/components/dashboard/actions.ts`
+- Replaced `unstable_cache` import with `cacheLife, cacheTag`
+- Created `cachedDashboardData(ministryYear)` with `'use cache'` + `cacheLife('dashboard')`
+- Created `cachedFullRangeData(earliestYear, currentYear)` with `'use cache'` + `cacheLife('dashboard')`
+- Server actions now delegate to these cached functions
+- `refreshDashboardCache` unchanged (still uses `revalidateTag`)
+
+### Key Architecture Decision
+- `'use cache'` functions are standalone module-level functions (not class methods) because the directive auto-generates cache keys from serializable function arguments; class `this` context is not serializable
+- Non-exported cached functions coexist with file-level `'use server'` in actions.ts
+
+## Files Modified (Both Parts)
 | File | Change |
 |------|--------|
 | `package.json` | Upgraded next, next-auth, eslint-config-next; changed lint script |
 | `eslint.config.mjs` | Rewrote for native ESLint flat config |
-| `src/components/dashboard/actions.ts` | Added `'max'` profile to `revalidateTag` calls |
+| `next.config.ts` | Added cacheComponents + custom cacheLife profiles |
+| `src/components/dashboard/actions.ts` | Migrated from `unstable_cache` to `'use cache'` directive |
+| `src/services/dashboardService.ts` | Migrated from `unstable_cache` to `'use cache'` directive |
 | `scripts/setup.ts` | Fixed `prefer-const` lint error |
 | `src/lib/providers/ministry-platform/helper.test.ts` | Fixed test expectations for auto-pagination |
-| `.claude/ideas.md` | Marked upgrade complete, added new tech debt items |
+| `.claude/ideas.md` | Marked upgrade + cache migration complete |
 | `.claude/work-in-progress.md` | Updated environment details |
 | `.claude/session-summary-2026-02-14c.md` | This file |

@@ -480,7 +480,7 @@ Currently showing on dashboard at bottom - can be removed once stable:
 
 ### Environment Details
 - Ministry Platform REST API via MPHelper
-- Next.js 16.1.6 LTS with App Router (Turbopack default bundler)
+- Next.js 16.1.6 LTS with App Router (Turbopack default bundler, Cache Components enabled)
 - NextAuth v5 (beta.30) with Ministry Platform OAuth
 - React 19 Server Components with 6-hour cache (revalidate = 21600)
 - Recharts for visualization (AreaChart, LineChart, PieChart)

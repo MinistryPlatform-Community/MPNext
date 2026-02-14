@@ -70,8 +70,8 @@ Replace the hardcoded ministry year date ranges with an interactive date selecto
 ### ~~Upgrade to Next.js 16~~ ✅ COMPLETED (2026-02-14)
 Upgraded from Next.js 15.5.6 to 16.1.6 LTS. See session summary for details.
 
-### Migrate `unstable_cache` to Cache Components (`use cache`)
-`unstable_cache` still works in Next.js 16 but is legacy. The recommended path is to migrate to the `use cache` directive with `cacheTag` and `cacheLife` for more explicit caching. Affects `src/services/dashboardService.ts` and `src/components/dashboard/actions.ts`.
+### ~~Migrate `unstable_cache` to Cache Components (`use cache`)~~ ✅ COMPLETED (2026-02-14)
+Migrated all `unstable_cache` usage to `'use cache'` directive with `cacheTag` and `cacheLife`. See session summary for details.
 
 ### Migrate `middleware.ts` to `proxy.ts`
 Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.

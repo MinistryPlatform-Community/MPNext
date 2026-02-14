@@ -1,4 +1,4 @@
-import { unstable_cache } from 'next/cache';
+import { cacheLife, cacheTag } from 'next/cache';
 import { MPHelper } from '@/lib/providers/ministry-platform';
 import {
   DashboardData,
@@ -14,6 +14,46 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
+
+/**
+ * Cached Group_Types lookup (24-hour cache)
+ * Standalone function for use with 'use cache' directive
+ */
+async function fetchGroupTypes(ids: string) {
+  'use cache';
+  cacheLife('static-lookup');
+  cacheTag('group-types');
+
+  const mp = new MPHelper();
+  return mp.getTableRecords<{
+    Group_Type_ID: number;
+    Group_Type: string;
+  }>({
+    table: 'Group_Types',
+    select: 'Group_Type_ID,Group_Type',
+    filter: `Group_Type_ID IN (${ids})`
+  });
+}
+
+/**
+ * Cached Event_Types lookup (24-hour cache)
+ * Standalone function for use with 'use cache' directive
+ */
+async function fetchEventTypes(ids: string) {
+  'use cache';
+  cacheLife('static-lookup');
+  cacheTag('event-types');
+
+  const mp = new MPHelper();
+  return mp.getTableRecords<{
+    Event_Type_ID: number;
+    Event_Type: string;
+  }>({
+    table: 'Event_Types',
+    select: 'Event_Type_ID,Event_Type',
+    filter: `Event_Type_ID IN (${ids})`
+  });
+}
 
 /**
  * DashboardService - Singleton service for managing dashboard metrics
@@ -59,61 +99,19 @@ export class DashboardService {
   }
 
   /**
-   * Gets Group_Types with 24-hour cache
-   * Static data that rarely changes, safe to cache aggressively
-   *
-   * @param groupTypeIds - Set of group type IDs to fetch
-   * @returns Promise<Array> - Array of Group_Type records
+   * Gets Group_Types with 24-hour cache via 'use cache' directive
    */
   private async getGroupTypesWithCache(groupTypeIds: Set<number>) {
     const ids = Array.from(groupTypeIds).sort().join(',');
-
-    return unstable_cache(
-      async () => {
-        return this.mp!.getTableRecords<{
-          Group_Type_ID: number;
-          Group_Type: string;
-        }>({
-          table: 'Group_Types',
-          select: 'Group_Type_ID,Group_Type',
-          filter: `Group_Type_ID IN (${ids})`
-        });
-      },
-      ['group-types', ids],
-      {
-        revalidate: 86400, // 24 hours
-        tags: ['group-types']
-      }
-    )();
+    return fetchGroupTypes(ids);
   }
 
   /**
-   * Gets Event_Types with 24-hour cache
-   * Static data that rarely changes, safe to cache aggressively
-   *
-   * @param eventTypeIds - Set of event type IDs to fetch
-   * @returns Promise<Array> - Array of Event_Type records
+   * Gets Event_Types with 24-hour cache via 'use cache' directive
    */
   private async getEventTypesWithCache(eventTypeIds: Set<number>) {
     const ids = Array.from(eventTypeIds).sort().join(',');
-
-    return unstable_cache(
-      async () => {
-        return this.mp!.getTableRecords<{
-          Event_Type_ID: number;
-          Event_Type: string;
-        }>({
-          table: 'Event_Types',
-          select: 'Event_Type_ID,Event_Type',
-          filter: `Event_Type_ID IN (${ids})`
-        });
-      },
-      ['event-types', ids],
-      {
-        revalidate: 86400, // 24 hours
-        tags: ['event-types']
-      }
-    )();
+    return fetchEventTypes(ids);
   }
 
   /**
