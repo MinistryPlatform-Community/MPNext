@@ -20,7 +20,12 @@
       "Bash(gh pr create:*)",
       "Bash(npm audit:*)",
       "Bash(npm update:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(git remote prune:*)",
+      "Bash(git branch:*)",
+      "Bash(grep:*)",
+      "Bash(node -e:*)",
+      "Bash(gh pr:*)"
     ],
     "deny": [],
     "ask": []

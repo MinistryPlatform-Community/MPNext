@@ -29,3 +29,6 @@ Replace the hardcoded ministry year date ranges with an interactive date selecto
 
 ## Technical Debt
 
+### Upgrade to Next.js 16
+Currently on Next.js 15.5.6. Next.js 16.1.6 LTS (Feb 2026) brings stable Turbopack for dev and build, built-in React Compiler (auto-memoization), smarter routing with layout deduplication, and file system caching for faster dev restarts. Upgrade guide: https://nextjs.org/docs/app/guides/upgrading/version-16. Check NextAuth v5 beta compatibility before upgrading.
+

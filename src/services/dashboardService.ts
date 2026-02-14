@@ -10,6 +10,11 @@ import {
   MonthlyAttendanceTrend
 } from '@/lib/dto';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 /**
  * DashboardService - Singleton service for managing dashboard metrics
  *
@@ -177,6 +182,7 @@ export class DashboardService {
       eventTypeMetrics,
       yearOverYear,
       smallGroupTrends,
+      previousYearSmallGroupTrends: [], // Computed client-side by filterDashboardData
       communityAttendanceTrends,
       monthlyAttendanceTrends,
       previousYearMonthlyAttendanceTrends,
@@ -648,6 +654,7 @@ export class DashboardService {
 
         trends.push({
           month: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`,
+          monthName: MONTH_NAMES[currentDate.getMonth()],
           activeGroupCount: activeGroupsThisMonth.size,
           totalParticipants: activeParticipantsThisMonth.size,
           averageAttendance: activeGroupsThisMonth.size > 0
@@ -829,10 +836,10 @@ export class DashboardService {
   }
 
   /**
-   * Gets monthly worship service attendance trends (September - May)
+   * Gets monthly worship service attendance trends (September - August)
    *
    * @param startDate - Start date of period (September 1)
-   * @param endDate - End date of period (May 31)
+   * @param endDate - End date of period (August 31)
    * @returns Promise<MonthlyAttendanceTrend[]> - Monthly attendance data
    */
   private async getMonthlyAttendanceTrends(
@@ -843,12 +850,7 @@ export class DashboardService {
       const trends: MonthlyAttendanceTrend[] = [];
       const currentDate = new Date(startDate);
 
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-      ];
-
-      // Loop through each month in the ministry year (Sept - May)
+      // Loop through each month in the ministry year (Sept - Aug)
       while (currentDate <= endDate) {
         const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
         const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -910,7 +912,7 @@ export class DashboardService {
 
         trends.push({
           month: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`,
-          monthName: monthNames[currentDate.getMonth()],
+          monthName: MONTH_NAMES[currentDate.getMonth()],
           averageInPersonAttendance: eventCount > 0 ? Math.round(totalInPerson / eventCount) : 0,
           averageOnlineAttendance: eventCount > 0 ? Math.round(totalOnline / eventCount) : 0,
           averageTotalAttendance: eventCount > 0 ? Math.round((totalInPerson + totalOnline) / eventCount) : 0,

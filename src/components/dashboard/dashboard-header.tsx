@@ -38,7 +38,7 @@ export function DashboardHeader() {
       </div>
       <div className="flex items-center justify-between">
         <p className="text-muted-foreground">
-          Worship Services attendance and group participation metrics for ministry year (September - May)
+          Worship Services attendance and group participation metrics
         </p>
         {lastRefresh && (
           <p className="text-xs text-muted-foreground">

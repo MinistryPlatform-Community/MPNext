@@ -12,27 +12,28 @@ import { ExpandableChart } from './expandable-chart';
 
 interface DashboardMetricsProps {
   data: DashboardData;
+  showCompare?: boolean;
 }
 
-export function DashboardMetrics({ data }: DashboardMetricsProps) {
+export function DashboardMetrics({ data, showCompare = true }: DashboardMetricsProps) {
   return (
     <div className="space-y-6">
       {/* Key Metrics Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard
-          title="Avg In-Person Attendance (Ministry Year)"
+          title="Avg In-Person Attendance"
           value={data.currentPeriod.averageInPersonAttendance}
-          previousValue={data.previousPeriod.averageInPersonAttendance}
+          previousValue={showCompare ? data.previousPeriod.averageInPersonAttendance : undefined}
           format="number"
         />
         <MetricCard
-          title="Avg Online Attendance (Ministry Year)"
+          title="Avg Online Attendance"
           value={data.currentPeriod.averageOnlineAttendance}
-          previousValue={data.previousPeriod.averageOnlineAttendance}
+          previousValue={showCompare ? data.previousPeriod.averageOnlineAttendance : undefined}
           format="number"
         />
         <MetricCard
-          title="Active Communities and Small Groups (Ministry Year)"
+          title="Active Communities and Small Groups"
           value={data.groupTypeMetrics
             .filter(g =>
               g.groupTypeName.toLowerCase().includes('small') ||
@@ -44,34 +45,33 @@ export function DashboardMetrics({ data }: DashboardMetricsProps) {
         <MetricCard
           title="Baptisms (last 365 days)"
           value={data.baptismsLastYear}
-          previousValue={data.baptismsPreviousYear}
+          previousValue={showCompare ? data.baptismsPreviousYear : undefined}
           format="number"
         />
       </div>
-
 
       {/* Charts Section */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Worship Service Attendance (Ministry Year)</CardTitle>
-            <CardDescription>Monthly average attendance comparison (September - May)</CardDescription>
+            <CardTitle>Worship Service Attendance</CardTitle>
+            <CardDescription>Monthly average attendance{showCompare ? ' comparison' : ''}</CardDescription>
           </CardHeader>
           <CardContent>
             <ExpandableChart
-              title="Worship Service Attendance (Ministry Year)"
-              description="Monthly average attendance comparison (September - May)"
+              title="Worship Service Attendance"
+              description={`Monthly average attendance${showCompare ? ' comparison' : ''}`}
               expandedChildren={
                 <AttendanceChart
                   currentYear={data.monthlyAttendanceTrends}
-                  previousYear={data.previousYearMonthlyAttendanceTrends}
+                  previousYear={showCompare ? data.previousYearMonthlyAttendanceTrends : []}
                   height={600}
                 />
               }
             >
               <AttendanceChart
                 currentYear={data.monthlyAttendanceTrends}
-                previousYear={data.previousYearMonthlyAttendanceTrends}
+                previousYear={showCompare ? data.previousYearMonthlyAttendanceTrends : []}
               />
             </ExpandableChart>
           </CardContent>
@@ -79,12 +79,62 @@ export function DashboardMetrics({ data }: DashboardMetricsProps) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Group Participation (Ministry Year)</CardTitle>
+            <CardTitle>Small Group Trends</CardTitle>
+            <CardDescription>Monthly small group participation{showCompare ? ' comparison' : ''}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ExpandableChart
+              title="Small Group Trends"
+              description={`Monthly small group participation${showCompare ? ' comparison' : ''}`}
+              expandedChildren={
+                <SmallGroupTrends
+                  data={data.smallGroupTrends}
+                  previousYear={showCompare ? data.previousYearSmallGroupTrends : []}
+                  height={600}
+                />
+              }
+            >
+              <SmallGroupTrends
+                data={data.smallGroupTrends}
+                previousYear={showCompare ? data.previousYearSmallGroupTrends : []}
+              />
+            </ExpandableChart>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Community Attendance Trends */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Community Sunday Gathering Attendance</CardTitle>
+          <CardDescription>Average weekly attendance for each community</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ExpandableChart
+            title="Community Sunday Gathering Attendance"
+            description="Average weekly attendance for each community"
+            expandedChildren={
+              <CommunityAttendanceChart
+                data={data.communityAttendanceTrends}
+                height={600}
+              />
+            }
+          >
+            <CommunityAttendanceChart data={data.communityAttendanceTrends} />
+          </ExpandableChart>
+        </CardContent>
+      </Card>
+
+      {/* Group Participation + Period Comparison */}
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Group Participation</CardTitle>
             <CardDescription>Active participants by group type</CardDescription>
           </CardHeader>
           <CardContent>
             <ExpandableChart
-              title="Group Participation (Ministry Year)"
+              title="Group Participation"
               description="Active participants by group type"
               expandedChildren={
                 <GroupParticipationChart
@@ -98,59 +148,19 @@ export function DashboardMetrics({ data }: DashboardMetricsProps) {
             </ExpandableChart>
           </CardContent>
         </Card>
+
+        {showCompare && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Period Comparison</CardTitle>
+              <CardDescription>Performance vs. previous period</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <YearOverYearComparison data={data.yearOverYear} />
+            </CardContent>
+          </Card>
+        )}
       </div>
-
-      {/* Year-over-Year Comparison */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Year-over-Year Comparison</CardTitle>
-          <CardDescription>Performance vs. last ministry year</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <YearOverYearComparison data={data.yearOverYear} />
-        </CardContent>
-      </Card>
-
-      {/* Community Attendance Trends */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Community Sunday Gathering Attendance (Ministry Year)</CardTitle>
-          <CardDescription>Average weekly attendance for each community over the ministry year</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ExpandableChart
-            title="Community Sunday Gathering Attendance (Ministry Year)"
-            description="Average weekly attendance for each community over the ministry year"
-            expandedChildren={
-              <CommunityAttendanceChart
-                data={data.communityAttendanceTrends}
-                height={600}
-              />
-            }
-          >
-            <CommunityAttendanceChart data={data.communityAttendanceTrends} />
-          </ExpandableChart>
-        </CardContent>
-      </Card>
-
-      {/* Small Group Trends */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Small Group Trends (Ministry Year)</CardTitle>
-          <CardDescription>Monthly small group participation</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ExpandableChart
-            title="Small Group Trends (Ministry Year)"
-            description="Monthly small group participation"
-            expandedChildren={
-              <SmallGroupTrends data={data.smallGroupTrends} height={600} />
-            }
-          >
-            <SmallGroupTrends data={data.smallGroupTrends} />
-          </ExpandableChart>
-        </CardContent>
-      </Card>
 
       {/* Debug Info - Development only */}
       {process.env.NODE_ENV === 'development' && (

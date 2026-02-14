@@ -6,7 +6,7 @@ import { DashboardData } from '@/lib/dto';
 
 /**
  * Fetches dashboard data for the specified ministry year
- * Defaults to current ministry year (Sept - May)
+ * Defaults to current ministry year (Sept - Aug)
  * Data is cached for 6 hours and tagged for manual invalidation
  *
  * @param year - Optional ministry year (defaults to current)
@@ -21,9 +21,9 @@ export async function getDashboardMetrics(
   const getCachedDashboardData = unstable_cache(
     async (ministryYear: number) => {
       try {
-        // Ministry year runs Sept 1 - May 31
+        // Ministry year runs Sept 1 - Aug 31
         const startDate = new Date(ministryYear, 8, 1); // September 1
-        const endDate = new Date(ministryYear + 1, 4, 31); // May 31 of next calendar year
+        const endDate = new Date(ministryYear + 1, 7, 31); // August 31 of next calendar year
 
         const dashboardService = await DashboardService.getInstance();
         const data = await dashboardService.getDashboardData(startDate, endDate);
@@ -42,6 +42,45 @@ export async function getDashboardMetrics(
   );
 
   return getCachedDashboardData(currentYear);
+}
+
+/**
+ * Fetches dashboard data for the full selectable date range (5 ministry years).
+ * All data is loaded once and filtered client-side when the user changes the filter.
+ * Cached for 6 hours with manual invalidation support.
+ *
+ * @returns Promise<DashboardData> - Complete dashboard metrics for the full range
+ */
+export async function getFullRangeDashboardMetrics(): Promise<DashboardData> {
+  const currentYear = getCurrentMinistryYear();
+  const earliestYear = currentYear - 4;
+
+  const getCachedFullRange = unstable_cache(
+    async (earliest: number, current: number) => {
+      try {
+        const startDate = new Date(earliest, 8, 1); // September 1, 5 years ago
+        const today = new Date();
+        // Use today or Aug 31 of current+1, whichever is earlier
+        const maxEnd = new Date(current + 1, 7, 31);
+        const endDate = today < maxEnd ? today : maxEnd;
+
+        const dashboardService = await DashboardService.getInstance();
+        const data = await dashboardService.getDashboardData(startDate, endDate);
+
+        return data;
+      } catch (error) {
+        console.error('Error fetching full range dashboard metrics:', error);
+        throw new Error('Failed to fetch full range dashboard metrics');
+      }
+    },
+    ['dashboard-full-range', `${earliestYear}-${currentYear}`],
+    {
+      revalidate: 21600,
+      tags: ['dashboard-data', 'dashboard-full-range']
+    }
+  );
+
+  return getCachedFullRange(earliestYear, currentYear);
 }
 
 /**

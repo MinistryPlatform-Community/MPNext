@@ -11,6 +11,7 @@ src/components/
 ├── contact-logs/               # Contact log CRUD feature
 ├── contact-lookup/             # Contact search feature
 ├── contact-lookup-details/     # Contact details view
+├── dashboard/                  # Executive dashboard feature
 ├── tool/                       # Tool layout components (ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug)
 ├── user-tools-debug/           # Debug: User permissions display (dev only)
 ├── user-menu/                  # User dropdown menu
@@ -38,6 +39,7 @@ src/components/
 | `contact-logs/` | Contact log CRUD with modal forms | Yes |
 | `contact-lookup/` | Contact search with results display | Yes |
 | `contact-lookup-details/` | Contact profile and logs view | Yes |
+| `dashboard/` | Executive dashboard with charts and filters | Yes |
 | `user-menu/` | User dropdown with sign-out | Yes |
 | `tool/` | Tool layout components (ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug) | No |
 
@@ -68,6 +70,7 @@ Actions are co-located with their feature components:
 | contact-logs | `contact-logs/actions.ts` | `getContactLogTypes`, `createContactLog`, `updateContactLog`, `deleteContactLog`, `getContactLogsByContactId`, `getContactLogById` |
 | contact-lookup | `contact-lookup/actions.ts` | `searchContacts` |
 | contact-lookup-details | `contact-lookup-details/actions.ts` | `getContactDetails`, `getContactLogsByContactId` |
+| dashboard | `dashboard/actions.ts` | `getDashboardMetrics`, `getFullRangeDashboardMetrics`, `refreshDashboardCache` |
 | user-menu | `user-menu/actions.ts` | `handleSignOut` |
 | user-tools-debug | `user-tools-debug/actions.ts` | `getUserTools` |
 | **shared** | `shared-actions/user.ts` | `getCurrentUserProfile` |
@@ -169,6 +172,14 @@ import { ToolParamsDebug } from '@/components/tool';
 - **Import**: `import { ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug } from '@/components/tool';`
 - **Note**: `ToolParamsDebug` is a debug component for development only
 
+### dashboard
+- **Purpose**: Executive dashboard with attendance/group metrics and interactive date filtering
+- **Components**: `DashboardShell` (client container), `DashboardMetrics` (layout), `DateRangeFilter` (month/year selector), `AttendanceChart`, `CommunityAttendanceChart`, `GroupParticipationChart`, `SmallGroupTrends`, `YearOverYearComparison`, `MetricCard`
+- **Utilities**: `filterDashboardData` (client-side date filtering), `selectionToDateRange`, `getPreviousPeriodRange`
+- **Data flow**: Full 5-year dataset preloaded on page load → `useMemo` filters client-side on selection change → no server round-trip for filter changes
+- **Actions**: `getDashboardMetrics` (single ministry year), `getFullRangeDashboardMetrics` (full selectable range), `refreshDashboardCache` (manual cache invalidation)
+- **Import**: `import { DashboardShell, filterDashboardData } from '@/components/dashboard';`
+
 ### user-menu
 - **Purpose**: User profile dropdown with sign-out
 - **Features**: Displays user name/email, implements OIDC logout flow
@@ -184,5 +195,6 @@ Components interact with these service classes:
 | ContactLogService | `@/services/contactLogService` | contact-logs |
 | ToolService | `@/services/toolService` | user-tools-debug |
 | UserService | `@/services/userService` | user-menu |
+| DashboardService | `@/services/dashboardService` | dashboard |
 
 All services ultimately use `MPHelper` from `@/lib/providers/ministry-platform` for API calls.

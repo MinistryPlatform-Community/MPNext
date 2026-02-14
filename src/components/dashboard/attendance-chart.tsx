@@ -52,8 +52,8 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
     }
   });
 
-  // Convert to array and sort by ministry year order (Sept - May)
-  const monthOrder = ['September', 'October', 'November', 'December', 'January', 'February', 'March', 'April', 'May'];
+  // Convert to array and sort by ministry year order (Sept - Aug)
+  const monthOrder = ['September', 'October', 'November', 'December', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August'];
   const chartData = Array.from(monthsMap.values()).sort((a, b) => {
     return monthOrder.indexOf(a.name) - monthOrder.indexOf(b.name);
   });
@@ -68,11 +68,12 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={chartData}>
+      <LineChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
         <XAxis
           dataKey="name"
           className="text-xs"
+          padding={{ left: 20, right: 20 }}
         />
         <YAxis className="text-xs" />
         <Tooltip

@@ -59,6 +59,7 @@ export interface EventTypeMetrics {
  */
 export interface SmallGroupTrend {
   month: string; // YYYY-MM
+  monthName: string; // e.g., "September"
   activeGroupCount: number;
   totalParticipants: number;
   averageAttendance: number;
@@ -94,6 +95,7 @@ export interface DashboardData {
   eventTypeMetrics: EventTypeMetrics[];
   yearOverYear: YearOverYearMetrics[];
   smallGroupTrends: SmallGroupTrend[];
+  previousYearSmallGroupTrends: SmallGroupTrend[];
   communityAttendanceTrends: CommunityAttendanceTrend[];
   monthlyAttendanceTrends: MonthlyAttendanceTrend[];
   previousYearMonthlyAttendanceTrends: MonthlyAttendanceTrend[];
