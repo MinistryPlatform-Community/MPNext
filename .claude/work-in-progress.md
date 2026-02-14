@@ -480,10 +480,12 @@ Currently showing on dashboard at bottom - can be removed once stable:
 
 ### Environment Details
 - Ministry Platform REST API via MPHelper
-- Next.js 15 with App Router
-- React Server Components with 1-hour cache (revalidate = 3600)
+- Next.js 16.1.6 LTS with App Router (Turbopack default bundler)
+- NextAuth v5 (beta.30) with Ministry Platform OAuth
+- React 19 Server Components with 6-hour cache (revalidate = 21600)
 - Recharts for visualization (AreaChart, LineChart, PieChart)
 - TypeScript strict mode
+- ESLint 9 flat config with eslint-config-next 16.1.6
 
 ### Important Ministry Platform Field Names
 - Event_Metrics.Metric_ID: 2 = In-Person, 3 = Online

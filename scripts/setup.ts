@@ -1093,7 +1093,9 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   ];
 
   // Now check for other missing/empty required variables
-  let { result: envVarsResult, missing, empty } = validateEnvVars();
+  const envVarsCheck = validateEnvVars();
+  const { missing, empty } = envVarsCheck;
+  let envVarsResult = envVarsCheck.result;
 
   if (!envVarsResult.success) {
     printResult(envVarsResult);

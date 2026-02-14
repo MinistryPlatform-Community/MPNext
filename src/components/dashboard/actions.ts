@@ -113,9 +113,9 @@ export async function refreshDashboardCache(): Promise<{
 }> {
   try {
     revalidatePath('/dashboard');
-    revalidateTag('dashboard-data'); // Invalidates getDashboardMetrics cache
-    revalidateTag('group-types');
-    revalidateTag('event-types');
+    revalidateTag('dashboard-data', 'max'); // Invalidates getDashboardMetrics cache
+    revalidateTag('group-types', 'max');
+    revalidateTag('event-types', 'max');
     return {
       success: true,
       timestamp: new Date()

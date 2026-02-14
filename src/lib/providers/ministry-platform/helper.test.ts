@@ -93,14 +93,16 @@ describe('MPHelper', () => {
         table: 'Contacts',
       });
 
+      // Auto-pagination kicks in when top/skip are not provided,
+      // so the first call uses $top: 1000, $skip: 0
       expect(mockGetTableRecords).toHaveBeenCalledWith('Contacts', {
         $select: undefined,
         $filter: undefined,
         $orderby: undefined,
         $groupby: undefined,
         $having: undefined,
-        $top: undefined,
-        $skip: undefined,
+        $top: 1000,
+        $skip: 0,
         $distinct: undefined,
         $userId: undefined,
         $globalFilterId: undefined,

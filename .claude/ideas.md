@@ -67,6 +67,12 @@ Replace the hardcoded ministry year date ranges with an interactive date selecto
 
 ## Technical Debt
 
-### Upgrade to Next.js 16
-Currently on Next.js 15.5.6. Next.js 16.1.6 LTS (Feb 2026) brings stable Turbopack for dev and build, built-in React Compiler (auto-memoization), smarter routing with layout deduplication, and file system caching for faster dev restarts. Upgrade guide: https://nextjs.org/docs/app/guides/upgrading/version-16. Check NextAuth v5 beta compatibility before upgrading.
+### ~~Upgrade to Next.js 16~~ ✅ COMPLETED (2026-02-14)
+Upgraded from Next.js 15.5.6 to 16.1.6 LTS. See session summary for details.
+
+### Migrate `unstable_cache` to Cache Components (`use cache`)
+`unstable_cache` still works in Next.js 16 but is legacy. The recommended path is to migrate to the `use cache` directive with `cacheTag` and `cacheLife` for more explicit caching. Affects `src/services/dashboardService.ts` and `src/components/dashboard/actions.ts`.
+
+### Migrate `middleware.ts` to `proxy.ts`
+Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.
 
