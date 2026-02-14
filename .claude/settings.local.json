@@ -25,7 +25,10 @@
       "Bash(git branch:*)",
       "Bash(grep:*)",
       "Bash(node -e:*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)"
     ],
     "deny": [],
     "ask": []
