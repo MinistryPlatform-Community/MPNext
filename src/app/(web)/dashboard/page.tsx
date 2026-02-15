@@ -1,14 +1,13 @@
+import { cacheLife } from 'next/cache';
 import { getFullRangeDashboardMetrics } from '@/components/dashboard/actions';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
-
-// Revalidate the dashboard data every 6 hours (21600 seconds)
-// This provides 4 refresh windows per day: 12am, 6am, 12pm, 6pm
-// Using ISR (Incremental Static Regeneration) - page is cached and revalidated every 6 hours
-export const revalidate = 21600;
 
 const BUILD_ID = 'client-side-filter-v1';
 
 export default async function DashboardPage() {
+  'use cache';
+  cacheLife('dashboard');
+
   // Fetch full date range on server; client-side filtering handles date selection
   const dashboardData = await getFullRangeDashboardMetrics();
 

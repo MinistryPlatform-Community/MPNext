@@ -84,7 +84,23 @@ Upgraded the project from Next.js 15.5.6 to Next.js 16.1.6 LTS, addressing all b
 - `'use cache'` functions are standalone module-level functions (not class methods) because the directive auto-generates cache keys from serializable function arguments; class `this` context is not serializable
 - Non-exported cached functions coexist with file-level `'use server'` in actions.ts
 
-## Files Modified (Both Parts)
+---
+
+## Part 3: Node.js 22 + Doc Updates
+
+### Dockerfile
+- Upgraded all 3 stages from `node:20-alpine3.21` to `node:22-alpine`
+- Node 20 EOL is April 30, 2026; Node 22 LTS supported through April 2027
+
+### Dashboard Page (`src/app/(web)/dashboard/page.tsx`)
+- Removed `export const revalidate = 21600` (incompatible with `cacheComponents`)
+- Replaced with `'use cache'` + `cacheLife('dashboard')` on the page component
+
+### README.md
+- Updated Next.js version references: 15 → 16
+- Updated Node.js requirement: v18 → v22 (v20.9+ minimum)
+
+## Files Modified (All Parts)
 | File | Change |
 |------|--------|
 | `package.json` | Upgraded next, next-auth, eslint-config-next; changed lint script |
@@ -92,6 +108,9 @@ Upgraded the project from Next.js 15.5.6 to Next.js 16.1.6 LTS, addressing all b
 | `next.config.ts` | Added cacheComponents + custom cacheLife profiles |
 | `src/components/dashboard/actions.ts` | Migrated from `unstable_cache` to `'use cache'` directive |
 | `src/services/dashboardService.ts` | Migrated from `unstable_cache` to `'use cache'` directive |
+| `src/app/(web)/dashboard/page.tsx` | Replaced `revalidate` config with `'use cache'` + `cacheLife` |
+| `Dockerfile` | Upgraded from `node:20-alpine3.21` to `node:22-alpine` |
+| `README.md` | Updated Next.js/Node version references |
 | `scripts/setup.ts` | Fixed `prefer-const` lint error |
 | `src/lib/providers/ministry-platform/helper.test.ts` | Fixed test expectations for auto-pagination |
 | `.claude/ideas.md` | Marked upgrade + cache migration complete |

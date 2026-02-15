@@ -267,7 +267,7 @@
 
 #### Session 2026-02-04 (Docker Deployment Configuration)
 1. **Dockerfile** (NEW)
-   - Multi-stage production build using Node.js 20 Alpine
+   - Multi-stage production build using Node.js 22 Alpine
    - Stage 1 (deps): Install dependencies from package-lock.json
    - Stage 2 (builder): Build Next.js application with standalone output
    - Stage 3 (runner): Minimal production runtime with non-root user
@@ -337,7 +337,7 @@
 3. **.github/dependabot.yml** (NEW)
    - Automated dependency management configuration
    - Monitors GitHub Actions (weekly updates for workflow actions)
-   - Monitors Docker base images (weekly updates for node:20-alpine)
+   - Monitors Docker base images (weekly updates for node:22-alpine)
    - Monitors npm packages (weekly updates for package.json/package-lock.json)
    - Groups minor and patch updates to reduce PR noise
    - Major version updates get individual PRs for review
