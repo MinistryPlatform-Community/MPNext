@@ -98,9 +98,9 @@ export async function refreshDashboardCache(): Promise<{
 }> {
   try {
     revalidatePath('/dashboard');
-    revalidateTag('dashboard-data');
-    revalidateTag('group-types');
-    revalidateTag('event-types');
+    revalidateTag('dashboard-data', { expire: 0 });
+    revalidateTag('group-types', { expire: 0 });
+    revalidateTag('event-types', { expire: 0 });
     return {
       success: true,
       timestamp: new Date()
