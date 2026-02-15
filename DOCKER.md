@@ -246,7 +246,7 @@ The configuration (`.github/dependabot.yml`) monitors three areas:
    - Ensures CI/CD pipeline uses latest secure versions
 
 2. **Docker Base Images** (weekly)
-   - Updates `node:20-alpine` in Dockerfiles
+   - Updates `node:22-alpine` in Dockerfiles
    - Keeps container base images patched
 
 3. **npm Dependencies** (weekly)
@@ -400,7 +400,7 @@ docker-compose restart mp-charts
 
 ### Production Build (Dockerfile)
 - Multi-stage build for minimal image size (~150MB)
-- Node.js 20 Alpine base
+- Node.js 22 Alpine base
 - Standalone output mode (no node_modules in runtime)
 - Runs as non-root user for security
 - Optimized layer caching

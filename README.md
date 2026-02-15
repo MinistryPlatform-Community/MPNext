@@ -1,6 +1,6 @@
 # MPNext
 
-A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 15, React 19, and NextAuth v5.
+A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and NextAuth v5.
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - **Authentication**: NextAuth v5 with Ministry Platform OAuth provider and OIDC RP-initiated logout
 - **Modern UI**: Radix UI primitives + shadcn/ui components with Tailwind CSS v4
 - **Type-Safe API**: Full TypeScript support with auto-generated types from Ministry Platform schema
-- **Next.js 15**: App Router with React Server Components
+- **Next.js 16**: App Router with React Server Components and Cache Components
 - **REST API Client**: Comprehensive Ministry Platform REST API integration
 - **Type Generation**: CLI tool to generate TypeScript interfaces and Zod schemas from MP database
 - **Schema Documentation**: Auto-generated markdown documentation with type file links
@@ -37,7 +37,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 ## Architecture
 
 ### Framework
-- **Next.js 15.5.6** with App Router
+- **Next.js 16.1.6** with App Router
 - **React 19** with Server Components by default
 - **TypeScript** in strict mode
 - **Tailwind CSS v4** for styling
@@ -59,7 +59,7 @@ NextAuth v5 (beta) with custom Ministry Platform OAuth provider (`src/auth.ts`)
 
 ## Prerequisites
 
-- **Node.js**: v18 or higher
+- **Node.js**: v22 or higher (v20.9+ minimum, v22 LTS recommended)
 - **Package Manager**: npm (comes with Node.js)
 - **Ministry Platform**: Active instance with API credentials and OAuth client configured (see [OAuth Setup](#oauth-setup))
 
@@ -77,7 +77,7 @@ npm run setup
 ```
 
 The interactive setup command will:
-1. Verify Node.js version (v18+ required)
+1. Verify Node.js version (v20.9+ required, v22 LTS recommended)
 2. Check git status
 3. Create `.env.local` from `.env.example` (if needed)
 4. Prompt for missing environment variables

@@ -267,7 +267,7 @@
 
 #### Session 2026-02-04 (Docker Deployment Configuration)
 1. **Dockerfile** (NEW)
-   - Multi-stage production build using Node.js 20 Alpine
+   - Multi-stage production build using Node.js 22 Alpine
    - Stage 1 (deps): Install dependencies from package-lock.json
    - Stage 2 (builder): Build Next.js application with standalone output
    - Stage 3 (runner): Minimal production runtime with non-root user
@@ -337,7 +337,7 @@
 3. **.github/dependabot.yml** (NEW)
    - Automated dependency management configuration
    - Monitors GitHub Actions (weekly updates for workflow actions)
-   - Monitors Docker base images (weekly updates for node:20-alpine)
+   - Monitors Docker base images (weekly updates for node:22-alpine)
    - Monitors npm packages (weekly updates for package.json/package-lock.json)
    - Groups minor and patch updates to reduce PR noise
    - Major version updates get individual PRs for review
@@ -480,10 +480,12 @@ Currently showing on dashboard at bottom - can be removed once stable:
 
 ### Environment Details
 - Ministry Platform REST API via MPHelper
-- Next.js 15 with App Router
-- React Server Components with 1-hour cache (revalidate = 3600)
+- Next.js 16.1.6 LTS with App Router (Turbopack default bundler, Cache Components enabled)
+- NextAuth v5 (beta.30) with Ministry Platform OAuth
+- React 19 Server Components with 6-hour cache (revalidate = 21600)
 - Recharts for visualization (AreaChart, LineChart, PieChart)
 - TypeScript strict mode
+- ESLint 9 flat config with eslint-config-next 16.1.6
 
 ### Important Ministry Platform Field Names
 - Event_Metrics.Metric_ID: 2 = In-Person, 3 = Online

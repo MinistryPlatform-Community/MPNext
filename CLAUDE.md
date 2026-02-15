@@ -43,7 +43,7 @@ gh pr create --title "..." --body "..."  # This defaults to upstream!
 
 ## Architecture
 
-- **Framework**: Next.js 15 (App Router) with React 19, TypeScript strict mode
+- **Framework**: Next.js 16 (App Router) with React 19, TypeScript strict mode
 - **Ministry Platform Integration**: Custom provider at `src/lib/providers/ministry-platform/` with REST API client, auth, and type-safe models
 - **Auth**: NextAuth v5 (beta) with Ministry Platform OAuth provider (`src/auth.ts`)
   - **OIDC Logout**: Implements RP-initiated logout flow to properly end Ministry Platform OAuth sessions
