@@ -77,7 +77,7 @@ npm run setup
 ```
 
 The interactive setup command will:
-1. Verify Node.js version (v18+ required)
+1. Verify Node.js version (v20.9+ required, v22 LTS recommended)
 2. Check git status
 3. Create `.env.local` from `.env.example` (if needed)
 4. Prompt for missing environment variables
