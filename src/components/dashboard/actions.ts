@@ -1,42 +1,44 @@
 'use server';
 
-import { cacheLife, cacheTag, revalidatePath, revalidateTag } from 'next/cache';
+import { unstable_cache, revalidatePath, revalidateTag } from 'next/cache';
 import { DashboardService } from '@/services/dashboardService';
 import { DashboardData } from '@/lib/dto';
 
 /**
  * Cached dashboard data for a single ministry year (6-hour cache)
  */
-async function cachedDashboardData(ministryYear: number): Promise<DashboardData> {
-  'use cache';
-  cacheLife('dashboard');
-  cacheTag('dashboard-data', `year-${ministryYear}`);
+const getCachedDashboardData = (ministryYear: number) =>
+  unstable_cache(
+    async (): Promise<DashboardData> => {
+      // Ministry year runs Sept 1 - Aug 31
+      const startDate = new Date(ministryYear, 8, 1); // September 1
+      const endDate = new Date(ministryYear + 1, 7, 31); // August 31 of next calendar year
 
-  // Ministry year runs Sept 1 - Aug 31
-  const startDate = new Date(ministryYear, 8, 1); // September 1
-  const endDate = new Date(ministryYear + 1, 7, 31); // August 31 of next calendar year
-
-  const dashboardService = await DashboardService.getInstance();
-  return dashboardService.getDashboardData(startDate, endDate);
-}
+      const dashboardService = await DashboardService.getInstance();
+      return dashboardService.getDashboardData(startDate, endDate);
+    },
+    [`dashboard-data-${ministryYear}`],
+    { revalidate: 21600, tags: ['dashboard-data', `year-${ministryYear}`] }
+  );
 
 /**
  * Cached full-range dashboard data for 5 ministry years (6-hour cache)
  */
-async function cachedFullRangeData(earliestYear: number, currentYear: number): Promise<DashboardData> {
-  'use cache';
-  cacheLife('dashboard');
-  cacheTag('dashboard-data', 'dashboard-full-range');
+const getCachedFullRangeData = (earliestYear: number, currentYear: number) =>
+  unstable_cache(
+    async (): Promise<DashboardData> => {
+      const startDate = new Date(earliestYear, 8, 1); // September 1, 5 years ago
+      const today = new Date();
+      // Use today or Aug 31 of current+1, whichever is earlier
+      const maxEnd = new Date(currentYear + 1, 7, 31);
+      const endDate = today < maxEnd ? today : maxEnd;
 
-  const startDate = new Date(earliestYear, 8, 1); // September 1, 5 years ago
-  const today = new Date();
-  // Use today or Aug 31 of current+1, whichever is earlier
-  const maxEnd = new Date(currentYear + 1, 7, 31);
-  const endDate = today < maxEnd ? today : maxEnd;
-
-  const dashboardService = await DashboardService.getInstance();
-  return dashboardService.getDashboardData(startDate, endDate);
-}
+      const dashboardService = await DashboardService.getInstance();
+      return dashboardService.getDashboardData(startDate, endDate);
+    },
+    [`dashboard-full-range-${earliestYear}-${currentYear}`],
+    { revalidate: 21600, tags: ['dashboard-data', 'dashboard-full-range'] }
+  );
 
 /**
  * Fetches dashboard data for the specified ministry year
@@ -50,7 +52,7 @@ export async function getDashboardMetrics(
   year?: number
 ): Promise<DashboardData> {
   const currentYear = year || getCurrentMinistryYear();
-  return cachedDashboardData(currentYear);
+  return getCachedDashboardData(currentYear)();
 }
 
 /**
@@ -63,7 +65,7 @@ export async function getDashboardMetrics(
 export async function getFullRangeDashboardMetrics(): Promise<DashboardData> {
   const currentYear = getCurrentMinistryYear();
   const earliestYear = currentYear - 4;
-  return cachedFullRangeData(earliestYear, currentYear);
+  return getCachedFullRangeData(earliestYear, currentYear)();
 }
 
 /**
@@ -84,7 +86,7 @@ function getCurrentMinistryYear(): number {
 
 /**
  * Manually refreshes the dashboard cache
- * This action revalidates both page-level and cache-component caches:
+ * Revalidates both page-level and data-level caches:
  * - Page-level: revalidates the dashboard page
  * - Data-level: invalidates dashboard-data, Group_Types and Event_Types caches
  *
@@ -96,9 +98,9 @@ export async function refreshDashboardCache(): Promise<{
 }> {
   try {
     revalidatePath('/dashboard');
-    revalidateTag('dashboard-data', 'max'); // Invalidates cached dashboard data
-    revalidateTag('group-types', 'max');
-    revalidateTag('event-types', 'max');
+    revalidateTag('dashboard-data');
+    revalidateTag('group-types');
+    revalidateTag('event-types');
     return {
       success: true,
       timestamp: new Date()

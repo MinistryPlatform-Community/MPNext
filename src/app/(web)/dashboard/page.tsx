@@ -1,12 +1,9 @@
-import { cacheLife } from 'next/cache';
 import { getFullRangeDashboardMetrics } from '@/components/dashboard/actions';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 
 const BUILD_ID = 'client-side-filter-v1';
 
 export default async function DashboardPage() {
-  'use cache';
-  cacheLife('dashboard');
 
   // Fetch full date range on server; client-side filtering handles date selection
   const dashboardData = await getFullRangeDashboardMetrics();
