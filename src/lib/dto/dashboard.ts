@@ -86,6 +86,19 @@ export interface MonthlyAttendanceTrend {
 }
 
 /**
+ * Weekly (per-event-date) worship service attendance data
+ * Used to show individual data points when a single month is selected
+ */
+export interface WeeklyAttendanceTrend {
+  eventDate: string; // ISO date, e.g. "2026-02-01"
+  dateLabel: string; // e.g., "Feb 1"
+  inPersonAttendance: number;
+  onlineAttendance: number;
+  totalAttendance: number;
+  eventCount: number;
+}
+
+/**
  * Complete dashboard data
  */
 export interface DashboardData {
@@ -99,6 +112,8 @@ export interface DashboardData {
   communityAttendanceTrends: CommunityAttendanceTrend[];
   monthlyAttendanceTrends: MonthlyAttendanceTrend[];
   previousYearMonthlyAttendanceTrends: MonthlyAttendanceTrend[];
+  weeklyAttendanceTrends: WeeklyAttendanceTrend[];
+  weeklyCommunityAttendanceTrends: CommunityAttendanceTrend[];
   baptismsLastYear: number;
   baptismsPreviousYear: number;
   generatedAt: string;

@@ -13,9 +13,10 @@ import { ExpandableChart } from './expandable-chart';
 interface DashboardMetricsProps {
   data: DashboardData;
   showCompare?: boolean;
+  isSingleMonth?: boolean;
 }
 
-export function DashboardMetrics({ data, showCompare = true }: DashboardMetricsProps) {
+export function DashboardMetrics({ data, showCompare = true, isSingleMonth = false }: DashboardMetricsProps) {
   return (
     <div className="space-y-6">
       {/* Key Metrics Cards */}
@@ -55,12 +56,14 @@ export function DashboardMetrics({ data, showCompare = true }: DashboardMetricsP
         <Card>
           <CardHeader>
             <CardTitle>Worship Service Attendance</CardTitle>
-            <CardDescription>Monthly average attendance{showCompare ? ' comparison' : ''}</CardDescription>
+            <CardDescription>
+              {isSingleMonth ? 'Weekly attendance' : `Monthly average attendance${showCompare ? ' comparison' : ''}`}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <ExpandableChart
               title="Worship Service Attendance"
-              description={`Monthly average attendance${showCompare ? ' comparison' : ''}`}
+              description={isSingleMonth ? 'Weekly attendance' : `Monthly average attendance${showCompare ? ' comparison' : ''}`}
               expandedChildren={
                 <AttendanceChart
                   currentYear={data.monthlyAttendanceTrends}
@@ -107,12 +110,14 @@ export function DashboardMetrics({ data, showCompare = true }: DashboardMetricsP
       <Card>
         <CardHeader>
           <CardTitle>Community Sunday Gathering Attendance</CardTitle>
-          <CardDescription>Average weekly attendance for each community</CardDescription>
+          <CardDescription>
+            {isSingleMonth ? 'Weekly attendance for each community' : 'Average weekly attendance for each community'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <ExpandableChart
             title="Community Sunday Gathering Attendance"
-            description="Average weekly attendance for each community"
+            description={isSingleMonth ? 'Weekly attendance for each community' : 'Average weekly attendance for each community'}
             expandedChildren={
               <CommunityAttendanceChart
                 data={data.communityAttendanceTrends}

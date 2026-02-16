@@ -12,7 +12,7 @@ import {
   selectionToDateRange,
 } from './date-range-filter';
 import { refreshDashboardCache, getFullRangeDashboardMetrics } from './actions';
-import { filterDashboardData } from './filter-dashboard-data';
+import { filterDashboardData, isSingleMonthSelection } from './filter-dashboard-data';
 import { useRouter } from 'next/navigation';
 
 interface DashboardShellProps {
@@ -118,7 +118,7 @@ export function DashboardShell({ initialData }: DashboardShellProps) {
 
       {/* Dashboard Content */}
       <div className={isRefreshing ? 'opacity-60 pointer-events-none transition-opacity' : 'transition-opacity'}>
-        <DashboardMetrics data={filteredData} showCompare={selection.compare} />
+        <DashboardMetrics data={filteredData} showCompare={selection.compare} isSingleMonth={isSingleMonthSelection(selection)} />
       </div>
     </div>
   );

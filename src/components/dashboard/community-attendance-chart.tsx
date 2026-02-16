@@ -89,15 +89,18 @@ export function CommunityAttendanceChart({ data, height = 400 }: CommunityAttend
     .sort((a, b) => a.average - b.average)
     .map(item => item.name);
 
+  // Detect if data has multiple entries within the same month (weekly granularity)
+  const monthKeys = new Set(data.map(w => w.weekStartDate.slice(0, 7)));
+  const isWeekly = data.length > monthKeys.size;
+
   // Format data for recharts
   const chartData = data.map(week => {
     // Parse date in local time to avoid timezone shifting
     const [year, month, day] = week.weekStartDate.split('-').map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed in Date constructor
-    const formattedDate = date.toLocaleDateString('en-US', {
-      month: 'short',
-      year: 'numeric'
-    });
+    const formattedDate = isWeekly
+      ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
     return {
       date: formattedDate,

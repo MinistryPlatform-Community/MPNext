@@ -4,6 +4,8 @@ import {
   MonthlyAttendanceTrend,
   SmallGroupTrend,
   YearOverYearMetrics,
+  WeeklyAttendanceTrend,
+  CommunityAttendanceTrend,
 } from '@/lib/dto';
 import {
   DateRangeSelection,
@@ -24,6 +26,14 @@ function ensureMonthName(item: SmallGroupTrend): SmallGroupTrend {
 }
 
 /**
+ * Detect whether the selection represents a single month in a single year.
+ * When true, charts should show weekly (per-date) data points instead of monthly averages.
+ */
+export function isSingleMonthSelection(selection: DateRangeSelection): boolean {
+  return selection.months.length === 1 && selection.years.length === 1;
+}
+
+/**
  * Filters the full-range dashboard data to match the user's date selection.
  * Runs entirely client-side — no server round-trip needed.
  *
@@ -31,21 +41,25 @@ function ensureMonthName(item: SmallGroupTrend): SmallGroupTrend {
  * is filtered by date. Aggregate metrics (PeriodMetrics, YearOverYear) are
  * recomputed from the filtered monthly data. Non-time-series data (groupTypeMetrics,
  * eventTypeMetrics, baptisms) is passed through unchanged.
+ *
+ * When a single month is selected, weekly (per-date) data points are substituted
+ * for monthly averages so charts show individual data points for that month.
  */
 export function filterDashboardData(
   fullData: DashboardData,
   selection: DateRangeSelection
 ): DashboardData {
   const { startDate, endDate } = selectionToDateRange(selection);
+  const singleMonth = isSingleMonthSelection(selection);
 
   // Filter time-series arrays by the selected date range
-  const monthlyAttendanceTrends = filterMonthlyTrends(
+  let monthlyAttendanceTrends = filterMonthlyTrends(
     fullData.monthlyAttendanceTrends,
     startDate,
     endDate
   );
 
-  const communityAttendanceTrends = fullData.communityAttendanceTrends.filter(week => {
+  let communityAttendanceTrends = fullData.communityAttendanceTrends.filter(week => {
     const [y, m, d] = week.weekStartDate.split('-').map(Number);
     const date = new Date(y, m - 1, d);
     return date >= startDate && date <= endDate;
@@ -59,7 +73,7 @@ export function filterDashboardData(
 
   // Compute previous period trends for comparison
   const { startDate: prevStart, endDate: prevEnd } = getPreviousPeriodRange(startDate, endDate);
-  const previousYearMonthlyAttendanceTrends = filterMonthlyTrends(
+  let previousYearMonthlyAttendanceTrends = filterMonthlyTrends(
     fullData.monthlyAttendanceTrends,
     prevStart,
     prevEnd
@@ -69,6 +83,49 @@ export function filterDashboardData(
     prevStart,
     prevEnd
   ).map(ensureMonthName);
+
+  // When a single month is selected, substitute weekly data for monthly averages
+  // so charts show individual data points instead of one aggregated value
+  if (singleMonth) {
+    const weeklyFiltered = filterWeeklyTrends(
+      fullData.weeklyAttendanceTrends,
+      startDate,
+      endDate
+    );
+
+    // Convert weekly attendance data to MonthlyAttendanceTrend format
+    // so the chart component can render it without changes to its interface
+    monthlyAttendanceTrends = weeklyFiltered.map(w => ({
+      month: w.eventDate,
+      monthName: w.dateLabel,
+      averageInPersonAttendance: w.inPersonAttendance,
+      averageOnlineAttendance: w.onlineAttendance,
+      averageTotalAttendance: w.totalAttendance,
+      eventCount: w.eventCount
+    }));
+
+    // Use weekly community data for the selected month
+    communityAttendanceTrends = filterCommunityByDateRange(
+      fullData.weeklyCommunityAttendanceTrends,
+      startDate,
+      endDate
+    );
+
+    // Previous year weekly data for comparison
+    const prevWeeklyFiltered = filterWeeklyTrends(
+      fullData.weeklyAttendanceTrends,
+      prevStart,
+      prevEnd
+    );
+    previousYearMonthlyAttendanceTrends = prevWeeklyFiltered.map(w => ({
+      month: w.eventDate,
+      monthName: w.dateLabel,
+      averageInPersonAttendance: w.inPersonAttendance,
+      averageOnlineAttendance: w.onlineAttendance,
+      averageTotalAttendance: w.totalAttendance,
+      eventCount: w.eventCount
+    }));
+  }
 
   // Recompute aggregate PeriodMetrics from filtered monthly data
   const currentPeriod = computePeriodMetrics(monthlyAttendanceTrends, startDate, endDate);
@@ -89,6 +146,32 @@ export function filterDashboardData(
     yearOverYear,
     // groupTypeMetrics, eventTypeMetrics, baptisms — pass through from full range
   };
+}
+
+/** Filter WeeklyAttendanceTrend[] by date range (eventDate is YYYY-MM-DD) */
+function filterWeeklyTrends(
+  trends: WeeklyAttendanceTrend[],
+  startDate: Date,
+  endDate: Date
+): WeeklyAttendanceTrend[] {
+  return trends.filter(t => {
+    const [y, m, d] = t.eventDate.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    return date >= startDate && date <= endDate;
+  });
+}
+
+/** Filter CommunityAttendanceTrend[] by date range (weekStartDate is YYYY-MM-DD) */
+function filterCommunityByDateRange(
+  trends: CommunityAttendanceTrend[],
+  startDate: Date,
+  endDate: Date
+): CommunityAttendanceTrend[] {
+  return trends.filter(t => {
+    const [y, m, d] = t.weekStartDate.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    return date >= startDate && date <= endDate;
+  });
 }
 
 /** Filter MonthlyAttendanceTrend[] by date range (month field is YYYY-MM) */

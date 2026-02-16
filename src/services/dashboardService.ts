@@ -7,7 +7,9 @@ import {
   PeriodMetrics,
   YearOverYearMetrics,
   SmallGroupTrend,
-  MonthlyAttendanceTrend
+  MonthlyAttendanceTrend,
+  WeeklyAttendanceTrend,
+  CommunityAttendanceTrend
 } from '@/lib/dto';
 
 const MONTH_NAMES = [
@@ -147,9 +149,10 @@ export class DashboardService {
       groupTypeMetrics,
       eventTypeMetrics,
       smallGroupTrends,
-      communityAttendanceTrends,
+      communityTrends,
       monthlyAttendanceTrends,
       previousYearMonthlyAttendanceTrends,
+      weeklyAttendanceTrends,
       baptismsLastYear,
       baptismsPreviousYear
     ] = await Promise.all([
@@ -161,6 +164,7 @@ export class DashboardService {
       this.getCommunityAttendanceTrends(currentYearStart, currentYearEnd),
       this.getMonthlyAttendanceTrends(currentYearStart, currentYearEnd),
       this.getMonthlyAttendanceTrends(previousYearStart, previousYearEnd),
+      this.getWeeklyAttendanceTrends(currentYearStart, currentYearEnd),
       this.getBaptismsCount(currentBaptismsStart, today),
       this.getBaptismsCount(previousBaptismsStart, previousBaptismsEnd)
     ]);
@@ -181,9 +185,11 @@ export class DashboardService {
       yearOverYear,
       smallGroupTrends,
       previousYearSmallGroupTrends: [], // Computed client-side by filterDashboardData
-      communityAttendanceTrends,
+      communityAttendanceTrends: communityTrends.monthly,
       monthlyAttendanceTrends,
       previousYearMonthlyAttendanceTrends,
+      weeklyAttendanceTrends,
+      weeklyCommunityAttendanceTrends: communityTrends.weekly,
       baptismsLastYear,
       baptismsPreviousYear,
       generatedAt: new Date().toISOString()
@@ -672,19 +678,19 @@ export class DashboardService {
   }
 
   /**
-   * Gets community attendance trends over time
+   * Gets community attendance trends over time (both monthly and weekly aggregations)
    * Counts Event_Participants with status 3 or 4, filtered by:
    * - Groups with Group_Type_ID = 11 (Community)
    * - Events within ministry year date range
    *
    * @param startDate - Start date of period
    * @param endDate - End date of period
-   * @returns Promise<CommunityAttendanceTrend[]> - Weekly community attendance data
+   * @returns Monthly and weekly community attendance data from the same raw data
    */
   private async getCommunityAttendanceTrends(
     startDate: Date,
     endDate: Date
-  ): Promise<import('@/lib/dto').CommunityAttendanceTrend[]> {
+  ): Promise<{ monthly: CommunityAttendanceTrend[]; weekly: CommunityAttendanceTrend[] }> {
     try {
       // Step 1: Get all Community groups (Group_Type_ID = 11)
       const communityGroups = await this.mp!.getTableRecords<{
@@ -698,7 +704,7 @@ export class DashboardService {
 
       if (communityGroups.length === 0) {
         console.log('No Community groups found (Group_Type_ID = 11)');
-        return [];
+        return { monthly: [], weekly: [] };
       }
 
       const communityGroupIds = communityGroups.map(g => g.Group_ID);
@@ -720,7 +726,7 @@ export class DashboardService {
 
       console.log(`Found ${eventParticipants.length} event participants for community groups`);
 
-      if (eventParticipants.length === 0) return [];
+      if (eventParticipants.length === 0) return { monthly: [], weekly: [] };
 
       // Get unique Event_IDs from participants
       const uniqueEventIds = Array.from(new Set(eventParticipants.map(p => p.Event_ID)));
@@ -767,15 +773,17 @@ export class DashboardService {
 
       console.log(`After filtering to Sundays in date range: ${sundayParticipants.length} participants`);
 
-      if (sundayParticipants.length === 0) return [];
+      if (sundayParticipants.length === 0) return { monthly: [], weekly: [] };
 
-      // Step 4: Calculate average weekly attendance per group per month
-      // Format: unique Event_Participant_IDs / unique Event_IDs per group per month
-
-      // Group data by month and group
+      // Step 4a: Group data by month and group (for monthly aggregation)
       const monthlyGroupData = new Map<string, Map<number, {
         participantIds: Set<number>;
         eventIds: Set<number>;
+      }>>();
+
+      // Step 4b: Group data by event date and group (for weekly aggregation)
+      const weeklyGroupData = new Map<string, Map<number, {
+        participantIds: Set<number>;
       }>>();
 
       for (const participant of sundayParticipants) {
@@ -784,52 +792,68 @@ export class DashboardService {
 
         const date = new Date(eventDate);
         const monthKey = date.toISOString().slice(0, 7); // "2025-09"
+        const dateKey = date.toISOString().slice(0, 10); // "2025-09-07"
 
-        // Initialize month if not exists
+        // Monthly aggregation
         if (!monthlyGroupData.has(monthKey)) {
           monthlyGroupData.set(monthKey, new Map());
         }
-
         const monthData = monthlyGroupData.get(monthKey)!;
-
-        // Initialize group within month if not exists
         if (!monthData.has(participant.Group_ID)) {
           monthData.set(participant.Group_ID, {
             participantIds: new Set(),
             eventIds: new Set()
           });
         }
+        const monthGroupData = monthData.get(participant.Group_ID)!;
+        monthGroupData.participantIds.add(participant.Event_Participant_ID);
+        monthGroupData.eventIds.add(participant.Event_ID);
 
-        const groupData = monthData.get(participant.Group_ID)!;
-        groupData.participantIds.add(participant.Event_Participant_ID);
-        groupData.eventIds.add(participant.Event_ID);
+        // Weekly aggregation
+        if (!weeklyGroupData.has(dateKey)) {
+          weeklyGroupData.set(dateKey, new Map());
+        }
+        const weekData = weeklyGroupData.get(dateKey)!;
+        if (!weekData.has(participant.Group_ID)) {
+          weekData.set(participant.Group_ID, { participantIds: new Set() });
+        }
+        weekData.get(participant.Group_ID)!.participantIds.add(participant.Event_Participant_ID);
       }
 
-      // Calculate averages and build trends
-      const trends: import('@/lib/dto').CommunityAttendanceTrend[] = [];
-
+      // Build monthly trends (averages)
+      const monthly: CommunityAttendanceTrend[] = [];
       for (const [monthKey, groupsData] of Array.from(monthlyGroupData.entries()).sort()) {
         const communityAttendance: { [communityName: string]: number } = {};
-
         for (const [groupId, data] of groupsData) {
           const communityName = communityNameMap.get(groupId) || 'Unknown';
-
-          // Average = unique participants / unique events
           const average = data.participantIds.size / data.eventIds.size;
           communityAttendance[communityName] = Math.round(average);
         }
-
-        trends.push({
-          weekStartDate: monthKey + '-01', // Use first day of month as the date key
+        monthly.push({
+          weekStartDate: monthKey + '-01',
           communityAttendance
         });
       }
 
-      console.log(`Returning ${trends.length} monthly trends`);
-      return trends;
+      // Build weekly trends (per-date counts)
+      const weekly: CommunityAttendanceTrend[] = [];
+      for (const [dateKey, groupsData] of Array.from(weeklyGroupData.entries()).sort()) {
+        const communityAttendance: { [communityName: string]: number } = {};
+        for (const [groupId, data] of groupsData) {
+          const communityName = communityNameMap.get(groupId) || 'Unknown';
+          communityAttendance[communityName] = data.participantIds.size;
+        }
+        weekly.push({
+          weekStartDate: dateKey,
+          communityAttendance
+        });
+      }
+
+      console.log(`Returning ${monthly.length} monthly and ${weekly.length} weekly trends`);
+      return { monthly, weekly };
     } catch (error) {
       console.error('Error fetching community attendance trends:', error);
-      return [];
+      return { monthly: [], weekly: [] };
     }
   }
 
@@ -924,6 +948,113 @@ export class DashboardService {
       return trends;
     } catch (error) {
       console.error('Error fetching monthly attendance trends:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Gets per-event-date worship service attendance data
+   * Used to show individual weekly data points when a single month is selected
+   *
+   * @param startDate - Start date of period
+   * @param endDate - End date of period
+   * @returns Promise<WeeklyAttendanceTrend[]> - Per-date attendance data sorted chronologically
+   */
+  private async getWeeklyAttendanceTrends(
+    startDate: Date,
+    endDate: Date
+  ): Promise<WeeklyAttendanceTrend[]> {
+    const startIso = startDate.toISOString();
+    const endIso = endDate.toISOString();
+
+    try {
+      // Fetch all worship service events with their dates
+      const events = await this.mp!.getTableRecords<{
+        Event_ID: number;
+        Event_Start_Date: string;
+      }>({
+        table: 'Events',
+        select: 'Event_ID,Event_Start_Date',
+        filter: `
+          Events.Event_Start_Date >= '${startIso}' AND
+          Events.Event_End_Date <= '${endIso}' AND
+          Events.Cancelled = 0 AND
+          Events.Event_Type_ID = 7
+        `
+      });
+
+      if (events.length === 0) return [];
+
+      const eventIds = events.map(e => e.Event_ID);
+
+      // Fetch all metrics for these events
+      const eventMetrics = await this.mp!.getTableRecords<{
+        Event_ID: number;
+        Metric_ID: number;
+        Numerical_Value: number;
+      }>({
+        table: 'Event_Metrics',
+        select: 'Event_ID,Metric_ID,Numerical_Value',
+        filter: `
+          Event_Metrics.Event_ID IN (${eventIds.join(',')}) AND
+          Event_Metrics.Metric_ID IN (2, 3)
+        `
+      });
+
+      // Build event-to-date map
+      const eventDateMap = new Map(events.map(e => [e.Event_ID, e.Event_Start_Date]));
+
+      // Group metrics by date (YYYY-MM-DD)
+      const dateGroups = new Map<string, {
+        inPerson: number;
+        online: number;
+        eventIds: Set<number>;
+      }>();
+
+      for (const metric of eventMetrics) {
+        const eventDate = eventDateMap.get(metric.Event_ID);
+        if (!eventDate) continue;
+
+        const dateKey = new Date(eventDate).toISOString().slice(0, 10);
+
+        if (!dateGroups.has(dateKey)) {
+          dateGroups.set(dateKey, { inPerson: 0, online: 0, eventIds: new Set() });
+        }
+
+        const group = dateGroups.get(dateKey)!;
+        group.eventIds.add(metric.Event_ID);
+
+        if (metric.Metric_ID === 2) {
+          group.inPerson += metric.Numerical_Value;
+        } else if (metric.Metric_ID === 3) {
+          group.online += metric.Numerical_Value;
+        }
+      }
+
+      // Convert to sorted array
+      const trends: WeeklyAttendanceTrend[] = Array.from(dateGroups.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([dateKey, data]) => {
+          const [year, month, day] = dateKey.split('-').map(Number);
+          const date = new Date(year, month - 1, day);
+          const dateLabel = date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric'
+          });
+
+          return {
+            eventDate: dateKey,
+            dateLabel,
+            inPersonAttendance: data.inPerson,
+            onlineAttendance: data.online,
+            totalAttendance: data.inPerson + data.online,
+            eventCount: data.eventIds.size
+          };
+        });
+
+      return trends;
+    } catch (error) {
+      console.error('Error fetching weekly attendance trends:', error);
       return [];
     }
   }
