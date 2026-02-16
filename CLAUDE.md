@@ -27,6 +27,10 @@ gh pr create --title "..." --body "..."  # This defaults to upstream!
 - Only create PRs on upstream when explicitly requested
 - Always use `--repo The-Moody-Church/mp-charts` flag with gh pr create
 
+### Auto-Commit `.claude/settings.local.json`
+
+When committing changes, if `.claude/settings.local.json` has pending modifications, include it in the commit. This file tracks Claude Code permission settings and should stay in sync.
+
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)
