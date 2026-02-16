@@ -1,17 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import { Providers } from "@/app/providers";
 import { AuthWrapper, Header, DynamicBreadcrumb } from "@/components/layout";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Pastor App",
@@ -33,7 +24,7 @@ export default async function WebLayout({
   return (
     <AuthWrapper>
       <Providers>
-        <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
+        <div className={`flex flex-col ${GeistSans.variable} ${GeistMono.variable}`}>
           <Header />
           <main className="flex-1 mt-16">
             <div className="px-4 py-3 border-b bg-muted/30">

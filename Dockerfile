@@ -30,6 +30,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Remove npm (and its vulnerable transitive deps like glob, tar) since
+# the runner only needs the node binary to execute server.js
+RUN npm uninstall -g npm
+
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
