@@ -75,3 +75,31 @@ Investigation revealed these are **not** project dependencies (neither appears i
 | `next-env.d.ts` | Auto-updated by Next.js 16 build |
 | `.claude/work-in-progress.md` | Updated status, environment details, files modified |
 | `.claude/session-summary-2026-02-16.md` | This file |
+
+---
+
+## Session 2 — Documentation Cleanup
+
+### Documentation Updates
+
+1. **`.claude/ideas.md`** — Added open GitHub issues to ideas documentation
+   - **Improvements section**: Added issues #13 (Mobile Views), #12 (One Month Charts Fix), #6 (Hide Unused Modules), #4 (Update Webpage Title)
+   - **Technical Debt section**: Added issue #7 (Refine MP Permissions)
+   - **Corrected status**: Changed `unstable_cache` → `use cache` migration from ✅ COMPLETED to ⚠️ REVERTED, with explanation that `'use cache'` directive only works in Next.js canary builds (reverted in PR #10)
+
+2. **`README.md`** — Cleaned up and updated README
+   - Added fork notice explaining relationship to upstream (pull only, no push back)
+   - Fixed clone URLs from upstream (`MinistryPlatform-Community/MPNext`) to fork (`The-Moody-Church/mp-charts`)
+   - Fixed broken ToC anchor (`#oauth-setup` → `#api-client-setup`)
+   - Removed empty "Token Lifetimes" heading, stale "Cache Components" reference
+   - Updated project structure tree with dashboard, Docker files, dashboardService
+   - Added `DOCKER.md` to Documentation section
+   - Removed internal `.claude/references/` links and Contributing section
+
+3. **`CLAUDE.md`** — Added auto-commit policy for `.claude/settings.local.json`
+
+### Files Modified
+- `.claude/ideas.md` — Added 5 open issues, corrected cache migration status
+- `README.md` — Fork notice, fixed links, updated structure, removed stale content
+- `CLAUDE.md` — Auto-commit policy for settings.local.json
+- `.claude/settings.local.json` — Added npm run test:run and gh issue list permissions

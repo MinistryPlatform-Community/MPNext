@@ -53,6 +53,18 @@ A dedicated pastoral interface for viewing and managing contact logs.
 
 ## Improvements
 
+### Executive Dashboard: Mobile Views ([#13](https://github.com/The-Moody-Church/mp-charts/issues/13))
+The mobile view needs redevelopment. Charts are squeezed and the data overlay when clicking on a data point is unruly and difficult to close. Redevelop and refine the mobile view strategy.
+
+### Executive Dashboard One Month Charts Fix ([#12](https://github.com/The-Moody-Church/mp-charts/issues/12))
+When only one month of data is selected on the executive dashboard, charts that normally show monthly averages should instead show individual data points. For example, if February is selected, the service attendance chart should show the four data points for February on their dates instead of a single average data point. This applies to all charts that show monthly averages.
+
+### Hide Unused Modules in Production ([#6](https://github.com/The-Moody-Church/mp-charts/issues/6))
+In production, hide modules that are not in use.
+
+### Update Webpage Title ([#4](https://github.com/The-Moody-Church/mp-charts/issues/4))
+Code currently says "Pastor App". Update the webpage tab name to "TMC MP Apps".
+
 ### Dashboard Date Range Selector
 Replace the hardcoded ministry year date ranges with an interactive date selector that includes comparison capabilities.
 
@@ -70,8 +82,11 @@ Replace the hardcoded ministry year date ranges with an interactive date selecto
 ### ~~Upgrade to Next.js 16~~ ✅ COMPLETED (2026-02-14)
 Upgraded from Next.js 15.5.6 to 16.1.6 LTS. See session summary for details.
 
-### ~~Migrate `unstable_cache` to Cache Components (`use cache`)~~ ✅ COMPLETED (2026-02-14)
-Migrated all `unstable_cache` usage to `'use cache'` directive with `cacheTag` and `cacheLife`. See session summary for details.
+### Migrate `unstable_cache` to Cache Components (`use cache`) ⚠️ REVERTED (2026-02-14)
+Originally migrated to `'use cache'` directive with `cacheTag` and `cacheLife`, but reverted ([PR #10](https://github.com/The-Moody-Church/mp-charts/pull/10)) because the `'use cache'` directive is only available in Next.js canary builds, not stable releases. The codebase currently uses `unstable_cache`. Revisit when `'use cache'` lands in a stable Next.js release.
+
+### Refine MP Permissions ([#7](https://github.com/The-Moody-Church/mp-charts/issues/7))
+Refine Ministry Platform permissions for the application.
 
 ### Migrate `middleware.ts` to `proxy.ts`
 Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.
