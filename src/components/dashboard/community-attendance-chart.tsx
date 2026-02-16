@@ -100,7 +100,7 @@ export function CommunityAttendanceChart({ data, height = 400 }: CommunityAttend
     const date = new Date(year, month - 1, day); // month is 0-indexed in Date constructor
     const formattedDate = isWeekly
       ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      : date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 
     return {
       date: formattedDate,
