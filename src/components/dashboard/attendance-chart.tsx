@@ -17,9 +17,18 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
   // Detect if this is weekly data (month field is a date YYYY-MM-DD instead of YYYY-MM)
   const isWeekly = currentFiltered.length > 0 && currentFiltered[0].month.length > 7;
 
-  // Create a map of all unique data points
+  /** Format a YYYY-MM or YYYY-MM-DD sort key into a short display label */
+  const formatLabel = (sortKey: string, monthName: string): string => {
+    if (isWeekly) return monthName; // Already "Feb 1" etc. from dateLabel
+    const [y, m] = sortKey.split('-').map(Number);
+    const date = new Date(y, m - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  };
+
+  // Create a map of all unique data points (keyed by monthName for merging)
   const monthsMap = new Map<string, {
-    name: string;
+    name: string;       // display label for X-axis
+    mergeKey: string;   // monthName used for current/previous year matching
     sortKey: string;
     currentInPerson?: number;
     currentOnline?: number;
@@ -32,7 +41,8 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
   // Add current year data
   currentFiltered.forEach(item => {
     monthsMap.set(item.monthName, {
-      name: item.monthName,
+      name: formatLabel(item.month, item.monthName),
+      mergeKey: item.monthName,
       sortKey: item.month, // YYYY-MM for monthly, YYYY-MM-DD for weekly
       currentInPerson: item.averageInPersonAttendance,
       currentOnline: item.averageOnlineAttendance,
@@ -51,7 +61,8 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
         existing.previousTotal = item.averageTotalAttendance;
       } else {
         monthsMap.set(item.monthName, {
-          name: item.monthName,
+          name: formatLabel(item.month, item.monthName),
+          mergeKey: item.monthName,
           sortKey: item.month,
           previousInPerson: item.averageInPersonAttendance,
           previousOnline: item.averageOnlineAttendance,
@@ -67,7 +78,7 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
     if (isWeekly) {
       return a.sortKey.localeCompare(b.sortKey);
     }
-    return monthOrder.indexOf(a.name) - monthOrder.indexOf(b.name);
+    return monthOrder.indexOf(a.mergeKey) - monthOrder.indexOf(b.mergeKey);
   });
 
   if (chartData.length === 0) {

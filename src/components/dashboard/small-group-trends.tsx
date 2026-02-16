@@ -16,20 +16,29 @@ const MONTH_ORDER = [
   'June', 'July', 'August'
 ];
 
+/** Format a YYYY-MM key into a short display label like "Feb 26" */
+function formatMonthLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  const date = new Date(y, m - 1, 1);
+  return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
 export function SmallGroupTrends({ data, previousYear = [], height = 300 }: SmallGroupTrendsProps) {
   // Build a map keyed by month name, merging current and previous year data
   const monthsMap = new Map<string, {
-    name: string;
+    name: string;       // display label for X-axis
+    mergeKey: string;   // monthName used for current/previous year matching and sorting
     groups?: number;
     participants?: number;
     previousGroups?: number;
     previousParticipants?: number;
   }>();
 
-  // Add current year data (uses monthName from the data layer — no YYYY-MM parsing needed)
+  // Add current year data
   data.forEach(item => {
     monthsMap.set(item.monthName, {
-      name: item.monthName,
+      name: formatMonthLabel(item.month),
+      mergeKey: item.monthName,
       groups: item.activeGroupCount,
       participants: item.totalParticipants
     });
@@ -43,7 +52,8 @@ export function SmallGroupTrends({ data, previousYear = [], height = 300 }: Smal
       existing.previousParticipants = item.totalParticipants;
     } else {
       monthsMap.set(item.monthName, {
-        name: item.monthName,
+        name: formatMonthLabel(item.month),
+        mergeKey: item.monthName,
         previousGroups: item.activeGroupCount,
         previousParticipants: item.totalParticipants
       });
@@ -52,7 +62,7 @@ export function SmallGroupTrends({ data, previousYear = [], height = 300 }: Smal
 
   // Sort by ministry year order
   const chartData = Array.from(monthsMap.values()).sort((a, b) => {
-    return MONTH_ORDER.indexOf(a.name) - MONTH_ORDER.indexOf(b.name);
+    return MONTH_ORDER.indexOf(a.mergeKey) - MONTH_ORDER.indexOf(b.mergeKey);
   });
 
   const hasPrevious = previousYear.length > 0;
