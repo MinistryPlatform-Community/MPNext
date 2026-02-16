@@ -2,6 +2,8 @@
 
 A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and NextAuth v5.
 
+> **Fork Notice**: This repository ([The-Moody-Church/mp-charts](https://github.com/The-Moody-Church/mp-charts)) is a fork of [MinistryPlatform-Community/MPNext](https://github.com/MinistryPlatform-Community/MPNext). We pull in changes from upstream but do not contribute back. All development happens on this fork.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -10,7 +12,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - [Getting Started](#getting-started)
   - [Quick Setup with Claude Code](#quick-setup-with-claude-code)
   - [Manual Setup](#manual-setup)
-  - [OAuth Setup](#oauth-setup)
+  - [API Client Setup](#api-client-setup)
 - [Project Structure](#project-structure)
 - [Ministry Platform Integration](#ministry-platform-integration)
 - [Components](#components)
@@ -26,7 +28,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - **Authentication**: NextAuth v5 with Ministry Platform OAuth provider and OIDC RP-initiated logout
 - **Modern UI**: Radix UI primitives + shadcn/ui components with Tailwind CSS v4
 - **Type-Safe API**: Full TypeScript support with auto-generated types from Ministry Platform schema
-- **Next.js 16**: App Router with React Server Components and Cache Components
+- **Next.js 16**: App Router with React Server Components
 - **REST API Client**: Comprehensive Ministry Platform REST API integration
 - **Type Generation**: CLI tool to generate TypeScript interfaces and Zod schemas from MP database
 - **Schema Documentation**: Auto-generated markdown documentation with type file links
@@ -70,8 +72,8 @@ NextAuth v5 (beta) with custom Ministry Platform OAuth provider (`src/auth.ts`)
 If you have [Claude Code](https://claude.ai/code) installed, the setup process is automated:
 
 ```bash
-git clone https://github.com/MinistryPlatform-Community/MPNext.git
-cd MPNext
+git clone https://github.com/The-Moody-Church/mp-charts.git
+cd mp-charts
 npm install
 npm run setup
 ```
@@ -106,8 +108,8 @@ If you prefer manual setup or don't have Claude Code:
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/MinistryPlatform-Community/MPNext.git
-cd MPNext
+git clone https://github.com/The-Moody-Church/mp-charts.git
+cd mp-charts
 ```
 
 #### 2. Install Dependencies
@@ -196,9 +198,6 @@ https://yourdomain.com
 ```
 
 > **Important**: Post-logout redirect URIs are **required** for proper logout functionality. The application implements OIDC RP-initiated logout to properly end Ministry Platform OAuth sessions. Without these configured, users will be auto-logged back in after clicking "Sign out" (SSO behavior).
-
-##### Token Lifetimes (Default Settings)
-
 
 #### Generate NextAuth Secret
 
@@ -291,129 +290,91 @@ When deploying to production:
 5. Enable HTTPS/SSL certificates
 6. Test the complete authentication flow in production environment
 
+For Docker-based deployments, see **[DOCKER.md](DOCKER.md)**.
+
 ## Project Structure
 
 ```
-MPNext/
+mp-charts/
 ├── src/
 │   ├── app/                              # Next.js App Router pages
 │   │   ├── (web)/                        # Protected route group
-│   │   │   ├── contactlookup/            # Contact lookup demo
-│   │   │   │   └── [guid]/               # Dynamic contact detail page
-│   │   │   ├── home/                     # Home redirect
-│   │   │   ├── tools/                    # Tools framework
-│   │   │   │   └── template/             # Template tool example
-│   │   │   ├── layout.tsx                # Web layout with auth
-│   │   │   └── page.tsx                  # Dashboard/home page
-│   │   ├── api/auth/[...nextauth]/       # NextAuth API routes
-│   │   ├── signin/                       # Sign-in page
-│   │   ├── layout.tsx                    # Root layout
-│   │   └── providers.tsx                 # App providers wrapper
+│   │   │   ├── contactlookup/            # Contact lookup
+│   │   │   │   └── [guid]/              # Dynamic contact detail page
+│   │   │   ├── dashboard/               # Executive dashboard
+│   │   │   ├── home/                    # Home redirect
+│   │   │   ├── tools/                   # Tools framework
+│   │   │   │   └── template/            # Template tool example
+│   │   │   ├── layout.tsx               # Web layout with auth
+│   │   │   └── page.tsx                 # Root page
+│   │   ├── api/auth/[...nextauth]/      # NextAuth API routes
+│   │   ├── signin/                      # Sign-in page
+│   │   ├── layout.tsx                   # Root layout
+│   │   └── providers.tsx                # App providers wrapper
 │   │
-│   ├── components/                       # React components
-│   │   ├── contact-logs/                 # Contact logs feature (CRUD)
-│   │   │   ├── contact-logs.tsx
-│   │   │   ├── actions.ts
+│   ├── components/                      # React components
+│   │   ├── contact-logs/                # Contact logs feature (CRUD)
+│   │   ├── contact-lookup/              # Contact lookup feature
+│   │   ├── contact-lookup-details/      # Contact details feature
+│   │   ├── dashboard/                   # Executive dashboard components
+│   │   │   ├── dashboard-shell.tsx      # Client shell (filter state, data lifecycle)
+│   │   │   ├── dashboard-metrics.tsx    # Metric cards and charts
+│   │   │   ├── date-range-filter.tsx    # Date range selector
+│   │   │   ├── attendance-chart.tsx     # Worship attendance chart
+│   │   │   ├── community-attendance-chart.tsx
+│   │   │   ├── small-group-trends.tsx
+│   │   │   ├── filter-dashboard-data.ts # Client-side data filtering
+│   │   │   ├── actions.ts              # Server actions (data fetching, cache)
 │   │   │   └── index.ts
-│   │   ├── contact-lookup/               # Contact lookup feature
-│   │   │   ├── contact-lookup.tsx
-│   │   │   ├── contact-lookup-search.tsx
-│   │   │   ├── contact-lookup-results.tsx
-│   │   │   ├── actions.ts
-│   │   │   └── index.ts
-│   │   ├── contact-lookup-details/       # Contact details feature
-│   │   │   ├── contact-lookup-details.tsx
-│   │   │   ├── actions.ts
-│   │   │   └── index.ts
-│   │   ├── layout/                       # Layout components
-│   │   │   ├── auth-wrapper.tsx
-│   │   │   ├── dynamic-breadcrumb.tsx
-│   │   │   ├── header.tsx
-│   │   │   ├── sidebar.tsx
-│   │   │   └── index.ts
-│   │   ├── tool/                         # Tool framework components
-│   │   │   ├── tool-container.tsx
-│   │   │   ├── tool-header.tsx
-│   │   │   ├── tool-footer.tsx
-│   │   │   ├── tool-params-debug.tsx
-│   │   │   └── index.ts
-│   │   ├── user-menu/                    # User menu feature
-│   │   │   ├── user-menu.tsx
-│   │   │   ├── actions.ts
-│   │   │   └── index.ts
-│   │   ├── user-tools-debug/             # Development debug helper
-│   │   │   ├── user-tools-debug.tsx
-│   │   │   ├── actions.ts
-│   │   │   └── index.ts
-│   │   ├── shared-actions/               # Cross-feature server actions
-│   │   │   └── user.ts
-│   │   └── ui/                           # shadcn/ui components (19 components)
+│   │   ├── layout/                      # Layout components
+│   │   ├── tool/                        # Tool framework components
+│   │   ├── user-menu/                   # User menu feature
+│   │   ├── user-tools-debug/            # Development debug helper
+│   │   ├── shared-actions/              # Cross-feature server actions
+│   │   └── ui/                          # shadcn/ui components
 │   │
-│   ├── contexts/                         # React Context providers
-│   │   ├── session-context.tsx
-│   │   ├── user-context.tsx
-│   │   └── index.ts
+│   ├── contexts/                        # React Context providers
 │   │
-│   ├── lib/                              # Shared libraries
-│   │   ├── dto/                          # Application DTOs/ViewModels
+│   ├── lib/                             # Shared libraries
+│   │   ├── dto/                         # Application DTOs/ViewModels
 │   │   │   ├── contacts.ts
 │   │   │   ├── contact-logs.ts
+│   │   │   ├── dashboard.ts
 │   │   │   └── index.ts
-│   │   ├── tool-params.ts                # Tool parameter utilities
-│   │   ├── utils.ts                      # General utilities
+│   │   ├── tool-params.ts               # Tool parameter utilities
+│   │   ├── utils.ts                     # General utilities
 │   │   └── providers/
-│   │       └── ministry-platform/        # Ministry Platform provider
-│   │           ├── auth/                 # OAuth authentication
-│   │           │   ├── auth-provider.ts
-│   │           │   ├── client-credentials.ts
-│   │           │   └── types.ts
-│   │           ├── services/             # API services
-│   │           │   ├── table.service.ts
-│   │           │   ├── procedure.service.ts
-│   │           │   ├── communication.service.ts
-│   │           │   ├── file.service.ts
-│   │           │   ├── metadata.service.ts
-│   │           │   └── domain.service.ts
-│   │           ├── models/               # Generated types (603 files)
-│   │           ├── types/                # Type definitions
-│   │           ├── utils/                # HTTP client utilities
-│   │           ├── scripts/              # Type generation CLI
-│   │           ├── docs/                 # Provider documentation
-│   │           ├── client.ts             # Core MP client
-│   │           ├── provider.ts           # Singleton provider
-│   │           ├── helper.ts             # Public API (MPHelper)
-│   │           └── index.ts              # Barrel export
+│   │       └── ministry-platform/       # Ministry Platform provider
+│   │           ├── auth/                # OAuth authentication
+│   │           ├── services/            # API services (6 services)
+│   │           ├── models/              # Generated types (603 files)
+│   │           ├── types/               # Type definitions
+│   │           ├── utils/               # HTTP client utilities
+│   │           ├── scripts/             # Type generation CLI
+│   │           ├── docs/                # Provider documentation
+│   │           ├── helper.ts            # Public API (MPHelper)
+│   │           └── index.ts             # Barrel export
 │   │
-│   ├── services/                         # Application services
+│   ├── services/                        # Application services
 │   │   ├── contactService.ts
 │   │   ├── contactLogService.ts
+│   │   ├── dashboardService.ts          # Executive dashboard data
 │   │   ├── userService.ts
 │   │   └── toolService.ts
 │   │
-│   ├── types/                            # Application-wide types
-│   │   └── next-auth.d.ts                # NextAuth type extensions
-│   │
-│   ├── auth.ts                           # NextAuth configuration
-│   ├── auth.test.ts                      # Auth tests
-│   ├── middleware.ts                     # Next.js middleware
-│   ├── middleware.test.ts                # Middleware tests
-│   └── test-setup.ts                     # Vitest setup
+│   ├── auth.ts                          # NextAuth configuration
+│   └── middleware.ts                    # Next.js middleware
 │
-├── .claude/                              # Claude AI configuration
-│   ├── commands/                         # Claude Code skills
-│   └── references/                       # Documentation references
-├── docs/                                 # Documentation
-│   └── OAUTH_LOGOUT_SETUP.md
-├── public/                               # Static assets
-├── coverage/                             # Test coverage reports
-├── .env.example                          # Environment template
-├── CLAUDE.md                             # Development guide
-├── vitest.config.ts                      # Vitest configuration
-├── components.json                       # shadcn/ui configuration
-├── next.config.ts                        # Next.js configuration
-├── tailwind.config.js                    # Tailwind CSS configuration
-├── tsconfig.json                         # TypeScript configuration
-└── package.json                          # Dependencies and scripts
+├── .claude/                             # Claude AI configuration
+├── docs/                                # Documentation
+├── Dockerfile                           # Production Docker build
+├── Dockerfile.dev                       # Development Docker build
+├── docker-compose.yml                   # Docker Compose configuration
+├── DOCKER.md                            # Docker deployment guide
+├── CLAUDE.md                            # Development guide
+├── vitest.config.ts                     # Vitest configuration
+├── next.config.ts                       # Next.js configuration
+└── package.json                         # Dependencies and scripts
 ```
 
 ## Ministry Platform Integration
@@ -554,6 +515,7 @@ Application services provide business logic abstraction over the Ministry Platfo
 |---------|------|---------|
 | **ContactService** | `contactService.ts` | Contact search and updates |
 | **ContactLogService** | `contactLogService.ts` | Contact log CRUD with validation |
+| **DashboardService** | `dashboardService.ts` | Executive dashboard metrics and trends |
 | **UserService** | `userService.ts` | User profile retrieval |
 | **ToolService** | `toolService.ts` | Tool page data and user permissions |
 
@@ -751,11 +713,10 @@ Command definitions are stored in `.claude/commands/`:
 ## Documentation
 
 - **[CLAUDE.md](CLAUDE.md)** - Development guide with commands, architecture, and code style conventions
+- **[DOCKER.md](DOCKER.md)** - Docker deployment guide (production and development)
 - **[OAUTH_LOGOUT_SETUP.md](docs/OAUTH_LOGOUT_SETUP.md)** - OAuth logout configuration and OIDC RP-initiated logout details
 - **[Ministry Platform Provider](src/lib/providers/ministry-platform/docs/README.md)** - Complete provider documentation
 - **[Type Generator](src/lib/providers/ministry-platform/scripts/README.md)** - CLI tool documentation
-- **[Components Reference](.claude/references/components.md)** - Detailed component inventory
-- **[MP Schema Reference](.claude/references/ministryplatform.schema.md)** - Auto-generated database schema
 
 ## Code Style & Conventions
 
@@ -850,10 +811,6 @@ import { getCurrentUserProfile } from '@/components/shared-actions/user';
    - Export all from respective `index.ts` files
 6. Access fields with special characters using bracket notation: `event["Allow_Check-in"]`
 7. **Run tests** before committing: `npm run test:run`
-
-## Contributing
-
-This project follows strict TypeScript conventions and code style. Please review [CLAUDE.md](CLAUDE.md) before contributing.
 
 ## License
 
