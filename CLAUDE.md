@@ -123,6 +123,24 @@ export function MyComponent() { ... }  // ✅ Correct
 export default MyComponent;            // ❌ Avoid
 ```
 
+## Chart Formatting Standards
+
+All time-series charts must use consistent short date labels on the X-axis:
+
+| View | Format | Example | `toLocaleDateString` options |
+|------|--------|---------|------------------------------|
+| **Monthly** | `Mon YY` | "Feb 26", "Sep 25" | `{ month: 'short', year: '2-digit' }` |
+| **Weekly** | `Mon D` | "Feb 1", "Feb 8" | `{ month: 'short', day: 'numeric' }` |
+
+**Do NOT** use full month names ("February", "September") as X-axis labels — they take too much space and are inconsistent across charts.
+
+Charts that follow this standard:
+- `AttendanceChart` — monthly and weekly views
+- `CommunityAttendanceChart` — monthly and weekly views
+- `SmallGroupTrends` — monthly only
+
+When adding new time-series charts, use the same `toLocaleDateString('en-US', ...)` pattern with the options above.
+
 ## Key Development Practices
 
 1. **Always use the `@/` path alias** for imports instead of relative paths
@@ -133,6 +151,7 @@ export default MyComponent;            // ❌ Avoid
 6. **Never manually edit generated files** - regenerate types using `npm run mp:generate:models`
 7. **Use TypeScript strict mode** - all code must be type-safe
 8. **Validate at API boundaries** - use Zod schemas with the `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation
+9. **Report file changes** - after completing work, always report in chat which files were **created**, **modified**, or **removed**
 
 ## Validation Best Practices
 
