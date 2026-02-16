@@ -1,6 +1,6 @@
 # Executive Dashboard - Work in Progress
 
-## Current Status (2026-02-14b)
+## Current Status (2026-02-16)
 
 ### Completed Features
 1. ✅ Worship service attendance tracking using Event_Metrics (Metric_ID 2 = In-Person, 3 = Online)
@@ -86,6 +86,12 @@
    - Fixed timezone bug: added `monthName` field to `SmallGroupTrend` DTO at data level
    - Service now populates `monthName` — charts use it directly without YYYY-MM parsing
    - Shared `MONTH_NAMES` constant in dashboardService.ts used by both trend methods
+
+16. ✅ **Docker Build Fix — Next.js 16 Turbopack + Trivy Vulnerabilities (2026-02-16)**
+   - **Google Fonts failure**: Next.js 16 Turbopack uses its own TLS stack, which fails to fetch Google Fonts in Alpine Docker. Switched from `next/font/google` to the `geist` npm package (`geist/font/sans`, `geist/font/mono`) — fonts are now bundled locally.
+   - **`revalidateTag()` API change**: Next.js 16 requires a 2nd argument (cache life profile). Added `{ expire: 0 }` for immediate invalidation in `refreshDashboardCache()`.
+   - **Trivy HIGH CVEs (10)**: `glob` (CVE-2025-64756) and `tar` (CVE-2026-23745/23950/24842) were not project dependencies — they came from npm bundled in `node:22-alpine`. Added `RUN npm uninstall -g npm` in the Dockerfile runner stage to remove npm and all its vulnerable transitive deps. Also cleaned up dead `glob`/`tar` overrides from `package.json`.
+   - Auto-generated config updates from Next.js 16 build: `tsconfig.json` (jsx → react-jsx, added .next/dev/types include), `next-env.d.ts` (updated reference syntax).
 
 ### Recently Resolved: Community Attendance Chart
 
@@ -449,6 +455,28 @@
 5. **src/components/dashboard/index.ts**
    - Added export for `filterDashboardData`
 
+#### Session 2026-02-16 (Docker Build Fix + Trivy Vulnerabilities)
+1. **src/app/(web)/layout.tsx**
+   - Lines 2-3: Changed font imports from `next/font/google` to `geist/font/sans` and `geist/font/mono`
+   - Removed `Geist()` and `Geist_Mono()` constructor calls (geist package exports pre-configured objects)
+   - Line 27: Updated variable references from `geistSans`/`geistMono` to `GeistSans`/`GeistMono`
+
+2. **package.json**
+   - Added `geist: ^1.7.0` dependency (local Geist font files via `next/font/local`)
+   - Removed dead `glob` and `tar` overrides (neither is a project dependency)
+
+3. **src/components/dashboard/actions.ts**
+   - Lines 101-103: Added required 2nd argument `{ expire: 0 }` to all `revalidateTag()` calls (Next.js 16 API change)
+
+4. **Dockerfile**
+   - Lines 33-35: Added `RUN npm uninstall -g npm` in runner stage to remove npm and its vulnerable transitive dependencies (glob, tar)
+
+5. **next-env.d.ts**
+   - Auto-updated by Next.js 16 build: changed `/// <reference path>` to `import` syntax
+
+6. **tsconfig.json**
+   - Auto-updated by Next.js 16 build: `jsx: "preserve"` → `"react-jsx"`, added `.next/dev/types/**/*.ts` to includes
+
 ### Debug Logging
 
 **Status (2026-01-29)**: All debug logging removed in simplified implementation.
@@ -480,12 +508,14 @@ Currently showing on dashboard at bottom - can be removed once stable:
 
 ### Environment Details
 - Ministry Platform REST API via MPHelper
-- Next.js 16.1.6 LTS with App Router (Turbopack default bundler, Cache Components enabled)
+- Next.js 16.1.6 LTS with App Router (Turbopack default bundler)
 - NextAuth v5 (beta.30) with Ministry Platform OAuth
-- React 19 Server Components with 6-hour cache (revalidate = 21600)
+- React 19 Server Components with 6-hour cache (unstable_cache with revalidate = 21600)
 - Recharts for visualization (AreaChart, LineChart, PieChart)
 - TypeScript strict mode
 - ESLint 9 flat config with eslint-config-next 16.1.6
+- Geist fonts via `geist` npm package (local fonts, no Google Fonts CDN dependency at build time)
+- Docker production image stripped of npm to reduce attack surface (Trivy-clean)
 
 ### Important Ministry Platform Field Names
 - Event_Metrics.Metric_ID: 2 = In-Person, 3 = Online
