@@ -72,7 +72,7 @@ Code currently says "Pastor App". Update the webpage tab name to "TMC MP Apps".
 ### Small Group Trends Chart ([#15](https://github.com/The-Moody-Church/mp-charts/issues/15))
 The Small Group Trends line chart may not be the best visualization for this data. Consider switching to a bar chart or removing it entirely if it doesn't add enough value to the dashboard.
 
-### Dashboard Date Range Selector ([#20](https://github.com/The-Moody-Church/mp-charts/issues/20))
+### ~~Dashboard Date Range Selector ([#20](https://github.com/The-Moody-Church/mp-charts/issues/20))~~ ✅ COMPLETED
 Replace the hardcoded ministry year date ranges with an interactive date selector that includes comparison capabilities.
 
 - **Two-row filter layout**:
