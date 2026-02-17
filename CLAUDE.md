@@ -31,6 +31,15 @@ gh pr create --title "..." --body "..."  # This defaults to upstream!
 
 When committing changes, if `.claude/settings.local.json` has pending modifications, include it in the commit. This file tracks Claude Code permission settings and should stay in sync.
 
+### Handling `package-lock.json` and `next-env.d.ts`
+
+Both files are committed to the repo and must NOT be added to `.gitignore`.
+
+- **`package-lock.json`**: Commit when dependencies are intentionally added, removed, or updated. Discard changes caused by running `npm install` without modifying `package.json` (e.g., switching branches, peer dependency metadata churn).
+- **`next-env.d.ts`**: Commit when upgrading Next.js versions (the file content may legitimately change). Discard changes caused by running `next dev` or `next build` locally that only shuffle import paths or reference styles.
+
+**Rule of thumb**: If the change is a side effect of running a local command (not an intentional dependency or framework change), discard it with `git checkout -- <file>`.
+
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)

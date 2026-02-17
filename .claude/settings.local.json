@@ -35,7 +35,9 @@
       "Bash(GIT_EDITOR=true git rebase:*)",
       "Bash(git fetch:*)",
       "Bash(npm ls:*)",
-      "Bash(gh issue:*)"
+      "Bash(gh issue:*)",
+      "Bash(npm prune:*)",
+      "Bash(npm dedupe:*)"
     ],
     "deny": [],
     "ask": []
