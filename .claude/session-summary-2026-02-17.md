@@ -45,34 +45,61 @@
 
 ---
 
-## Session 2 — Sync GitHub Issues to ideas.md (GitHub Actions)
+## Session 2 — Bidirectional Sync: ideas.md ↔ GitHub Issues
 
 ### What Was Done
 
-1. **Created GitHub Actions workflow** (`.github/workflows/sync-issues-to-ideas.yml`)
-   - Triggers on issue events: `opened`, `edited`, `closed`, `reopened`, `deleted`, `labeled`, `unlabeled`
-   - Also supports `workflow_dispatch` for manual triggering
-   - Uses `actions/github-script@v7` to fetch all open issues via GitHub API
-   - Categorizes issues by label: `feature`, `improvement`, `tech-debt`
-   - Regenerates `.claude/ideas.md` from open issues and commits if changed
-   - Auto-commits with bot user (`github-actions[bot]`)
+1. **Created bidirectional GitHub Actions workflow** (`.github/workflows/sync-issues-to-ideas.yml`)
+
+   **Direction 1 — ideas.md → GitHub Issues** (on push to main when ideas.md changes):
+   - Parses ideas.md for `### Title` entries organized under `## Features`, `## Improvements`, `## Technical Debt`
+   - New entries (no `[#N]` link) → creates a GitHub issue with the appropriate label, updates the line in ideas.md with the new `[#N]` link
+   - Entries with `[#N]` → updates the issue title/body/label if they changed
+   - Entries marked `~~Title~~ ✅ COMPLETED` → closes the linked issue
+   - Skips runs triggered by `github-actions[bot]` to prevent infinite loops
+
+   **Direction 2 — GitHub Issues → ideas.md** (on issue opened/edited/closed/reopened/labeled/unlabeled):
+   - `opened` → adds the issue to the correct section in ideas.md based on its label
+   - `closed` → marks the entry as `~~Title~~ ✅ COMPLETED`
+   - `reopened` → removes the completed marker
+   - `edited` → updates the title and body in ideas.md
+   - `labeled`/`unlabeled` → moves the entry to the correct section
+   - `workflow_dispatch` → full reconciliation (adds missing issues, marks closed ones)
+
+   **Loop prevention**: Bot commits use `[skip ci]`, and both jobs check `github.actor != 'github-actions[bot]'`
 
 2. **Created label setup script** (`.github/scripts/setup-idea-labels.sh`)
-   - One-time script to create the three required labels on the repo
-   - Uses `gh label create --force` (idempotent, safe to re-run)
+   - One-time script to create the three required labels
    - Labels: `feature` (green), `improvement` (blue), `tech-debt` (orange)
+
+3. **Updated ideas.md header** to describe the bidirectional sync convention and keep it editable
+
+### ideas.md Convention
+
+```markdown
+### New Idea Title                              ← no issue yet, will be created on push
+### Linked Idea ([#12](url))                    ← linked to issue #12, syncs both ways
+### ~~Done Item ([#5](url))~~ ✅ COMPLETED       ← will close issue #5 on push
+```
 
 ### Files Created
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/sync-issues-to-ideas.yml` | GitHub Actions workflow for issue-to-ideas sync |
-| `.github/scripts/setup-idea-labels.sh` | One-time label setup script |
+| `.github/workflows/sync-issues-to-ideas.yml` | Bidirectional sync workflow |
+| `.github/scripts/setup-idea-labels.sh` | One-time label creation script |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `.claude/ideas.md` | Updated header to describe bidirectional sync convention |
+| `.claude/session-summary-2026-02-17.md` | This session summary |
 
 ### Migration Steps Required
 
 To fully adopt this workflow:
-1. Run `.github/scripts/setup-idea-labels.sh` to create labels
-2. Convert existing ideas.md entries without issue numbers into GitHub issues
-3. Label all issues with `feature`, `improvement`, or `tech-debt`
-4. Trigger workflow manually or let it run on next issue event
+1. Run `.github/scripts/setup-idea-labels.sh` to create the three labels
+2. Label existing issues (#4, #6, #7, #12, #13, #15) with `feature`, `improvement`, or `tech-debt`
+3. Run the workflow manually (Actions → "Sync Issues ↔ Ideas" → Run workflow) to do an initial reconciliation
+4. Going forward: edit ideas.md freely, new entries get issues on push; issues created on GitHub appear in ideas.md

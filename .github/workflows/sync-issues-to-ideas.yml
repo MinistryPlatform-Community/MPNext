@@ -1,16 +1,243 @@
-name: Sync Issues to Ideas
+name: Sync Issues ↔ Ideas
 
 on:
+  # Direction 1: ideas.md changed → sync to GitHub issues
+  push:
+    branches: [main]
+    paths: ['.claude/ideas.md']
+
+  # Direction 2: issue event → sync to ideas.md
   issues:
     types: [opened, edited, closed, reopened, deleted, labeled, unlabeled]
-  workflow_dispatch: # Allow manual trigger
+
+  # Manual trigger (full rebuild of ideas.md from issues)
+  workflow_dispatch:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
 
 jobs:
-  sync-ideas:
+  # ── Direction 1: ideas.md → GitHub Issues ──────────────────────────
+  sync-ideas-to-issues:
+    if: >-
+      github.event_name == 'push'
+      && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse ideas.md and sync to issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const content = fs.readFileSync('.claude/ideas.md', 'utf8');
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}`;
+
+            // ── Section → label mapping ──
+            const sectionLabels = {
+              'Features': 'feature',
+              'Improvements': 'improvement',
+              'Technical Debt': 'tech-debt',
+            };
+
+            // ── Parse ideas.md ──
+            // Matches: ### Title ([#N](url))  or  ### Title  or  ### ~~Title~~ ✅ COMPLETED (...)
+            const entries = [];
+            let currentSection = null;
+            const lines = content.split('\n');
+
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+
+              // Detect section headers: ## Features, ## Improvements, ## Technical Debt
+              const sectionMatch = line.match(/^## (.+)$/);
+              if (sectionMatch) {
+                currentSection = sectionMatch[1].trim();
+                continue;
+              }
+
+              // Detect entry headers: ### Title ([#N](url))  or  ### Title
+              const entryMatch = line.match(/^### (.+)$/);
+              if (entryMatch && currentSection) {
+                const raw = entryMatch[1].trim();
+
+                // Check for completed: ~~Title~~ ✅ COMPLETED
+                const completedMatch = raw.match(/^~~(.+?)~~\s*✅\s*COMPLETED/);
+
+                // Check for issue link: Title ([#N](url))
+                const issueMatch = raw.match(/\(\[#(\d+)\]\(([^)]+)\)\)\s*$/);
+
+                let title = raw;
+                let issueNumber = null;
+                let isCompleted = false;
+
+                if (completedMatch) {
+                  isCompleted = true;
+                  title = completedMatch[1].trim();
+                  // Also check if it has an issue link
+                  const innerIssueMatch = title.match(/\(\[#(\d+)\]\(([^)]+)\)\)\s*$/);
+                  if (innerIssueMatch) {
+                    issueNumber = parseInt(innerIssueMatch[1]);
+                    title = title.replace(/\s*\(\[#\d+\]\([^)]+\)\)\s*$/, '').trim();
+                  }
+                } else if (issueMatch) {
+                  issueNumber = parseInt(issueMatch[1]);
+                  title = raw.replace(/\s*\(\[#\d+\]\([^)]+\)\)\s*$/, '').trim();
+                }
+
+                // Collect body lines until next ### or ## or end of file
+                const bodyLines = [];
+                for (let j = i + 1; j < lines.length; j++) {
+                  if (lines[j].match(/^#{2,3} /)) break;
+                  bodyLines.push(lines[j]);
+                }
+                const body = bodyLines.join('\n').trim();
+
+                entries.push({
+                  title,
+                  body,
+                  issueNumber,
+                  isCompleted,
+                  section: currentSection,
+                  label: sectionLabels[currentSection] || null,
+                  lineIndex: i,
+                });
+              }
+            }
+
+            console.log(`Parsed ${entries.length} entries from ideas.md`);
+
+            // ── Fetch all open issues to track removals ──
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const trackedIssues = allIssues.filter(i =>
+              !i.pull_request &&
+              i.labels.some(l => ['feature', 'improvement', 'tech-debt'].includes(l.name))
+            );
+            const issueNumbersInFile = new Set(
+              entries.filter(e => e.issueNumber).map(e => e.issueNumber)
+            );
+
+            let ideasUpdated = false;
+            const fileLines = content.split('\n');
+
+            // ── Process each entry ──
+            for (const entry of entries) {
+              if (entry.isCompleted && entry.issueNumber) {
+                // Close the issue
+                try {
+                  const issue = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: entry.issueNumber,
+                  });
+                  if (issue.data.state === 'open') {
+                    await github.rest.issues.update({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: entry.issueNumber,
+                      state: 'closed',
+                      state_reason: 'completed',
+                    });
+                    console.log(`Closed issue #${entry.issueNumber}: ${entry.title}`);
+                  }
+                } catch (err) {
+                  console.log(`Could not close issue #${entry.issueNumber}: ${err.message}`);
+                }
+              } else if (!entry.issueNumber && !entry.isCompleted) {
+                // Create a new issue
+                const labels = entry.label ? [entry.label] : [];
+                const result = await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: entry.title,
+                  body: entry.body || undefined,
+                  labels,
+                });
+                const num = result.data.number;
+                const url = result.data.html_url;
+                console.log(`Created issue #${num}: ${entry.title}`);
+
+                // Update the line in ideas.md to include the issue link
+                const oldLine = fileLines[entry.lineIndex];
+                const newLine = oldLine.replace(
+                  /^(### .+?)(\s*)$/,
+                  `$1 ([#${num}](${url}))$2`
+                );
+                fileLines[entry.lineIndex] = newLine;
+                ideasUpdated = true;
+              } else if (entry.issueNumber && !entry.isCompleted) {
+                // Update existing issue title/body if changed
+                try {
+                  const issue = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: entry.issueNumber,
+                  });
+                  const updates = {};
+                  if (issue.data.title !== entry.title) {
+                    updates.title = entry.title;
+                  }
+                  if (entry.body && issue.data.body !== entry.body) {
+                    updates.body = entry.body;
+                  }
+                  // Ensure correct label
+                  if (entry.label) {
+                    const hasLabel = issue.data.labels.some(l => l.name === entry.label);
+                    if (!hasLabel) {
+                      updates.labels = [
+                        ...issue.data.labels.map(l => l.name).filter(
+                          n => !['feature', 'improvement', 'tech-debt'].includes(n)
+                        ),
+                        entry.label,
+                      ];
+                    }
+                  }
+                  if (Object.keys(updates).length > 0) {
+                    await github.rest.issues.update({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: entry.issueNumber,
+                      ...updates,
+                    });
+                    console.log(`Updated issue #${entry.issueNumber}: ${entry.title}`);
+                  }
+                } catch (err) {
+                  console.log(`Could not update issue #${entry.issueNumber}: ${err.message}`);
+                }
+              }
+            }
+
+            // ── Write back ideas.md if new issues were created ──
+            if (ideasUpdated) {
+              fs.writeFileSync('.claude/ideas.md', fileLines.join('\n'));
+              console.log('Updated ideas.md with new issue links');
+            }
+
+      - name: Commit updated ideas.md (with new issue links)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude/ideas.md
+          if git diff --cached --quiet; then
+            echo "No changes to ideas.md"
+          else
+            git commit -m "docs: link new ideas.md entries to GitHub issues [skip ci]"
+            git push
+          fi
+
+  # ── Direction 2: GitHub Issues → ideas.md ──────────────────────────
+  sync-issues-to-ideas:
+    if: >-
+      (github.event_name == 'issues' && github.actor != 'github-actions[bot]')
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -18,82 +245,270 @@ jobs:
         with:
           ref: main
 
-      - name: Generate ideas.md from issues
+      - name: Sync issue changes to ideas.md
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
+            const content = fs.readFileSync('.claude/ideas.md', 'utf8');
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}`;
 
-            // Fetch all open issues (paginated)
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              per_page: 100,
-            });
+            const sectionLabels = {
+              'feature': 'Features',
+              'improvement': 'Improvements',
+              'tech-debt': 'Technical Debt',
+            };
 
-            // Filter out pull requests (the API returns PRs as issues too)
-            const realIssues = issues.filter(i => !i.pull_request);
-
-            // Categorize by label
-            const features = [];
-            const improvements = [];
-            const techDebt = [];
-            const uncategorized = [];
-
-            for (const issue of realIssues) {
-              const labelNames = issue.labels.map(l => l.name);
-              const entry = {
-                number: issue.number,
-                title: issue.title,
-                body: issue.body || '',
-                url: issue.html_url,
-                labels: labelNames,
-              };
-
-              if (labelNames.includes('feature')) {
-                features.push(entry);
-              } else if (labelNames.includes('improvement')) {
-                improvements.push(entry);
-              } else if (labelNames.includes('tech-debt')) {
-                techDebt.push(entry);
-              } else {
-                uncategorized.push(entry);
-              }
+            // ── Parse existing ideas.md to find what's already tracked ──
+            const existingIssueNumbers = new Set();
+            const issuePattern = /\[#(\d+)\]/g;
+            let match;
+            while ((match = issuePattern.exec(content)) !== null) {
+              existingIssueNumbers.add(parseInt(match[1]));
             }
 
-            // Build markdown
-            function renderSection(title, entries) {
-              if (entries.length === 0) return '';
-              let md = `## ${title}\n\n`;
-              for (const e of entries) {
-                md += `### ${e.title} ([#${e.number}](${e.url}))\n`;
-                if (e.body.trim()) {
-                  md += e.body.trim() + '\n';
+            // ── Handle the specific event ──
+            const event = context.payload;
+            const action = context.payload.action;
+            let lines = content.split('\n');
+            let changed = false;
+
+            if (context.eventName === 'workflow_dispatch') {
+              // Full rebuild: fetch all open issues and reconcile
+              const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100,
+              });
+              const realIssues = allIssues.filter(i => !i.pull_request);
+
+              // Find issues not yet in ideas.md
+              for (const issue of realIssues) {
+                if (!existingIssueNumbers.has(issue.number)) {
+                  const labelNames = issue.labels.map(l => l.name);
+                  let targetSection = 'Features'; // default
+                  for (const [label, section] of Object.entries(sectionLabels)) {
+                    if (labelNames.includes(label)) {
+                      targetSection = section;
+                      break;
+                    }
+                  }
+
+                  // Find the section and append
+                  const sectionIndex = lines.findIndex(l => l.trim() === `## ${targetSection}`);
+                  if (sectionIndex !== -1) {
+                    // Find end of section (next ## or end of file)
+                    let insertAt = lines.length;
+                    for (let j = sectionIndex + 1; j < lines.length; j++) {
+                      if (lines[j].match(/^## /)) {
+                        insertAt = j;
+                        break;
+                      }
+                    }
+                    const entry = [`### ${issue.title} ([#${issue.number}](${issue.html_url}))`,
+                      issue.body ? issue.body.trim() : '',
+                      ''];
+                    lines.splice(insertAt, 0, ...entry);
+                    changed = true;
+                    console.log(`Added issue #${issue.number} to ${targetSection}: ${issue.title}`);
+                  }
                 }
-                md += '\n';
               }
-              return md;
+
+              // Find tracked issues that are now closed → mark completed
+              const openNumbers = new Set(realIssues.map(i => i.number));
+              for (const num of existingIssueNumbers) {
+                if (!openNumbers.has(num)) {
+                  // Check if this issue is closed (not just missing)
+                  try {
+                    const issue = await github.rest.issues.get({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: num,
+                    });
+                    if (issue.data.state === 'closed') {
+                      // Find the line with this issue and mark completed
+                      for (let j = 0; j < lines.length; j++) {
+                        if (lines[j].includes(`[#${num}]`) && lines[j].startsWith('### ') && !lines[j].includes('~~')) {
+                          const title = lines[j].replace(/^### /, '').replace(/\s*\(\[#\d+\]\([^)]+\)\)\s*$/, '').trim();
+                          lines[j] = `### ~~${title} ([#${num}](${issue.data.html_url}))~~ ✅ COMPLETED`;
+                          changed = true;
+                          console.log(`Marked issue #${num} as completed: ${title}`);
+                        }
+                      }
+                    }
+                  } catch (err) {
+                    console.log(`Could not check issue #${num}: ${err.message}`);
+                  }
+                }
+              }
+
+            } else if (context.eventName === 'issues') {
+              const issue = event.issue;
+              if (!issue || issue.pull_request) return;
+
+              const labelNames = issue.labels.map(l => l.name);
+              const hasSyncLabel = labelNames.some(l => ['feature', 'improvement', 'tech-debt'].includes(l));
+
+              if (action === 'opened' && !existingIssueNumbers.has(issue.number)) {
+                // New issue → add to ideas.md
+                let targetSection = 'Features';
+                for (const [label, section] of Object.entries(sectionLabels)) {
+                  if (labelNames.includes(label)) {
+                    targetSection = section;
+                    break;
+                  }
+                }
+
+                // Only add if it has one of our sync labels (or add to uncategorized)
+                const sectionIndex = lines.findIndex(l => l.trim() === `## ${targetSection}`);
+                if (sectionIndex !== -1) {
+                  let insertAt = lines.length;
+                  for (let j = sectionIndex + 1; j < lines.length; j++) {
+                    if (lines[j].match(/^## /)) {
+                      insertAt = j;
+                      break;
+                    }
+                  }
+                  const entry = [
+                    `### ${issue.title} ([#${issue.number}](${issue.html_url}))`,
+                    issue.body ? issue.body.trim() : '',
+                    '',
+                  ];
+                  lines.splice(insertAt, 0, ...entry);
+                  changed = true;
+                  console.log(`Added new issue #${issue.number} to ${targetSection}`);
+                }
+
+              } else if (action === 'closed' && existingIssueNumbers.has(issue.number)) {
+                // Issue closed → mark as completed in ideas.md
+                for (let j = 0; j < lines.length; j++) {
+                  if (lines[j].includes(`[#${issue.number}]`) && lines[j].startsWith('### ') && !lines[j].includes('~~')) {
+                    const title = lines[j].replace(/^### /, '').replace(/\s*\(\[#\d+\]\([^)]+\)\)\s*$/, '').trim();
+                    lines[j] = `### ~~${title} ([#${issue.number}](${issue.html_url}))~~ ✅ COMPLETED`;
+                    changed = true;
+                    console.log(`Marked issue #${issue.number} as completed`);
+                  }
+                }
+
+              } else if (action === 'reopened' && existingIssueNumbers.has(issue.number)) {
+                // Issue reopened → remove completed marker
+                for (let j = 0; j < lines.length; j++) {
+                  if (lines[j].includes(`[#${issue.number}]`) && lines[j].includes('~~')) {
+                    // Restore: ~~Title ([#N](url))~~ ✅ COMPLETED → Title ([#N](url))
+                    const restored = lines[j]
+                      .replace(/^### ~~/, '### ')
+                      .replace(/~~\s*✅\s*COMPLETED.*$/, '')
+                      .trim();
+                    lines[j] = restored;
+                    changed = true;
+                    console.log(`Reopened issue #${issue.number} in ideas.md`);
+                  }
+                }
+
+              } else if (action === 'edited' && existingIssueNumbers.has(issue.number)) {
+                // Issue edited → update title in ideas.md
+                for (let j = 0; j < lines.length; j++) {
+                  if (lines[j].includes(`[#${issue.number}]`) && lines[j].startsWith('### ') && !lines[j].includes('~~')) {
+                    const newLine = `### ${issue.title} ([#${issue.number}](${issue.html_url}))`;
+                    if (lines[j] !== newLine) {
+                      lines[j] = newLine;
+                      changed = true;
+                      console.log(`Updated title for issue #${issue.number}`);
+                    }
+
+                    // Also update body if it changed
+                    if (issue.body) {
+                      // Find body lines (between this ### and next ###/##)
+                      let bodyStart = j + 1;
+                      let bodyEnd = bodyStart;
+                      for (let k = bodyStart; k < lines.length; k++) {
+                        if (lines[k].match(/^#{2,3} /)) {
+                          bodyEnd = k;
+                          break;
+                        }
+                        bodyEnd = k + 1;
+                      }
+                      // Replace body
+                      const oldBody = lines.slice(bodyStart, bodyEnd).join('\n').trim();
+                      const newBody = issue.body.trim();
+                      if (oldBody !== newBody) {
+                        lines.splice(bodyStart, bodyEnd - bodyStart, newBody, '');
+                        changed = true;
+                        console.log(`Updated body for issue #${issue.number}`);
+                      }
+                    }
+                  }
+                }
+
+              } else if ((action === 'labeled' || action === 'unlabeled') && existingIssueNumbers.has(issue.number)) {
+                // Label changed → move entry to correct section
+                let targetSection = 'Features';
+                for (const [label, section] of Object.entries(sectionLabels)) {
+                  if (labelNames.includes(label)) {
+                    targetSection = section;
+                    break;
+                  }
+                }
+
+                // Find current entry
+                let entryStart = -1;
+                let entryEnd = -1;
+                for (let j = 0; j < lines.length; j++) {
+                  if (lines[j].includes(`[#${issue.number}]`) && lines[j].startsWith('### ')) {
+                    entryStart = j;
+                    for (let k = j + 1; k < lines.length; k++) {
+                      if (lines[k].match(/^#{2,3} /)) {
+                        entryEnd = k;
+                        break;
+                      }
+                      entryEnd = k + 1;
+                    }
+                    break;
+                  }
+                }
+
+                if (entryStart !== -1) {
+                  // Determine current section
+                  let currentSection = null;
+                  for (let j = entryStart - 1; j >= 0; j--) {
+                    const secMatch = lines[j].match(/^## (.+)$/);
+                    if (secMatch) {
+                      currentSection = secMatch[1].trim();
+                      break;
+                    }
+                  }
+
+                  if (currentSection !== targetSection) {
+                    // Extract entry lines
+                    const entryLines = lines.splice(entryStart, entryEnd - entryStart);
+
+                    // Find target section and insert
+                    const sectionIndex = lines.findIndex(l => l.trim() === `## ${targetSection}`);
+                    if (sectionIndex !== -1) {
+                      let insertAt = lines.length;
+                      for (let k = sectionIndex + 1; k < lines.length; k++) {
+                        if (lines[k].match(/^## /)) {
+                          insertAt = k;
+                          break;
+                        }
+                      }
+                      lines.splice(insertAt, 0, ...entryLines);
+                      changed = true;
+                      console.log(`Moved issue #${issue.number} from ${currentSection} to ${targetSection}`);
+                    }
+                  }
+                }
+              }
             }
 
-            let content = `# Future Features & Improvements\n\n`;
-            content += `Ideas and enhancements for the MPNext project. This file is auto-generated from [GitHub Issues](https://github.com/${context.repo.owner}/${context.repo.repo}/issues). Do not edit manually.\n\n`;
-            content += `<!-- sync-issues-to-ideas: auto-generated -->\n\n`;
-            content += renderSection('Features', features);
-            content += renderSection('Improvements', improvements);
-            content += renderSection('Technical Debt', techDebt);
-            content += renderSection('Uncategorized', uncategorized);
-
-            if (realIssues.length === 0) {
-              content += `_No open issues._\n`;
+            if (changed) {
+              fs.writeFileSync('.claude/ideas.md', lines.join('\n'));
+              console.log('ideas.md updated');
+            } else {
+              console.log('No changes needed for ideas.md');
             }
-
-            fs.writeFileSync('.claude/ideas.md', content);
-            console.log(`Generated ideas.md with ${realIssues.length} open issues`);
-            console.log(`  Features: ${features.length}`);
-            console.log(`  Improvements: ${improvements.length}`);
-            console.log(`  Tech Debt: ${techDebt.length}`);
-            console.log(`  Uncategorized: ${uncategorized.length}`);
 
       - name: Commit and push if changed
         run: |
@@ -103,6 +518,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to ideas.md"
           else
-            git commit -m "docs: sync ideas.md with open GitHub issues"
+            git commit -m "docs: sync ideas.md from GitHub issue changes [skip ci]"
             git push
           fi
