@@ -42,3 +42,37 @@
 | `.claude/settings.local.json` | Updated permissions |
 | `.claude/ideas.md` | Added issue #15 (Small Group Trends chart) |
 | `.claude/session-summary-2026-02-17.md` | This file |
+
+---
+
+## Session 2 — Sync GitHub Issues to ideas.md (GitHub Actions)
+
+### What Was Done
+
+1. **Created GitHub Actions workflow** (`.github/workflows/sync-issues-to-ideas.yml`)
+   - Triggers on issue events: `opened`, `edited`, `closed`, `reopened`, `deleted`, `labeled`, `unlabeled`
+   - Also supports `workflow_dispatch` for manual triggering
+   - Uses `actions/github-script@v7` to fetch all open issues via GitHub API
+   - Categorizes issues by label: `feature`, `improvement`, `tech-debt`
+   - Regenerates `.claude/ideas.md` from open issues and commits if changed
+   - Auto-commits with bot user (`github-actions[bot]`)
+
+2. **Created label setup script** (`.github/scripts/setup-idea-labels.sh`)
+   - One-time script to create the three required labels on the repo
+   - Uses `gh label create --force` (idempotent, safe to re-run)
+   - Labels: `feature` (green), `improvement` (blue), `tech-debt` (orange)
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `.github/workflows/sync-issues-to-ideas.yml` | GitHub Actions workflow for issue-to-ideas sync |
+| `.github/scripts/setup-idea-labels.sh` | One-time label setup script |
+
+### Migration Steps Required
+
+To fully adopt this workflow:
+1. Run `.github/scripts/setup-idea-labels.sh` to create labels
+2. Convert existing ideas.md entries without issue numbers into GitHub issues
+3. Label all issues with `feature`, `improvement`, or `tech-debt`
+4. Trigger workflow manually or let it run on next issue event

@@ -1,0 +1,108 @@
+name: Sync Issues to Ideas
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, deleted, labeled, unlabeled]
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  sync-ideas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Generate ideas.md from issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Fetch all open issues (paginated)
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            // Filter out pull requests (the API returns PRs as issues too)
+            const realIssues = issues.filter(i => !i.pull_request);
+
+            // Categorize by label
+            const features = [];
+            const improvements = [];
+            const techDebt = [];
+            const uncategorized = [];
+
+            for (const issue of realIssues) {
+              const labelNames = issue.labels.map(l => l.name);
+              const entry = {
+                number: issue.number,
+                title: issue.title,
+                body: issue.body || '',
+                url: issue.html_url,
+                labels: labelNames,
+              };
+
+              if (labelNames.includes('feature')) {
+                features.push(entry);
+              } else if (labelNames.includes('improvement')) {
+                improvements.push(entry);
+              } else if (labelNames.includes('tech-debt')) {
+                techDebt.push(entry);
+              } else {
+                uncategorized.push(entry);
+              }
+            }
+
+            // Build markdown
+            function renderSection(title, entries) {
+              if (entries.length === 0) return '';
+              let md = `## ${title}\n\n`;
+              for (const e of entries) {
+                md += `### ${e.title} ([#${e.number}](${e.url}))\n`;
+                if (e.body.trim()) {
+                  md += e.body.trim() + '\n';
+                }
+                md += '\n';
+              }
+              return md;
+            }
+
+            let content = `# Future Features & Improvements\n\n`;
+            content += `Ideas and enhancements for the MPNext project. This file is auto-generated from [GitHub Issues](https://github.com/${context.repo.owner}/${context.repo.repo}/issues). Do not edit manually.\n\n`;
+            content += `<!-- sync-issues-to-ideas: auto-generated -->\n\n`;
+            content += renderSection('Features', features);
+            content += renderSection('Improvements', improvements);
+            content += renderSection('Technical Debt', techDebt);
+            content += renderSection('Uncategorized', uncategorized);
+
+            if (realIssues.length === 0) {
+              content += `_No open issues._\n`;
+            }
+
+            fs.writeFileSync('.claude/ideas.md', content);
+            console.log(`Generated ideas.md with ${realIssues.length} open issues`);
+            console.log(`  Features: ${features.length}`);
+            console.log(`  Improvements: ${improvements.length}`);
+            console.log(`  Tech Debt: ${techDebt.length}`);
+            console.log(`  Uncategorized: ${uncategorized.length}`);
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .claude/ideas.md
+          if git diff --cached --quiet; then
+            echo "No changes to ideas.md"
+          else
+            git commit -m "docs: sync ideas.md with open GitHub issues"
+            git push
+          fi
