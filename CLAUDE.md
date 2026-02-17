@@ -213,18 +213,19 @@ AI assistants should maintain context files in `.claude/` to track project state
 ### Update Workflow
 
 **When to update context files:**
-1. **After completing significant features** → Update `work-in-progress.md` with current status
-2. **Before creating commits** → Update `work-in-progress.md` and `session-summary-YYYY-MM-DD.md` with changes being committed
-3. **At end of coding session** → Ensure `session-summary-YYYY-MM-DD.md` is complete and up-to-date
+1. **Before every push to remote** → Update `session-summary-YYYY-MM-DD.md` with what was committed and pushed
+2. **Before creating PRs** → Ensure `session-summary-YYYY-MM-DD.md` and `work-in-progress.md` are up to date and included in the PR
+3. **After completing significant features** → Update `work-in-progress.md` with current status
 4. **When fixing bugs** → Update feature-specific debugging docs
 5. **When patterns change** → Update this CLAUDE.md file
 
+**Key rule**: Session notes are updated **incrementally as work happens**, not batched at the end. Every `git push` should include updated session notes reflecting the changes being pushed.
+
 **Detecting session end:**
 - AI assistants cannot automatically detect session end
-- **Proactively ask** when all todos are completed: "Should I create a session summary?"
 - **Respond to user cues**: "thanks", "that's all", "we're done", "end of session"
 - **User can request**: "Create a session summary" or "Update context files"
-- Update `work-in-progress.md` incrementally during session, create `session-summary` at end
+- At session end, ensure the session summary is complete and committed
 
 **What to include in session summaries:**
 - File paths with line numbers for changes
@@ -239,11 +240,11 @@ AI assistants should maintain context files in `.claude/` to track project state
 - Update `work-in-progress.md` as single source of truth for current state
 - Use clear status markers: ✅ COMPLETED, ⚠️ IN PROGRESS, ❌ BLOCKED
 - Session summaries are historical records; work-in-progress is living document
-- **IMPORTANT**: When using `/branch-commit` or creating any commit, ALWAYS update context files FIRST:
-  1. Update `work-in-progress.md` with current implementation status
-  2. Create/update `session-summary-YYYY-MM-DD.md` with session changes
-  3. Then create the commit including the updated context files
-  4. This ensures documentation stays in sync with code changes
+- **IMPORTANT**: Before every `git push` or PR creation:
+  1. Update `session-summary-YYYY-MM-DD.md` with the changes being pushed
+  2. Update `work-in-progress.md` if implementation status changed
+  3. Include the updated context files in the commit being pushed
+  4. This ensures documentation stays in sync with code changes at every push, not just at session end
 
 ## Reference Documents
 
