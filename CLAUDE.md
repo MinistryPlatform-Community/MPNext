@@ -241,11 +241,12 @@ AI assistants should maintain context files in `.claude/` to track project state
 - Update `work-in-progress.md` as single source of truth for current state
 - Use clear status markers: ✅ COMPLETED, ⚠️ IN PROGRESS, ❌ BLOCKED
 - Session summaries are historical records; work-in-progress is living document
-- **IMPORTANT**: Before every `git push` or PR creation:
-  1. Update `session-summary-YYYY-MM-DD.md` with the changes being pushed
-  2. Update `work-in-progress.md` if implementation status changed
-  3. Include the updated context files in the commit being pushed
-  4. This ensures documentation stays in sync with code changes at every push, not just at session end
+- **IMPORTANT**: Before every commit, run through this checklist:
+  1. **CLAUDE.md check**: Do any of the changes introduce new patterns, conventions, workflows, naming standards, or architectural decisions that should be documented in CLAUDE.md? If so, update it in the same commit. Examples: new file naming conventions, new component patterns, new CLI commands, new environment variables, new label/section mappings, new API patterns.
+  2. Update `session-summary-YYYY-MM-DD.md` with what is being committed
+  3. Update `work-in-progress.md` if implementation status changed
+  4. Include all updated context files in the commit
+  5. This ensures documentation stays in sync with code changes at every commit, not just at session end
 
 ## Ideas & Issue Tracking
 
