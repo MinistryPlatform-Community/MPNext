@@ -8,10 +8,10 @@ Ideas and enhancements for the MPNext project. This file syncs bidirectionally w
 
 ## Features
 
-### Journey/Milestone Tracker
+### Journey/Milestone Tracker ([#17](https://github.com/The-Moody-Church/mp-charts/issues/17))
 Track current journeys from Ministry Platform and provide summary detail about what milestones have been completed. Include filters to narrow by specific journeys or milestones.
 
-### Volunteer Processing
+### Volunteer Processing ([#18](https://github.com/The-Moody-Church/mp-charts/issues/18))
 Provide up-to-date info about volunteer processing, particularly for children's ministry. Include an interface for staff to submit documentation like certificates and other documents/PDFs.
 
 #### Layout: Two-Tab Interface
@@ -52,7 +52,7 @@ This interface should not be read-only. The volunteer processing team should be 
 - Changes should create or update the corresponding records in Ministry Platform
 - Goal: give the volunteer processing team a more efficient interface than navigating MP directly
 
-### Pastoral Interface for Contact Logs
+### Pastoral Interface for Contact Logs ([#19](https://github.com/The-Moody-Church/mp-charts/issues/19))
 A dedicated pastoral interface for viewing and managing contact logs.
 
 ## Improvements
@@ -72,7 +72,7 @@ Code currently says "Pastor App". Update the webpage tab name to "TMC MP Apps".
 ### Small Group Trends Chart ([#15](https://github.com/The-Moody-Church/mp-charts/issues/15))
 The Small Group Trends line chart may not be the best visualization for this data. Consider switching to a bar chart or removing it entirely if it doesn't add enough value to the dashboard.
 
-### Dashboard Date Range Selector
+### Dashboard Date Range Selector ([#20](https://github.com/The-Moody-Church/mp-charts/issues/20))
 Replace the hardcoded ministry year date ranges with an interactive date selector that includes comparison capabilities.
 
 - **Two-row filter layout**:
@@ -89,12 +89,12 @@ Replace the hardcoded ministry year date ranges with an interactive date selecto
 ### ~~Upgrade to Next.js 16~~ ✅ COMPLETED (2026-02-14)
 Upgraded from Next.js 15.5.6 to 16.1.6 LTS. See session summary for details.
 
-### Migrate `unstable_cache` to Cache Components (`use cache`) ⚠️ REVERTED (2026-02-14)
+### Migrate `unstable_cache` to Cache Components (`use cache`) ⚠️ REVERTED (2026-02-14) ([#21](https://github.com/The-Moody-Church/mp-charts/issues/21))
 Originally migrated to `'use cache'` directive with `cacheTag` and `cacheLife`, but reverted ([PR #10](https://github.com/The-Moody-Church/mp-charts/pull/10)) because the `'use cache'` directive is only available in Next.js canary builds, not stable releases. The codebase currently uses `unstable_cache`. Revisit when `'use cache'` lands in a stable Next.js release.
 
 ### Refine MP Permissions ([#7](https://github.com/The-Moody-Church/mp-charts/issues/7))
 Refine Ministry Platform permissions for the application.
 
-### Migrate `middleware.ts` to `proxy.ts`
+### Migrate `middleware.ts` to `proxy.ts` ([#22](https://github.com/The-Moody-Church/mp-charts/issues/22))
 Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.
 
