@@ -52,6 +52,10 @@ This interface should not be read-only. The volunteer processing team should be 
 - Changes should create or update the corresponding records in Ministry Platform
 - Goal: give the volunteer processing team a more efficient interface than navigating MP directly
 
+#### Pending: Final Director Approval Milestone
+
+A "Final Director Approval" milestone needs to be added as the last step in the volunteer application journey in Ministry Platform. This will be the final milestone a volunteer must receive before being considered fully approved. The corresponding Milestone_ID should be added as an environment variable and integrated into the checklist and write-back UI. To be implemented in a future session.
+
 ### Pastoral Interface for Contact Logs ([#19](https://github.com/The-Moody-Church/mp-charts/issues/19))
 A dedicated pastoral interface for viewing and managing contact logs.
 
