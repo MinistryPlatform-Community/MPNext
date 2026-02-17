@@ -11,21 +11,22 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ### Creating Pull Requests
 
-**CRITICAL**: ALWAYS create PRs on the FORK repository, NEVER on upstream!
+> **🚨 MANDATORY: `--repo The-Moody-Church/mp-charts` is REQUIRED on EVERY `gh pr create` call.**
+>
+> Without this flag, `gh` defaults to the upstream repo (`MinistryPlatform-Community/MPNext`), which creates PRs on the wrong repository. This has caused problems multiple times. There are NO exceptions to this rule.
 
 ```bash
-# ✅ CORRECT: Create PR on fork
+# ✅ CORRECT — always include --repo flag
 gh pr create --repo The-Moody-Church/mp-charts --title "..." --body "..."
 
-# ❌ WRONG: Do NOT create PRs on upstream
-gh pr create --title "..." --body "..."  # This defaults to upstream!
+# ❌ NEVER DO THIS — creates PR on upstream, not the fork
+gh pr create --title "..." --body "..."
 ```
 
-**Why this matters**:
-- This is a fork of the upstream project
-- PRs should be created on the fork (The-Moody-Church/mp-charts) for review
-- Only create PRs on upstream when explicitly requested
-- Always use `--repo The-Moody-Church/mp-charts` flag with gh pr create
+**Before running `gh pr create`**, verify:
+1. The command includes `--repo The-Moody-Church/mp-charts`
+2. The base branch is correct (usually `main`)
+3. You are NOT creating a PR on `MinistryPlatform-Community/MPNext`
 
 ### Auto-Commit `.claude/settings.local.json`
 
