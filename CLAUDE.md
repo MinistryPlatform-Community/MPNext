@@ -11,21 +11,22 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ### Creating Pull Requests
 
-**CRITICAL**: ALWAYS create PRs on the FORK repository, NEVER on upstream!
+> **🚨 MANDATORY: `--repo The-Moody-Church/mp-charts` is REQUIRED on EVERY `gh pr create` call.**
+>
+> Without this flag, `gh` defaults to the upstream repo (`MinistryPlatform-Community/MPNext`), which creates PRs on the wrong repository. This has caused problems multiple times. There are NO exceptions to this rule.
 
 ```bash
-# ✅ CORRECT: Create PR on fork
+# ✅ CORRECT — always include --repo flag
 gh pr create --repo The-Moody-Church/mp-charts --title "..." --body "..."
 
-# ❌ WRONG: Do NOT create PRs on upstream
-gh pr create --title "..." --body "..."  # This defaults to upstream!
+# ❌ NEVER DO THIS — creates PR on upstream, not the fork
+gh pr create --title "..." --body "..."
 ```
 
-**Why this matters**:
-- This is a fork of the upstream project
-- PRs should be created on the fork (The-Moody-Church/mp-charts) for review
-- Only create PRs on upstream when explicitly requested
-- Always use `--repo The-Moody-Church/mp-charts` flag with gh pr create
+**Before running `gh pr create`**, verify:
+1. The command includes `--repo The-Moody-Church/mp-charts`
+2. The base branch is correct (usually `main`)
+3. You are NOT creating a PR on `MinistryPlatform-Community/MPNext`
 
 ### Auto-Commit `.claude/settings.local.json`
 
@@ -207,6 +208,7 @@ AI assistants should maintain context files in `.claude/` to track project state
 - **[work-in-progress.md](.claude/work-in-progress.md)** - Current implementation status, known issues, recent changes
 - **[session-summary-YYYY-MM-DD.md](.claude/)** - Dated session summaries (create new file per session)
 - **[community-attendance-debugging.md](.claude/community-attendance-debugging.md)** - Feature-specific debugging notes
+- **[ideas.md](.claude/ideas.md)** - Feature ideas & improvements, syncs bidirectionally with GitHub Issues
 - **[references/components.md](.claude/references/components.md)** - Component inventory
 - **[references/ministryplatform.schema.md](.claude/references/ministryplatform.schema.md)** - DB schema (auto-generated)
 
@@ -240,11 +242,59 @@ AI assistants should maintain context files in `.claude/` to track project state
 - Update `work-in-progress.md` as single source of truth for current state
 - Use clear status markers: ✅ COMPLETED, ⚠️ IN PROGRESS, ❌ BLOCKED
 - Session summaries are historical records; work-in-progress is living document
-- **IMPORTANT**: Before every `git push` or PR creation:
-  1. Update `session-summary-YYYY-MM-DD.md` with the changes being pushed
-  2. Update `work-in-progress.md` if implementation status changed
-  3. Include the updated context files in the commit being pushed
-  4. This ensures documentation stays in sync with code changes at every push, not just at session end
+- **IMPORTANT**: Before every commit, run through this checklist:
+  1. **CLAUDE.md check**: Do any of the changes introduce new patterns, conventions, workflows, naming standards, or architectural decisions that should be documented in CLAUDE.md? If so, update it in the same commit. Examples: new file naming conventions, new component patterns, new CLI commands, new environment variables, new label/section mappings, new API patterns.
+  2. Update `session-summary-YYYY-MM-DD.md` with what is being committed
+  3. Update `work-in-progress.md` if implementation status changed
+  4. Include all updated context files in the commit
+  5. This ensures documentation stays in sync with code changes at every commit, not just at session end
+
+## Ideas & Issue Tracking
+
+Feature ideas, improvements, and tech debt are tracked in `.claude/ideas.md`. This file syncs **bidirectionally** with GitHub Issues via a GitHub Actions workflow (`.github/workflows/sync-issues-to-ideas.yml`).
+
+### How It Works
+
+| Direction | Trigger | What happens |
+|---|---|---|
+| **ideas.md → Issues** | Push to `main` (ideas.md changed) | New entries get issues created; completed entries close issues; edits update issues |
+| **Issues → ideas.md** | Issue opened/closed/edited/labeled | ideas.md updated to reflect the change |
+
+### ideas.md Format
+
+Entries are organized under `## Features`, `## Improvements`, and `## Technical Debt` sections:
+
+```markdown
+### New Idea Title
+Description of the idea.
+
+### Linked Idea ([#12](url))
+This entry is linked to issue #12. Edits sync both ways.
+
+### ~~Done Item ([#5](url))~~ ✅ COMPLETED
+This will close issue #5 on next push to main.
+```
+
+### During Sessions
+
+- **Add new ideas**: Write a `### Title` entry under the appropriate section — no issue link needed, one will be created automatically on push
+- **Update progress**: Edit the body text of any entry freely
+- **Mark completed**: Wrap the title in `~~strikethrough~~` and add `✅ COMPLETED`
+- **ideas.md is included in session pushes** alongside session summaries and work-in-progress updates
+
+### Labels
+
+Issues are categorized by label, which maps to ideas.md sections:
+
+| Label | Section |
+|---|---|
+| `feature` | Features |
+| `improvement` | Improvements |
+| `tech-debt` | Technical Debt |
+
+### Loop Prevention
+
+The workflow uses `[skip ci]` in bot commits and checks `github.actor` to prevent infinite loops between the two sync directions.
 
 ## Reference Documents
 

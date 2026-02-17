@@ -1,6 +1,10 @@
 # Future Features & Improvements
 
-Ideas and enhancements for the MPNext project. Promote items to GitHub Issues when they're ready for implementation.
+Ideas and enhancements for the MPNext project. This file syncs bidirectionally with [GitHub Issues](https://github.com/The-Moody-Church/mp-charts/issues) — edit freely during sessions, and changes are synced on push to main.
+
+<!-- sync-issues-to-ideas: bidirectional sync enabled -->
+<!-- Entries with ([#N](url)) are linked to issues. New entries without a link get issues created automatically on push. -->
+<!-- Mark completed: ### ~~Title ([#N](url))~~ ✅ COMPLETED -->
 
 ## Features
 
