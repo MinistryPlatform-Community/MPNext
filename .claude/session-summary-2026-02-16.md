@@ -103,3 +103,29 @@ Investigation revealed these are **not** project dependencies (neither appears i
 - `README.md` — Fork notice, fixed links, updated structure, removed stale content
 - `CLAUDE.md` — Auto-commit policy for settings.local.json
 - `.claude/settings.local.json` — Added npm run test:run and gh issue list permissions
+
+---
+
+## Session 3 — Consistent Chart Date Label Formatting
+
+### Problem
+X-axis date labels were inconsistent across charts:
+- **AttendanceChart**: Full month names ("February", "September")
+- **SmallGroupTrends**: Full month names ("September", "October")
+- **CommunityAttendanceChart**: Already short format ("Feb 26", "Sep 25")
+
+### Solution
+Standardized all three charts to use short date labels:
+- Monthly: `Mon YY` (e.g., "Feb 26") via `toLocaleDateString('en-US', { month: 'short', year: '2-digit' })`
+- Weekly: `Mon D` (e.g., "Feb 1") via `toLocaleDateString('en-US', { month: 'short', day: 'numeric' })`
+
+Both AttendanceChart and SmallGroupTrends needed a `mergeKey` field added to chart data objects — the full month name is still used as the map key for merging current/previous year data, while the new `name` field holds the formatted display label.
+
+### Files Modified
+- `src/components/dashboard/attendance-chart.tsx` — Added `formatLabel()` helper, `mergeKey` field, use short labels for X-axis
+- `src/components/dashboard/small-group-trends.tsx` — Added `formatMonthLabel()` helper, `mergeKey` field, use short labels for X-axis
+
+### Files Modified (Documentation)
+- `CLAUDE.md` — Added "Chart Formatting Standards" section; added "Report file changes" to Key Development Practices
+- `.claude/work-in-progress.md` — Added item 17 (chart formatting)
+- `.claude/session-summary-2026-02-16.md` — This session section

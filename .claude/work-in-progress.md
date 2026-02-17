@@ -93,6 +93,15 @@
    - **Trivy HIGH CVEs (10)**: `glob` (CVE-2025-64756) and `tar` (CVE-2026-23745/23950/24842) were not project dependencies — they came from npm bundled in `node:22-alpine`. Added `RUN npm uninstall -g npm` in the Dockerfile runner stage to remove npm and all its vulnerable transitive deps. Also cleaned up dead `glob`/`tar` overrides from `package.json`.
    - Auto-generated config updates from Next.js 16 build: `tsconfig.json` (jsx → react-jsx, added .next/dev/types include), `next-env.d.ts` (updated reference syntax).
 
+17. ✅ **Consistent Chart Date Label Formatting - COMPLETE (2026-02-16)**
+   - Standardized X-axis labels to short format across all three time-series charts
+   - Monthly: "Mon YY" (e.g., "Feb 26") via `toLocaleDateString('en-US', { month: 'short', year: '2-digit' })`
+   - Weekly: "Mon D" (e.g., "Feb 1") via `toLocaleDateString('en-US', { month: 'short', day: 'numeric' })`
+   - **AttendanceChart**: Changed from full month names ("February") to "Feb 26"
+   - **SmallGroupTrends**: Changed from full month names ("September") to "Sep 25"; added `formatMonthLabel()` helper; added `mergeKey` field to separate display label from merge/sort key
+   - **CommunityAttendanceChart**: Already had correct formatting (no changes needed)
+   - Added chart formatting standard to CLAUDE.md for future charts
+
 ### Recently Resolved: Community Attendance Chart
 
 **Issues Found and Fixed**:

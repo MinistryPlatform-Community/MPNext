@@ -32,7 +32,10 @@
       "Bash(npm run test:run:*)",
       "Bash(gh issue list:*)",
       "Bash(git rebase:*)",
-      "Bash(GIT_EDITOR=true git rebase:*)"
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(git fetch:*)",
+      "Bash(npm ls:*)",
+      "Bash(gh issue:*)"
     ],
     "deny": [],
     "ask": []

@@ -14,9 +14,22 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
   const currentFiltered = currentYear.filter(item => item.averageTotalAttendance > 0);
   const previousFiltered = previousYear.filter(item => item.averageTotalAttendance > 0);
 
-  // Create a map of all unique months that have data
+  // Detect if this is weekly data (month field is a date YYYY-MM-DD instead of YYYY-MM)
+  const isWeekly = currentFiltered.length > 0 && currentFiltered[0].month.length > 7;
+
+  /** Format a YYYY-MM or YYYY-MM-DD sort key into a short display label */
+  const formatLabel = (sortKey: string, monthName: string): string => {
+    if (isWeekly) return monthName; // Already "Feb 1" etc. from dateLabel
+    const [y, m] = sortKey.split('-').map(Number);
+    const date = new Date(y, m - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  };
+
+  // Create a map of all unique data points (keyed by monthName for merging)
   const monthsMap = new Map<string, {
-    name: string;
+    name: string;       // display label for X-axis
+    mergeKey: string;   // monthName used for current/previous year matching
+    sortKey: string;
     currentInPerson?: number;
     currentOnline?: number;
     currentTotal?: number;
@@ -28,7 +41,9 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
   // Add current year data
   currentFiltered.forEach(item => {
     monthsMap.set(item.monthName, {
-      name: item.monthName,
+      name: formatLabel(item.month, item.monthName),
+      mergeKey: item.monthName,
+      sortKey: item.month, // YYYY-MM for monthly, YYYY-MM-DD for weekly
       currentInPerson: item.averageInPersonAttendance,
       currentOnline: item.averageOnlineAttendance,
       currentTotal: item.averageTotalAttendance
@@ -36,26 +51,34 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
   });
 
   // Add previous year data
-  previousFiltered.forEach(item => {
-    const existing = monthsMap.get(item.monthName);
-    if (existing) {
-      existing.previousInPerson = item.averageInPersonAttendance;
-      existing.previousOnline = item.averageOnlineAttendance;
-      existing.previousTotal = item.averageTotalAttendance;
-    } else {
-      monthsMap.set(item.monthName, {
-        name: item.monthName,
-        previousInPerson: item.averageInPersonAttendance,
-        previousOnline: item.averageOnlineAttendance,
-        previousTotal: item.averageTotalAttendance
-      });
-    }
-  });
+  if (!isWeekly) {
+    // For monthly data, merge by month name (e.g., "February" matches across years)
+    previousFiltered.forEach(item => {
+      const existing = monthsMap.get(item.monthName);
+      if (existing) {
+        existing.previousInPerson = item.averageInPersonAttendance;
+        existing.previousOnline = item.averageOnlineAttendance;
+        existing.previousTotal = item.averageTotalAttendance;
+      } else {
+        monthsMap.set(item.monthName, {
+          name: formatLabel(item.month, item.monthName),
+          mergeKey: item.monthName,
+          sortKey: item.month,
+          previousInPerson: item.averageInPersonAttendance,
+          previousOnline: item.averageOnlineAttendance,
+          previousTotal: item.averageTotalAttendance
+        });
+      }
+    });
+  }
 
-  // Convert to array and sort by ministry year order (Sept - Aug)
+  // Sort: by ministry year order for monthly data, chronologically for weekly
   const monthOrder = ['September', 'October', 'November', 'December', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August'];
   const chartData = Array.from(monthsMap.values()).sort((a, b) => {
-    return monthOrder.indexOf(a.name) - monthOrder.indexOf(b.name);
+    if (isWeekly) {
+      return a.sortKey.localeCompare(b.sortKey);
+    }
+    return monthOrder.indexOf(a.mergeKey) - monthOrder.indexOf(b.mergeKey);
   });
 
   if (chartData.length === 0) {
@@ -85,12 +108,12 @@ export function AttendanceChart({ currentYear, previousYear, height = 300 }: Att
           }}
         />
         <Legend />
-        <Line dataKey="currentInPerson" stroke="#3b82f6" strokeWidth={2} name="In-Person (Current)" />
-        <Line dataKey="previousInPerson" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" name="In-Person (Previous)" />
-        <Line dataKey="currentOnline" stroke="#10b981" strokeWidth={2} name="Online (Current)" />
-        <Line dataKey="previousOnline" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" name="Online (Previous)" />
-        <Line dataKey="currentTotal" stroke="#f59e0b" strokeWidth={2} name="Total (Current)" />
-        <Line dataKey="previousTotal" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" name="Total (Previous)" />
+        <Line dataKey="currentInPerson" stroke="#3b82f6" strokeWidth={2} name={isWeekly ? 'In-Person' : 'In-Person (Current)'} />
+        {!isWeekly && <Line dataKey="previousInPerson" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" name="In-Person (Previous)" />}
+        <Line dataKey="currentOnline" stroke="#10b981" strokeWidth={2} name={isWeekly ? 'Online' : 'Online (Current)'} />
+        {!isWeekly && <Line dataKey="previousOnline" stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" name="Online (Previous)" />}
+        <Line dataKey="currentTotal" stroke="#f59e0b" strokeWidth={2} name={isWeekly ? 'Total' : 'Total (Current)'} />
+        {!isWeekly && <Line dataKey="previousTotal" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" name="Total (Previous)" />}
       </LineChart>
     </ResponsiveContainer>
   );
