@@ -37,7 +37,9 @@
       "Bash(npm ls:*)",
       "Bash(gh issue:*)",
       "Bash(npm prune:*)",
-      "Bash(npm dedupe:*)"
+      "Bash(npm dedupe:*)",
+      "Bash(npx shadcn@latest add tabs:*)",
+      "Bash(npm run lint:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,17 +1,24 @@
 "use client";
 
 import { XMarkIcon } from "@heroicons/react/24/outline";
-import { HomeIcon, UsersIcon, ChartBarIcon } from "@heroicons/react/24/outline";
+import { HomeIcon, UsersIcon, ChartBarIcon, ClipboardDocumentCheckIcon, WrenchScrewdriverIcon } from "@heroicons/react/24/outline";
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const isDev = process.env.NODE_ENV === "development";
+
 const navigation = [
   { name: "Home", href: "/", icon: HomeIcon },
   { name: "Executive Dashboard", href: "/dashboard", icon: ChartBarIcon },
-  { name: "Contact Lookup", href: "/contactlookup", icon: UsersIcon },
+  { name: "Volunteer Processing", href: "/volunteer-processing", icon: ClipboardDocumentCheckIcon },
+  // Dev-only items
+  ...(isDev ? [
+    { name: "Contact Lookup", href: "/contactlookup", icon: UsersIcon },
+    { name: "Template Tool", href: "/tools/template", icon: WrenchScrewdriverIcon },
+  ] : []),
   // { name: 'Calendar', href: '/calendar', icon: CalendarIcon },
   // { name: 'Settings', href: '/settings', icon: CogIcon },
 ];

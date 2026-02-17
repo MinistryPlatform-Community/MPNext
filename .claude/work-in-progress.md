@@ -1,4 +1,23 @@
-# Executive Dashboard - Work in Progress
+# Work in Progress
+
+## Volunteer Processing (2026-02-17) — Branch: `feature/volunteer-processing`
+
+### Status: ✅ Feature Complete — Ready for PR
+
+**Implementation**: Full volunteer processing dashboard with:
+- Tab 1 (New Volunteers In Process) — production-ready
+- Tab 2 (Approved Current Volunteers) — dev-only (URL batching fix applied but needs further testing)
+- Detail modal with checklist, background check details, milestone creation with file attachments
+- 9-item checklist per volunteer (Application, Interview, 3 References, Background Check, Mandated Reporter, Child Protection Policy)
+- All MP record IDs configurable via 10 environment variables
+
+**Known Issue**: Audit log shows API client user instead of logged-in user for write operations. Tracked in ideas.md under permissions (#7).
+
+**Files**: 9 new files, 8 modified files. See `session-summary-2026-02-17.md` Session 3 for full list.
+
+---
+
+## Executive Dashboard - Work in Progress
 
 ## Current Status (2026-02-16)
 
