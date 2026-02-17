@@ -207,6 +207,7 @@ AI assistants should maintain context files in `.claude/` to track project state
 - **[work-in-progress.md](.claude/work-in-progress.md)** - Current implementation status, known issues, recent changes
 - **[session-summary-YYYY-MM-DD.md](.claude/)** - Dated session summaries (create new file per session)
 - **[community-attendance-debugging.md](.claude/community-attendance-debugging.md)** - Feature-specific debugging notes
+- **[ideas.md](.claude/ideas.md)** - Feature ideas & improvements, syncs bidirectionally with GitHub Issues
 - **[references/components.md](.claude/references/components.md)** - Component inventory
 - **[references/ministryplatform.schema.md](.claude/references/ministryplatform.schema.md)** - DB schema (auto-generated)
 
@@ -245,6 +246,53 @@ AI assistants should maintain context files in `.claude/` to track project state
   2. Update `work-in-progress.md` if implementation status changed
   3. Include the updated context files in the commit being pushed
   4. This ensures documentation stays in sync with code changes at every push, not just at session end
+
+## Ideas & Issue Tracking
+
+Feature ideas, improvements, and tech debt are tracked in `.claude/ideas.md`. This file syncs **bidirectionally** with GitHub Issues via a GitHub Actions workflow (`.github/workflows/sync-issues-to-ideas.yml`).
+
+### How It Works
+
+| Direction | Trigger | What happens |
+|---|---|---|
+| **ideas.md → Issues** | Push to `main` (ideas.md changed) | New entries get issues created; completed entries close issues; edits update issues |
+| **Issues → ideas.md** | Issue opened/closed/edited/labeled | ideas.md updated to reflect the change |
+
+### ideas.md Format
+
+Entries are organized under `## Features`, `## Improvements`, and `## Technical Debt` sections:
+
+```markdown
+### New Idea Title
+Description of the idea.
+
+### Linked Idea ([#12](url))
+This entry is linked to issue #12. Edits sync both ways.
+
+### ~~Done Item ([#5](url))~~ ✅ COMPLETED
+This will close issue #5 on next push to main.
+```
+
+### During Sessions
+
+- **Add new ideas**: Write a `### Title` entry under the appropriate section — no issue link needed, one will be created automatically on push
+- **Update progress**: Edit the body text of any entry freely
+- **Mark completed**: Wrap the title in `~~strikethrough~~` and add `✅ COMPLETED`
+- **ideas.md is included in session pushes** alongside session summaries and work-in-progress updates
+
+### Labels
+
+Issues are categorized by label, which maps to ideas.md sections:
+
+| Label | Section |
+|---|---|
+| `feature` | Features |
+| `improvement` | Improvements |
+| `tech-debt` | Technical Debt |
+
+### Loop Prevention
+
+The workflow uses `[skip ci]` in bot commits and checks `github.actor` to prevent infinite loops between the two sync directions.
 
 ## Reference Documents
 
