@@ -139,11 +139,13 @@ function getTableName(table: TableMetadata): string | undefined {
 
 function sanitizeTypeName(name: string): string {
   // Convert table name to PascalCase and remove special characters
-  return name
+  const result = name
     .split(/[-_\s\/]+/) // Added slash to handle field names like "SSN/EIN"
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join("")
     .replace(/[^a-zA-Z0-9]/g, "");
+  // TypeScript identifiers cannot start with a digit; prefix with underscore
+  return /^[0-9]/.test(result) ? `_${result}` : result;
 }
 
 function isValidIdentifier(name: string): boolean {
