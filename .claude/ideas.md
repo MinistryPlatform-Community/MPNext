@@ -52,6 +52,16 @@ This interface should not be read-only. The volunteer processing team should be 
 - Changes should create or update the corresponding records in Ministry Platform
 - Goal: give the volunteer processing team a more efficient interface than navigating MP directly
 
+#### ~~Completed: Final Director Approval Milestone~~ ✅ COMPLETED
+
+Implemented as "Fully Approved Volunteer" (Milestone_ID = 33) with yellow star icon on card. Missing application/interview/reference items for fully-approved volunteers show yellow question mark ("presumed_complete" status). Also added optional "Elder Approved Teacher" milestone (Milestone_ID = 34) with blue graduation cap icon.
+
+### Volunteer Processing: Shareable Direct Links to Volunteer Modal
+Add a URL-based deep link to open a specific volunteer's detail modal directly (e.g., `/volunteer-processing?volunteer=123`). This lets staff share a link to a specific volunteer's record with another staff person without them having to search for the card.
+
+### Volunteer Processing: Assign to Group on Approval
+On the "New Volunteers In Process" tab, when a volunteer receives the fully approved star, add an "Assign to Group" button that reassigns their `Group_Participant` record from the volunteer-in-processing group to an active ministry group. The group picker should use the same list of groups available on the "Approved Active Volunteers" tab.
+
 ### Pastoral Interface for Contact Logs ([#19](https://github.com/The-Moody-Church/mp-charts/issues/19))
 A dedicated pastoral interface for viewing and managing contact logs.
 
@@ -94,6 +104,8 @@ Originally migrated to `'use cache'` directive with `cacheTag` and `cacheLife`, 
 
 ### Refine MP Permissions ([#7](https://github.com/The-Moody-Church/mp-charts/issues/7))
 Refine Ministry Platform permissions for the application.
+
+**Audit Log User Pass-Through**: When creating records (e.g., `Participant_Milestones` via `createTableRecords`), the `$userId` parameter is passed to the API, but Ministry Platform still records the API client user in the audit log rather than the logged-in user. This needs investigation — the goal is to have the actual logged-in user appear in the MP audit trail for all write operations. Explore whether the MP REST API supports user impersonation or an alternative mechanism for attributing writes to the authenticated user.
 
 ### Migrate `middleware.ts` to `proxy.ts` ([#22](https://github.com/The-Moody-Church/mp-charts/issues/22))
 Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.

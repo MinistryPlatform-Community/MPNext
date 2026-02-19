@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+const isDev = process.env.NODE_ENV === "development";
+
 export default function Home() {
   return (
     <div className="container mx-auto p-8 sm:p-20 space-y-12">
@@ -27,31 +29,49 @@ export default function Home() {
 
         <Card className="flex flex-col">
           <CardHeader>
-            <CardTitle>Contact Lookup</CardTitle>
+            <CardTitle>Volunteer Processing</CardTitle>
             <CardDescription>
-              Contact Lookup shows an example of the full CRUD power of the MP API and quickly accessing data from the platform
+              Track children&apos;s ministry volunteer onboarding, view requirement checklists, and manage approved volunteers
             </CardDescription>
           </CardHeader>
           <CardContent className="mt-auto">
-            <Link href="/contactlookup">
-              <Button className="w-full">View Demo</Button>
+            <Link href="/volunteer-processing">
+              <Button className="w-full">View Volunteers</Button>
             </Link>
           </CardContent>
         </Card>
 
-        <Card className="flex flex-col">
-          <CardHeader>
-            <CardTitle>Template Tool</CardTitle>
-            <CardDescription>
-              An example of an approach to build tools for MP
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="mt-auto">
-            <Link href="/tools/template">
-              <Button className="w-full">View Demo</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        {isDev && (
+          <>
+            <Card className="flex flex-col">
+              <CardHeader>
+                <CardTitle>Contact Lookup</CardTitle>
+                <CardDescription>
+                  Contact Lookup shows an example of the full CRUD power of the MP API and quickly accessing data from the platform
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="mt-auto">
+                <Link href="/contactlookup">
+                  <Button className="w-full">View Demo</Button>
+                </Link>
+              </CardContent>
+            </Card>
+
+            <Card className="flex flex-col">
+              <CardHeader>
+                <CardTitle>Template Tool</CardTitle>
+                <CardDescription>
+                  An example of an approach to build tools for MP
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="mt-auto">
+                <Link href="/tools/template">
+                  <Button className="w-full">View Demo</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </div>
   );

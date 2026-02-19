@@ -104,6 +104,24 @@ src/components/
 └── shared-component.tsx  # Shared/layout components
 ```
 
+## Dev-Only vs Production Navigation
+
+Some features are dev/demo tools and are **hidden in production builds**. They are gated behind `process.env.NODE_ENV === "development"` in:
+- `src/app/(web)/page.tsx` — home page cards
+- `src/components/layout/sidebar.tsx` — sidebar nav items
+- `src/components/volunteer-processing/volunteer-processing.tsx` — "Approved Active Volunteers" tab
+
+**Currently dev-only:**
+- Contact Lookup (`/contactlookup`)
+- Template Tool (`/tools/template`)
+- Volunteer Processing → Approved Active Volunteers tab
+
+**Visible in all environments:**
+- Executive Dashboard (`/dashboard`)
+- Volunteer Processing → New Volunteers In Process tab (`/volunteer-processing`)
+
+The routes themselves still exist in production — they're just not linked from the UI. When a dev-only feature is promoted to production, move it out of the `isDev` gate in the relevant files.
+
 ## Import Patterns
 
 ```typescript
