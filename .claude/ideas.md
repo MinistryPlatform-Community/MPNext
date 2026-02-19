@@ -56,7 +56,7 @@ This interface should not be read-only. The volunteer processing team should be 
 
 Implemented as "Fully Approved Volunteer" (Milestone_ID = 33) with yellow star icon on card. Missing application/interview/reference items for fully-approved volunteers show yellow question mark ("presumed_complete" status). Also added optional "Elder Approved Teacher" milestone (Milestone_ID = 34) with blue graduation cap icon.
 
-### Volunteer Processing: Shareable Direct Links to Volunteer Modal ([#24](https://github.com/The-Moody-Church/mp-charts/issues/24))
+### ~~Volunteer Processing: Shareable Direct Links to Volunteer Modal ([#24](https://github.com/The-Moody-Church/mp-charts/issues/24))~~ ✅ COMPLETED
 Add a URL-based deep link to open a specific volunteer's detail modal directly (e.g., `/volunteer-processing?volunteer=123`). This lets staff share a link to a specific volunteer's record with another staff person without them having to search for the card.
 
 ### Volunteer Processing: Assign to Group on Approval ([#25](https://github.com/The-Moody-Church/mp-charts/issues/25))
