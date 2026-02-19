@@ -34,6 +34,11 @@ export interface GroupFilterOption {
   Group_Name: string;
 }
 
+export interface GroupRoleOption {
+  Group_Role_ID: number;
+  Role_Title: string;
+}
+
 export interface ApprovedVolunteersResult {
   volunteers: VolunteerCard[];
   groups: GroupFilterOption[];

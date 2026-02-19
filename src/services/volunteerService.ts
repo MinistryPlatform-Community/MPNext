@@ -532,6 +532,64 @@ export class VolunteerService {
   }
 
   // ---------------------------------------------------------------
+  // Write-back: Update Milestone
+  // ---------------------------------------------------------------
+
+  public async updateMilestone(data: {
+    Participant_Milestone_ID: number;
+    Date_Accomplished?: string;
+    Notes?: string;
+  }, userId?: number): Promise<void> {
+    const record: Record<string, unknown> = {
+      Participant_Milestone_ID: data.Participant_Milestone_ID,
+    };
+    if (data.Date_Accomplished !== undefined) record.Date_Accomplished = data.Date_Accomplished;
+    if (data.Notes !== undefined) record.Notes = data.Notes;
+
+    await this.mp!.updateTableRecords('Participant_Milestones', [record], {
+      $userId: userId,
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Write-back: Update Certification
+  // ---------------------------------------------------------------
+
+  public async updateCertification(data: {
+    Participant_Certification_ID: number;
+    Certification_Completed?: string;
+    Notes?: string;
+  }, userId?: number): Promise<void> {
+    const record: Record<string, unknown> = {
+      Participant_Certification_ID: data.Participant_Certification_ID,
+    };
+    if (data.Certification_Completed !== undefined) record.Certification_Completed = data.Certification_Completed;
+    if (data.Notes !== undefined) record.Notes = data.Notes;
+
+    await this.mp!.updateTableRecords('Participant_Certifications', [record], {
+      $userId: userId,
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Write-back: Update Form Response
+  // ---------------------------------------------------------------
+
+  public async updateFormResponse(data: {
+    Form_Response_ID: number;
+    Response_Date?: string;
+  }, userId?: number): Promise<void> {
+    const record: Record<string, unknown> = {
+      Form_Response_ID: data.Form_Response_ID,
+    };
+    if (data.Response_Date !== undefined) record.Response_Date = data.Response_Date;
+
+    await this.mp!.updateTableRecords('Form_Responses', [record], {
+      $userId: userId,
+    });
+  }
+
+  // ---------------------------------------------------------------
   // Write-back: Upload Document
   // ---------------------------------------------------------------
 
@@ -550,6 +608,104 @@ export class VolunteerService {
         userId
       }
     });
+  }
+
+  // Write-back: Upload Contact Photo
+  // ---------------------------------------------------------------
+
+  public async uploadContactPhoto(
+    contactId: number,
+    file: File,
+    userId?: number
+  ): Promise<void> {
+    await this.mp!.uploadFiles({
+      table: 'Contacts',
+      recordId: contactId,
+      files: [file],
+      uploadParams: {
+        description: 'Contact photo uploaded via Volunteer Processing',
+        isDefaultImage: true,
+        userId
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Assign to Group
+  // ---------------------------------------------------------------
+
+  public async getApprovedGroupRoles(): Promise<{ Group_Role_ID: number; Role_Title: string }[]> {
+    const roleIds = getEnvIds('VOLUNTEER_APPROVED_GROUP_ROLE_IDS');
+    if (roleIds.length === 0) return [];
+
+    const roles = await this.mp!.getTableRecords<{
+      Group_Role_ID: number;
+      Role_Title: string;
+    }>({
+      table: 'Group_Roles',
+      select: 'Group_Role_ID,Role_Title',
+      filter: `Group_Role_ID IN (${roleIds.join(',')})`
+    });
+
+    return roles;
+  }
+
+  public async getApprovedGroupsList(): Promise<{ Group_ID: number; Group_Name: string }[]> {
+    const approvedRoleIds = getEnvIds('VOLUNTEER_APPROVED_GROUP_ROLE_IDS');
+    if (approvedRoleIds.length === 0) return [];
+
+    const now = new Date().toISOString();
+    const gps = await this.mp!.getTableRecords<{ Group_ID: number }>({
+      table: 'Group_Participants',
+      select: 'Group_ID',
+      filter: `Group_Role_ID IN (${approvedRoleIds.join(',')}) AND (End_Date IS NULL OR End_Date >= '${now}')`
+    });
+
+    const groupIds = [...new Set(gps.map(gp => gp.Group_ID))];
+    if (groupIds.length === 0) return [];
+
+    const groups = await this.mp!.getTableRecords<{ Group_ID: number; Group_Name: string }>({
+      table: 'Groups',
+      select: 'Group_ID,Group_Name',
+      filter: `Group_ID IN (${groupIds.join(',')})`
+    });
+
+    return groups
+      .map(g => ({ Group_ID: g.Group_ID, Group_Name: g.Group_Name }))
+      .sort((a, b) => a.Group_Name.localeCompare(b.Group_Name));
+  }
+
+  public async assignVolunteerToGroup(params: {
+    currentGroupParticipantId: number;
+    participantId: number;
+    targetGroupId: number;
+    targetRoleId: number;
+    userId?: number;
+  }): Promise<void> {
+    const { currentGroupParticipantId, participantId, targetGroupId, targetRoleId, userId } = params;
+    const now = new Date().toISOString();
+
+    // End old Group_Participant record
+    await this.mp!.updateTableRecords(
+      'Group_Participants',
+      [{
+        Group_Participant_ID: currentGroupParticipantId,
+        End_Date: now,
+      }],
+      { $userId: userId }
+    );
+
+    // Create new Group_Participant in the target group
+    await this.mp!.createTableRecords(
+      'Group_Participants',
+      [{
+        Group_ID: targetGroupId,
+        Participant_ID: participantId,
+        Group_Role_ID: targetRoleId,
+        Start_Date: now,
+      }],
+      { $userId: userId }
+    );
   }
 
   // ---------------------------------------------------------------

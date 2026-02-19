@@ -9,7 +9,7 @@ import { getInProcessVolunteers, getApprovedVolunteers } from "./actions";
 
 const isDev = process.env.NODE_ENV === "development";
 
-export function VolunteerProcessing() {
+export function VolunteerProcessing({ initialVolunteerId }: { initialVolunteerId?: number | null }) {
   const [activeTab, setActiveTab] = useState("in-process");
   const [inProcessVolunteers, setInProcessVolunteers] = useState<VolunteerCardData[]>([]);
   const [approvedVolunteers, setApprovedVolunteers] = useState<VolunteerCardData[]>([]);
@@ -19,6 +19,7 @@ export function VolunteerProcessing() {
   const [error, setError] = useState<string | null>(null);
   const [selectedVolunteer, setSelectedVolunteer] = useState<VolunteerCardData | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
   const fetchData = useCallback(async (tab: string) => {
     setLoading(true);
@@ -43,6 +44,53 @@ export function VolunteerProcessing() {
   useEffect(() => {
     fetchData(activeTab);
   }, [activeTab, fetchData]);
+
+  // Auto-open modal when navigating via deep link
+  useEffect(() => {
+    if (!initialVolunteerId || hasAutoOpened || loading) return;
+
+    // Search in-process volunteers first
+    const inProcessMatch = inProcessVolunteers.find(
+      v => v.info.Group_Participant_ID === initialVolunteerId
+    );
+    if (inProcessMatch) {
+      setSelectedVolunteer(inProcessMatch);
+      setModalOpen(true);
+      setHasAutoOpened(true);
+      return;
+    }
+
+    // Search approved volunteers (may already be loaded)
+    const approvedMatch = approvedVolunteers.find(
+      v => v.info.Group_Participant_ID === initialVolunteerId
+    );
+    if (approvedMatch) {
+      setActiveTab("approved");
+      setSelectedVolunteer(approvedMatch);
+      setModalOpen(true);
+      setHasAutoOpened(true);
+      return;
+    }
+
+    // If in-process loaded but no match anywhere, try fetching approved tab
+    if (inProcessVolunteers.length >= 0 && approvedVolunteers.length === 0 && isDev) {
+      getApprovedVolunteers().then(result => {
+        setApprovedVolunteers(result.volunteers);
+        setApprovedGroups(result.groups);
+        const match = result.volunteers.find(
+          v => v.info.Group_Participant_ID === initialVolunteerId
+        );
+        if (match) {
+          setActiveTab("approved");
+          setSelectedVolunteer(match);
+          setModalOpen(true);
+        }
+        setHasAutoOpened(true);
+      }).catch(() => setHasAutoOpened(true));
+    } else {
+      setHasAutoOpened(true);
+    }
+  }, [initialVolunteerId, inProcessVolunteers, approvedVolunteers, loading, hasAutoOpened]);
 
   const handleCardClick = (volunteer: VolunteerCardData) => {
     setSelectedVolunteer(volunteer);
@@ -142,6 +190,8 @@ export function VolunteerProcessing() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         onUpdate={handleUpdate}
+        approvedGroups={approvedGroups}
+        isInProcessTab={activeTab === "in-process"}
       />
     </div>
   );
