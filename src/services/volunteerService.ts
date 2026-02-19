@@ -8,7 +8,10 @@ import {
   CertificationDetail,
   FormResponseDetail,
   MilestoneDetail,
-  WriteBackConfig
+  MilestoneFileInfo,
+  WriteBackConfig,
+  GroupFilterOption,
+  ApprovedVolunteersResult
 } from '@/lib/dto';
 
 // Environment variable helpers
@@ -189,11 +192,11 @@ export class VolunteerService {
   // Tab 2: Approved Volunteers
   // ---------------------------------------------------------------
 
-  public async getApprovedVolunteers(): Promise<VolunteerCard[]> {
+  public async getApprovedVolunteers(): Promise<ApprovedVolunteersResult> {
     const approvedRoleIds = getEnvIds('VOLUNTEER_APPROVED_GROUP_ROLE_IDS');
     if (approvedRoleIds.length === 0) {
       console.warn('VOLUNTEER_APPROVED_GROUP_ROLE_IDS not configured');
-      return [];
+      return { volunteers: [], groups: [] };
     }
 
     const now = new Date().toISOString();
@@ -205,7 +208,7 @@ export class VolunteerService {
       filter: `Group_Role_ID IN (${approvedRoleIds.join(',')}) AND (End_Date IS NULL OR End_Date >= '${now}')`
     });
 
-    if (groupParticipants.length === 0) return [];
+    if (groupParticipants.length === 0) return { volunteers: [], groups: [] };
 
     // Exclude anyone currently in the in-process group(s)
     const processingGroupIds = getEnvIds('VOLUNTEER_PROCESSING_GROUP_IDS');
@@ -224,15 +227,24 @@ export class VolunteerService {
       );
     }
 
-    if (filteredParticipants.length === 0) return [];
+    if (filteredParticipants.length === 0) return { volunteers: [], groups: [] };
 
-    // Deduplicate by Participant_ID (a person may have multiple group roles)
+    // Deduplicate by Participant_ID but collect ALL Group_IDs per participant
+    const participantGroupIds = new Map<number, Set<number>>();
     const uniqueByParticipant = new Map<number, GroupParticipantRecord>();
     for (const gp of filteredParticipants) {
       if (!uniqueByParticipant.has(gp.Participant_ID)) {
         uniqueByParticipant.set(gp.Participant_ID, gp);
       }
+      if (!participantGroupIds.has(gp.Participant_ID)) {
+        participantGroupIds.set(gp.Participant_ID, new Set());
+      }
+      participantGroupIds.get(gp.Participant_ID)!.add(gp.Group_ID);
     }
+
+    // Fetch group names for all unique Group_IDs
+    const allGroupIds = [...new Set(filteredParticipants.map(gp => gp.Group_ID))];
+    const groups = await this.fetchGroupNames(allGroupIds);
 
     const participantIds = [...uniqueByParticipant.keys()];
     const contacts = await this.getContactsForParticipants(participantIds);
@@ -241,9 +253,10 @@ export class VolunteerService {
       [...uniqueByParticipant.values()],
       contacts
     );
-    if (volunteers.length === 0) return [];
+    if (volunteers.length === 0) return { volunteers: [], groups };
 
-    return this.assembleVolunteerCards(volunteers);
+    const cards = await this.assembleVolunteerCards(volunteers, participantGroupIds);
+    return { volunteers: cards, groups };
   }
 
   // ---------------------------------------------------------------
@@ -350,6 +363,8 @@ export class VolunteerService {
       }));
 
     const interviewMilestoneId = getEnvId('VOLUNTEER_INTERVIEW_MILESTONE_ID');
+    const fullyApprovedMilestoneId = getEnvId('VOLUNTEER_FULLY_APPROVED_MILESTONE_ID');
+    const elderApprovedTeacherMilestoneId = getEnvId('VOLUNTEER_ELDER_APPROVED_TEACHER_MILESTONE_ID');
     const milestoneDetails: MilestoneDetail[] = milestones
       .filter(m => m.Participant_ID === participantId)
       .map(m => ({
@@ -357,7 +372,13 @@ export class VolunteerService {
         Milestone_ID: m.Milestone_ID,
         Date_Accomplished: m.Date_Accomplished,
         Notes: m.Notes,
-        type: m.Milestone_ID === interviewMilestoneId ? 'interview' as const : 'reference' as const
+        type: m.Milestone_ID === interviewMilestoneId
+          ? 'interview' as const
+          : m.Milestone_ID === fullyApprovedMilestoneId
+            ? 'fully_approved' as const
+            : m.Milestone_ID === elderApprovedTeacherMilestoneId
+              ? 'elder_approved_teacher' as const
+              : 'reference' as const
       }));
 
     const writeBackConfig: WriteBackConfig = {
@@ -366,13 +387,20 @@ export class VolunteerService {
       referenceMilestoneId: getEnvId('VOLUNTEER_REFERENCE_MILESTONE_ID'),
       reference2MilestoneId: getEnvId('VOLUNTEER_REFERENCE_2_MILESTONE_ID'),
       reference3MilestoneId: getEnvId('VOLUNTEER_REFERENCE_3_MILESTONE_ID'),
+      fullyApprovedMilestoneId: getEnvId('VOLUNTEER_FULLY_APPROVED_MILESTONE_ID'),
+      elderApprovedTeacherMilestoneId: getEnvId('VOLUNTEER_ELDER_APPROVED_TEACHER_MILESTONE_ID'),
     };
 
+    const fullyApprovedItem = checklist.find(c => c.key === 'fully_approved');
+    const elderApprovedItem = checklist.find(c => c.key === 'elder_approved_teacher');
     return {
       info,
       checklist,
       completedCount: checklist.filter(c => c.status === 'complete').length,
       totalCount: checklist.length,
+      fullyApproved: !!fullyApprovedItem?.completed,
+      elderApprovedTeacher: !!elderApprovedItem?.completed,
+      groupIds: [],
       backgroundCheck,
       certification,
       formResponses: formResponseDetails,
@@ -404,6 +432,29 @@ export class VolunteerService {
     ) as unknown as { Participant_Milestone_ID: number }[];
 
     return created[0].Participant_Milestone_ID;
+  }
+
+  // ---------------------------------------------------------------
+  // Get Files for a Milestone Record
+  // ---------------------------------------------------------------
+
+  public async getMilestoneFiles(milestoneRecordId: number): Promise<MilestoneFileInfo[]> {
+    const fileBaseUrl = process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL;
+    const files = await this.mp!.getFilesByRecord({
+      table: 'Participant_Milestones',
+      recordId: milestoneRecordId
+    });
+
+    return files.map(f => {
+      const ext = (f.FileExtension || '').toLowerCase().replace('.', '');
+      return {
+        fileId: f.FileId,
+        fileName: f.FileName,
+        fileUrl: `${fileBaseUrl}/${f.UniqueFileId}`,
+        isPdf: ext === 'pdf',
+        isImage: f.IsImage
+      };
+    });
   }
 
   // ---------------------------------------------------------------
@@ -518,7 +569,8 @@ export class VolunteerService {
   }
 
   private async assembleVolunteerCards(
-    volunteers: VolunteerInfo[]
+    volunteers: VolunteerInfo[],
+    participantGroupIds?: Map<number, Set<number>>
   ): Promise<VolunteerCard[]> {
     const contactIds = [...new Set(volunteers.map(v => v.Contact_ID))];
     const participantIds = [...new Set(volunteers.map(v => v.Participant_ID))];
@@ -545,13 +597,42 @@ export class VolunteerService {
         bgStatuses
       );
 
+      const fullyApprovedItem = checklist.find(c => c.key === 'fully_approved');
+      const elderApprovedItem = checklist.find(c => c.key === 'elder_approved_teacher');
+      const groupIds = participantGroupIds?.get(vol.Participant_ID);
       return {
         info: vol,
         checklist,
         completedCount: checklist.filter(c => c.status === 'complete').length,
-        totalCount: checklist.length
+        totalCount: checklist.length,
+        fullyApproved: !!fullyApprovedItem?.completed,
+        elderApprovedTeacher: !!elderApprovedItem?.completed,
+        groupIds: groupIds ? [...groupIds] : []
       };
     });
+  }
+
+  // ---------------------------------------------------------------
+  // Group Name Lookup
+  // ---------------------------------------------------------------
+
+  private async fetchGroupNames(groupIds: number[]): Promise<GroupFilterOption[]> {
+    if (groupIds.length === 0) return [];
+
+    const allResults: { Group_ID: number; Group_Name: string }[] = [];
+    for (let i = 0; i < groupIds.length; i += BATCH_SIZE) {
+      const batchIds = groupIds.slice(i, i + BATCH_SIZE);
+      const batch = await this.mp!.getTableRecords<{ Group_ID: number; Group_Name: string }>({
+        table: 'Groups',
+        select: 'Group_ID,Group_Name',
+        filter: `Group_ID IN (${batchIds.join(',')})`
+      });
+      allResults.push(...batch);
+    }
+
+    return allResults
+      .map(g => ({ Group_ID: g.Group_ID, Group_Name: g.Group_Name }))
+      .sort((a, b) => a.Group_Name.localeCompare(b.Group_Name));
   }
 
   // ---------------------------------------------------------------
@@ -584,8 +665,10 @@ export class VolunteerService {
     const refId = getEnvId('VOLUNTEER_REFERENCE_MILESTONE_ID');
     const ref2Id = getEnvId('VOLUNTEER_REFERENCE_2_MILESTONE_ID');
     const ref3Id = getEnvId('VOLUNTEER_REFERENCE_3_MILESTONE_ID');
+    const fullyApprovedId = getEnvId('VOLUNTEER_FULLY_APPROVED_MILESTONE_ID');
+    const elderApprovedTeacherId = getEnvId('VOLUNTEER_ELDER_APPROVED_TEACHER_MILESTONE_ID');
 
-    const milestoneIds = [interviewId, refId, ref2Id, ref3Id].filter(
+    const milestoneIds = [interviewId, refId, ref2Id, ref3Id, fullyApprovedId, elderApprovedTeacherId].filter(
       (id): id is number => id !== null
     );
     if (milestoneIds.length === 0 || participantIds.length === 0) return [];
@@ -658,6 +741,8 @@ export class VolunteerService {
     const refId = getEnvId('VOLUNTEER_REFERENCE_MILESTONE_ID');
     const ref2Id = getEnvId('VOLUNTEER_REFERENCE_2_MILESTONE_ID');
     const ref3Id = getEnvId('VOLUNTEER_REFERENCE_3_MILESTONE_ID');
+    const fullyApprovedId = getEnvId('VOLUNTEER_FULLY_APPROVED_MILESTONE_ID');
+    const elderApprovedTeacherId = getEnvId('VOLUNTEER_ELDER_APPROVED_TEACHER_MILESTONE_ID');
 
     const checklist: ChecklistItemStatus[] = [];
 
@@ -826,6 +911,48 @@ export class VolunteerService {
       status: cpStatus,
       detail: null
     });
+
+    // 8. Fully Approved Volunteer (final milestone in the journey)
+    const fullyApprovedMilestone = milestones.find(
+      m => m.Milestone_ID === fullyApprovedId && m.Participant_ID === participantId
+    );
+    const isFullyApproved = !!fullyApprovedMilestone?.Date_Accomplished;
+    checklist.push({
+      key: 'fully_approved',
+      label: 'Fully Approved',
+      completed: isFullyApproved,
+      date: fullyApprovedMilestone?.Date_Accomplished || null,
+      expires: null,
+      status: isFullyApproved ? 'complete' : 'not_started',
+      detail: fullyApprovedMilestone?.Notes || null
+    });
+
+    // 9. Elder Approved Teacher (optional milestone)
+    if (elderApprovedTeacherId) {
+      const elderMilestone = milestones.find(
+        m => m.Milestone_ID === elderApprovedTeacherId && m.Participant_ID === participantId
+      );
+      const isElderApproved = !!elderMilestone?.Date_Accomplished;
+      checklist.push({
+        key: 'elder_approved_teacher',
+        label: 'Elder Approved Teacher',
+        completed: isElderApproved,
+        date: elderMilestone?.Date_Accomplished || null,
+        expires: null,
+        status: isElderApproved ? 'complete' : 'not_started',
+        detail: elderMilestone?.Notes || null
+      });
+    }
+
+    // If fully approved, mark missing application/interview/reference items as presumed_complete
+    if (isFullyApproved) {
+      const presumedKeys = ['application', 'interview', 'reference_1', 'reference_2', 'reference_3'];
+      for (const item of checklist) {
+        if (presumedKeys.includes(item.key) && item.status === 'not_started') {
+          item.status = 'presumed_complete';
+        }
+      }
+    }
 
     return checklist;
   }

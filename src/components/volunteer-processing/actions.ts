@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth";
 import { VolunteerService } from "@/services/volunteerService";
-import { VolunteerCard, VolunteerDetail } from "@/lib/dto";
+import { VolunteerCard, VolunteerDetail, MilestoneFileInfo, ApprovedVolunteersResult } from "@/lib/dto";
 
 export async function getInProcessVolunteers(): Promise<VolunteerCard[]> {
   try {
@@ -19,7 +19,7 @@ export async function getInProcessVolunteers(): Promise<VolunteerCard[]> {
   }
 }
 
-export async function getApprovedVolunteers(): Promise<VolunteerCard[]> {
+export async function getApprovedVolunteers(): Promise<ApprovedVolunteersResult> {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -50,6 +50,21 @@ export async function getVolunteerDetail(
   } catch (error) {
     console.error("Error fetching volunteer detail:", error);
     throw new Error("Failed to fetch volunteer detail");
+  }
+}
+
+export async function getMilestoneFiles(milestoneRecordId: number): Promise<MilestoneFileInfo[]> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      throw new Error("Authentication required");
+    }
+
+    const service = await VolunteerService.getInstance();
+    return await service.getMilestoneFiles(milestoneRecordId);
+  } catch (error) {
+    console.error("Error fetching milestone files:", error);
+    throw new Error("Failed to fetch milestone files");
   }
 }
 

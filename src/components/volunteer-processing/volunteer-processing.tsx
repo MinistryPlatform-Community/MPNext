@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { VolunteerCard as VolunteerCardData } from "@/lib/dto";
+import { VolunteerCard as VolunteerCardData, GroupFilterOption } from "@/lib/dto";
 import { VolunteerCard } from "./volunteer-card";
 import { VolunteerDetailModal } from "./volunteer-detail-modal";
 import { getInProcessVolunteers, getApprovedVolunteers } from "./actions";
@@ -13,6 +13,8 @@ export function VolunteerProcessing() {
   const [activeTab, setActiveTab] = useState("in-process");
   const [inProcessVolunteers, setInProcessVolunteers] = useState<VolunteerCardData[]>([]);
   const [approvedVolunteers, setApprovedVolunteers] = useState<VolunteerCardData[]>([]);
+  const [approvedGroups, setApprovedGroups] = useState<GroupFilterOption[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedVolunteer, setSelectedVolunteer] = useState<VolunteerCardData | null>(null);
@@ -26,8 +28,9 @@ export function VolunteerProcessing() {
         const data = await getInProcessVolunteers();
         setInProcessVolunteers(data);
       } else {
-        const data = await getApprovedVolunteers();
-        setApprovedVolunteers(data);
+        const result = await getApprovedVolunteers();
+        setApprovedVolunteers(result.volunteers);
+        setApprovedGroups(result.groups);
       }
     } catch (err) {
       console.error("Failed to fetch volunteers:", err);
@@ -50,7 +53,12 @@ export function VolunteerProcessing() {
     fetchData(activeTab);
   };
 
-  const currentVolunteers = activeTab === "in-process" ? inProcessVolunteers : approvedVolunteers;
+  const filteredApprovedVolunteers = useMemo(() => {
+    if (!selectedGroupId) return approvedVolunteers;
+    return approvedVolunteers.filter(v => v.groupIds.includes(selectedGroupId));
+  }, [approvedVolunteers, selectedGroupId]);
+
+  const currentVolunteers = activeTab === "in-process" ? inProcessVolunteers : filteredApprovedVolunteers;
 
   return (
     <div className="space-y-6">
@@ -73,7 +81,7 @@ export function VolunteerProcessing() {
           </TabsTrigger>
           {isDev && (
             <TabsTrigger value="approved">
-              Approved Current Volunteers
+              Approved Active Volunteers
               {approvedVolunteers.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs">
                   {approvedVolunteers.length}
@@ -95,6 +103,29 @@ export function VolunteerProcessing() {
 
         {isDev && (
           <TabsContent value="approved">
+            {approvedGroups.length > 1 && (
+              <div className="flex items-center gap-2 mb-2">
+                <label htmlFor="group-filter" className="text-sm font-medium text-gray-700">
+                  Filter by group:
+                </label>
+                <select
+                  id="group-filter"
+                  value={selectedGroupId ?? ""}
+                  onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
+                  className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">All Groups ({approvedVolunteers.length})</option>
+                  {approvedGroups.map((group) => {
+                    const count = approvedVolunteers.filter(v => v.groupIds.includes(group.Group_ID)).length;
+                    return (
+                      <option key={group.Group_ID} value={group.Group_ID}>
+                        {group.Group_Name} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
             <VolunteerGrid
               volunteers={currentVolunteers}
               loading={loading && activeTab === "approved"}

@@ -109,12 +109,12 @@ src/components/
 Some features are dev/demo tools and are **hidden in production builds**. They are gated behind `process.env.NODE_ENV === "development"` in:
 - `src/app/(web)/page.tsx` — home page cards
 - `src/components/layout/sidebar.tsx` — sidebar nav items
-- `src/components/volunteer-processing/volunteer-processing.tsx` — "Approved Current Volunteers" tab
+- `src/components/volunteer-processing/volunteer-processing.tsx` — "Approved Active Volunteers" tab
 
 **Currently dev-only:**
 - Contact Lookup (`/contactlookup`)
 - Template Tool (`/tools/template`)
-- Volunteer Processing → Approved Current Volunteers tab
+- Volunteer Processing → Approved Active Volunteers tab
 
 **Visible in all environments:**
 - Executive Dashboard (`/dashboard`)

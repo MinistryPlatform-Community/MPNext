@@ -15,7 +15,7 @@ export interface ChecklistItemStatus {
   completed: boolean;
   date: string | null;
   expires: string | null;
-  status: 'complete' | 'in_progress' | 'expired' | 'expiring_soon' | 'not_started';
+  status: 'complete' | 'in_progress' | 'expired' | 'expiring_soon' | 'not_started' | 'presumed_complete';
   detail: string | null;
 }
 
@@ -24,6 +24,19 @@ export interface VolunteerCard {
   checklist: ChecklistItemStatus[];
   completedCount: number;
   totalCount: number;
+  fullyApproved: boolean;
+  elderApprovedTeacher: boolean;
+  groupIds: number[];
+}
+
+export interface GroupFilterOption {
+  Group_ID: number;
+  Group_Name: string;
+}
+
+export interface ApprovedVolunteersResult {
+  volunteers: VolunteerCard[];
+  groups: GroupFilterOption[];
 }
 
 export interface BackgroundCheckDetail {
@@ -58,7 +71,15 @@ export interface MilestoneDetail {
   Milestone_ID: number;
   Date_Accomplished: string | null;
   Notes: string | null;
-  type: 'interview' | 'reference';
+  type: 'interview' | 'reference' | 'fully_approved' | 'elder_approved_teacher';
+}
+
+export interface MilestoneFileInfo {
+  fileId: number;
+  fileName: string;
+  fileUrl: string;
+  isPdf: boolean;
+  isImage: boolean;
 }
 
 export interface WriteBackConfig {
@@ -67,6 +88,8 @@ export interface WriteBackConfig {
   referenceMilestoneId: number | null;
   reference2MilestoneId: number | null;
   reference3MilestoneId: number | null;
+  fullyApprovedMilestoneId: number | null;
+  elderApprovedTeacherMilestoneId: number | null;
 }
 
 export interface VolunteerDetail extends VolunteerCard {

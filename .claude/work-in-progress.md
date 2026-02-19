@@ -1,19 +1,23 @@
 # Work in Progress
 
-## Volunteer Processing (2026-02-17) — Branch: `feature/volunteer-processing`
+## Volunteer Processing (2026-02-19) — Branch: `feature/volunteer-processing`
 
 ### Status: ✅ Feature Complete — Ready for PR
 
 **Implementation**: Full volunteer processing dashboard with:
 - Tab 1 (New Volunteers In Process) — production-ready
-- Tab 2 (Approved Current Volunteers) — dev-only (URL batching fix applied but needs further testing)
+- Tab 2 (Approved Active Volunteers) — dev-only, with group name filter dropdown
 - Detail modal with checklist, background check details, milestone creation with file attachments
-- 9-item checklist per volunteer (Application, Interview, 3 References, Background Check, Mandated Reporter, Child Protection Policy)
-- All MP record IDs configurable via 10 environment variables
+- Expandable milestone items showing notes and file attachments from MP
+- "View in MP" link in modal header
+- 10-item checklist per volunteer (Application, Interview, 3 References, Background Check, Mandated Reporter, Child Protection Policy, Fully Approved, Elder Approved Teacher)
+- "Fully Approved" milestone: yellow star icon on card, presumed_complete status for missing items
+- "Elder Approved Teacher" milestone: blue graduation cap icon on card (optional, does not affect star)
+- All MP record IDs configurable via 12 environment variables
 
 **Known Issue**: Audit log shows API client user instead of logged-in user for write operations. Tracked in ideas.md under permissions (#7).
 
-**Files**: 9 new files, 8 modified files. See `session-summary-2026-02-17.md` Session 3 for full list.
+**Files**: 9 new files, 8+ modified files. See session summaries for full lists.
 
 ---
 

@@ -52,9 +52,9 @@ This interface should not be read-only. The volunteer processing team should be 
 - Changes should create or update the corresponding records in Ministry Platform
 - Goal: give the volunteer processing team a more efficient interface than navigating MP directly
 
-#### Pending: Final Director Approval Milestone
+#### ~~Completed: Final Director Approval Milestone~~ ✅ COMPLETED
 
-A "Final Director Approval" milestone needs to be added as the last step in the volunteer application journey in Ministry Platform. This will be the final milestone a volunteer must receive before being considered fully approved. The corresponding Milestone_ID should be added as an environment variable and integrated into the checklist and write-back UI. To be implemented in a future session.
+Implemented as "Fully Approved Volunteer" (Milestone_ID = 33) with yellow star icon on card. Missing application/interview/reference items for fully-approved volunteers show yellow question mark ("presumed_complete" status). Also added optional "Elder Approved Teacher" milestone (Milestone_ID = 34) with blue graduation cap icon.
 
 ### Pastoral Interface for Contact Logs ([#19](https://github.com/The-Moody-Church/mp-charts/issues/19))
 A dedicated pastoral interface for viewing and managing contact logs.
