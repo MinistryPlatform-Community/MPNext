@@ -68,6 +68,72 @@ export async function getMilestoneFiles(milestoneRecordId: number): Promise<Mile
   }
 }
 
+export async function getCertificationFiles(certificationRecordId: number): Promise<MilestoneFileInfo[]> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      throw new Error("Authentication required");
+    }
+
+    const service = await VolunteerService.getInstance();
+    return await service.getCertificationFiles(certificationRecordId);
+  } catch (error) {
+    console.error("Error fetching certification files:", error);
+    throw new Error("Failed to fetch certification files");
+  }
+}
+
+export async function getFormResponseFiles(formResponseId: number): Promise<MilestoneFileInfo[]> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      throw new Error("Authentication required");
+    }
+
+    const service = await VolunteerService.getInstance();
+    return await service.getFormResponseFiles(formResponseId);
+  } catch (error) {
+    console.error("Error fetching form response files:", error);
+    throw new Error("Failed to fetch form response files");
+  }
+}
+
+export async function createFormResponse(formData: FormData): Promise<void> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      throw new Error("Authentication required");
+    }
+
+    let userId: number | undefined;
+    if (session?.userProfile?.User_ID) {
+      userId = session.userProfile.User_ID;
+    }
+
+    const service = await VolunteerService.getInstance();
+    const newFormResponseId = await service.createFormResponse({
+      Form_ID: Number(formData.get("Form_ID")),
+      Contact_ID: Number(formData.get("Contact_ID")),
+      Response_Date: formData.get("Response_Date") as string || undefined,
+    }, userId);
+
+    // If files were included, attach them to the newly created form response
+    const files: File[] = [];
+    for (const [key, value] of formData.entries()) {
+      if (key === "files" && value instanceof File && value.size > 0) {
+        files.push(value);
+      }
+    }
+
+    if (files.length > 0) {
+      await service.uploadDocument('Form_Responses', newFormResponseId, files, userId);
+    }
+  } catch (error) {
+    console.error("Error creating form response:", error);
+    throw new Error("Failed to create form response");
+  }
+}
+
 export async function createVolunteerMilestone(formData: FormData): Promise<void> {
   try {
     const session = await auth();

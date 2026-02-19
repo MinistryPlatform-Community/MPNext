@@ -56,6 +56,7 @@ export interface CertificationDetail {
   Completed: string | null;
   Expires: string | null;
   Passed: boolean | null;
+  Notes: string | null;
 }
 
 export interface FormResponseDetail {
@@ -83,6 +84,7 @@ export interface MilestoneFileInfo {
 }
 
 export interface WriteBackConfig {
+  applicationFormId: number | null;
   programId: number | null;
   interviewMilestoneId: number | null;
   referenceMilestoneId: number | null;

@@ -13,11 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { VolunteerCard as VolunteerCardData, VolunteerDetail, ChecklistItemStatus, WriteBackConfig, MilestoneFileInfo, MilestoneDetail } from "@/lib/dto";
+import { VolunteerCard as VolunteerCardData, VolunteerDetail, ChecklistItemStatus, WriteBackConfig, MilestoneFileInfo, MilestoneDetail, CertificationDetail, FormResponseDetail } from "@/lib/dto";
 import {
   getVolunteerDetail,
   createVolunteerMilestone,
+  createFormResponse,
   getMilestoneFiles,
+  getCertificationFiles,
+  getFormResponseFiles,
 } from "./actions";
 
 interface VolunteerDetailModalProps {
@@ -91,22 +94,49 @@ export function VolunteerDetailModal({
   const [milestoneDate, setMilestoneDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedMilestoneKey, setSelectedMilestoneKey] = useState("");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const [milestoneFiles, setMilestoneFiles] = useState<Record<number, MilestoneFileInfo[]>>({});
+  const [recordFiles, setRecordFiles] = useState<Record<number, MilestoneFileInfo[]>>({});
   const [filesLoading, setFilesLoading] = useState<number | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
 
   useEffect(() => {
     if (open && volunteer) {
       setLoading(true);
       setDetail(null);
       setExpandedKey(null);
-      setMilestoneFiles({});
+      setRecordFiles({});
+      setFileError(null);
       getVolunteerDetail(
         volunteer.info.Contact_ID,
         volunteer.info.Participant_ID,
         volunteer.info.Group_Participant_ID
       )
-        .then(setDetail)
+        .then((d) => {
+          setDetail(d);
+          // Pre-fetch files for all milestone records
+          if (d?.milestones) {
+            for (const m of d.milestones) {
+              getMilestoneFiles(m.Participant_Milestone_ID)
+                .then((files) => setRecordFiles((prev) => ({ ...prev, [m.Participant_Milestone_ID]: files })))
+                .catch(() => setRecordFiles((prev) => ({ ...prev, [m.Participant_Milestone_ID]: [] })));
+            }
+          }
+          // Pre-fetch files for certification record
+          if (d?.certification) {
+            getCertificationFiles(d.certification.Participant_Certification_ID)
+              .then((files) => setRecordFiles((prev) => ({ ...prev, [d.certification!.Participant_Certification_ID]: files })))
+              .catch(() => setRecordFiles((prev) => ({ ...prev, [d.certification!.Participant_Certification_ID]: [] })));
+          }
+          // Pre-fetch files for form response records (application, child protection)
+          if (d?.formResponses) {
+            for (const fr of d.formResponses) {
+              getFormResponseFiles(fr.Form_Response_ID)
+                .then((files) => setRecordFiles((prev) => ({ ...prev, [fr.Form_Response_ID]: files })))
+                .catch(() => setRecordFiles((prev) => ({ ...prev, [fr.Form_Response_ID]: [] })));
+            }
+          }
+        })
         .catch((err) => console.error("Failed to load detail:", err))
         .finally(() => setLoading(false));
     }
@@ -133,6 +163,13 @@ export function VolunteerDetailModal({
     }
   };
 
+  const findFormResponseRecord = (key: string): FormResponseDetail | null => {
+    if (!detail) return null;
+    if (key === "application") return detail.formResponses.find(fr => fr.type === "application") || null;
+    if (key === "child_protection") return detail.formResponses.find(fr => fr.type === "child_protection") || null;
+    return null;
+  };
+
   const handleToggleExpand = async (key: string) => {
     if (expandedKey === key) {
       setExpandedKey(null);
@@ -140,16 +177,48 @@ export function VolunteerDetailModal({
     }
     setExpandedKey(key);
 
-    // If this is a milestone item with a record, fetch its files
-    const record = findMilestoneRecord(key);
-    if (record && !(record.Participant_Milestone_ID in milestoneFiles)) {
-      setFilesLoading(record.Participant_Milestone_ID);
+    // If this is a milestone item with a record, fetch its files on-demand if not cached
+    const milestoneRecord = findMilestoneRecord(key);
+    if (milestoneRecord && !(milestoneRecord.Participant_Milestone_ID in recordFiles)) {
+      setFilesLoading(milestoneRecord.Participant_Milestone_ID);
       try {
-        const files = await getMilestoneFiles(record.Participant_Milestone_ID);
-        setMilestoneFiles(prev => ({ ...prev, [record.Participant_Milestone_ID]: files }));
+        const files = await getMilestoneFiles(milestoneRecord.Participant_Milestone_ID);
+        setRecordFiles(prev => ({ ...prev, [milestoneRecord.Participant_Milestone_ID]: files }));
       } catch (err) {
         console.error("Failed to load milestone files:", err);
-        setMilestoneFiles(prev => ({ ...prev, [record.Participant_Milestone_ID]: [] }));
+        setRecordFiles(prev => ({ ...prev, [milestoneRecord.Participant_Milestone_ID]: [] }));
+      } finally {
+        setFilesLoading(null);
+      }
+    }
+
+    // If this is the certification item, fetch its files on-demand if not cached
+    if (key === "mandated_reporter" && detail?.certification) {
+      const certId = detail.certification.Participant_Certification_ID;
+      if (!(certId in recordFiles)) {
+        setFilesLoading(certId);
+        try {
+          const files = await getCertificationFiles(certId);
+          setRecordFiles(prev => ({ ...prev, [certId]: files }));
+        } catch (err) {
+          console.error("Failed to load certification files:", err);
+          setRecordFiles(prev => ({ ...prev, [certId]: [] }));
+        } finally {
+          setFilesLoading(null);
+        }
+      }
+    }
+
+    // If this is a form response item, fetch its files on-demand if not cached
+    const frRecord = findFormResponseRecord(key);
+    if (frRecord && !(frRecord.Form_Response_ID in recordFiles)) {
+      setFilesLoading(frRecord.Form_Response_ID);
+      try {
+        const files = await getFormResponseFiles(frRecord.Form_Response_ID);
+        setRecordFiles(prev => ({ ...prev, [frRecord.Form_Response_ID]: files }));
+      } catch (err) {
+        console.error("Failed to load form response files:", err);
+        setRecordFiles(prev => ({ ...prev, [frRecord.Form_Response_ID]: [] }));
       } finally {
         setFilesLoading(null);
       }
@@ -190,6 +259,40 @@ export function VolunteerDetailModal({
       setDetail(updated);
     } catch (err) {
       console.error("Failed to create milestone:", err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateApplication = async () => {
+    if (!volunteer || !detail?.writeBackConfig?.applicationFormId) return;
+    setActionLoading("application");
+    try {
+      const formData = new FormData();
+      formData.set("Form_ID", String(detail.writeBackConfig.applicationFormId));
+      formData.set("Contact_ID", String(volunteer.info.Contact_ID));
+      formData.set("Response_Date", new Date(milestoneDate + "T12:00:00").toISOString());
+      // Attach files if selected
+      const files = fileInputRef.current?.files;
+      if (files) {
+        for (const file of Array.from(files)) {
+          formData.append("files", file);
+        }
+      }
+      await createFormResponse(formData);
+      setMilestoneDate(new Date().toISOString().split("T")[0]);
+      setSelectedMilestoneKey("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      onUpdate();
+      // Refresh detail
+      const updated = await getVolunteerDetail(
+        volunteer.info.Contact_ID,
+        volunteer.info.Participant_ID,
+        volunteer.info.Group_Participant_ID
+      );
+      setDetail(updated);
+    } catch (err) {
+      console.error("Failed to create form response:", err);
     } finally {
       setActionLoading(null);
     }
@@ -261,10 +364,21 @@ export function VolunteerDetailModal({
               {checklist.map((item) => {
                 const isMilestone = isMilestoneItem(item.key);
                 const milestoneRecord = isMilestone ? findMilestoneRecord(item.key) : null;
+                const isCert = item.key === "mandated_reporter";
+                const certRecord = isCert ? detail?.certification : null;
+                const formResponseRecord = findFormResponseRecord(item.key);
                 const isExpanded = expandedKey === item.key;
-                const hasExpandableContent = isMilestone && milestoneRecord;
-                const files = milestoneRecord ? milestoneFiles[milestoneRecord.Participant_Milestone_ID] : undefined;
-                const isLoadingFiles = milestoneRecord && filesLoading === milestoneRecord.Participant_Milestone_ID;
+                const hasExpandableContent = (isMilestone && milestoneRecord) || (isCert && certRecord) || !!formResponseRecord;
+
+                // Resolve the record ID, notes, and files for milestones, certifications, or form responses
+                const expandRecordId = milestoneRecord
+                  ? milestoneRecord.Participant_Milestone_ID
+                  : certRecord?.Participant_Certification_ID
+                  ?? formResponseRecord?.Form_Response_ID
+                  ?? null;
+                const expandNotes = milestoneRecord?.Notes ?? certRecord?.Notes ?? null;
+                const files = expandRecordId ? recordFiles[expandRecordId] : undefined;
+                const isLoadingFiles = expandRecordId !== null && filesLoading === expandRecordId;
 
                 return (
                   <div key={item.key} className="rounded-lg border bg-gray-50/50 overflow-hidden">
@@ -275,6 +389,11 @@ export function VolunteerDetailModal({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-medium">{item.label}</span>
+                          {files && files.length > 0 && (
+                            <svg className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                          )}
                           <StatusBadge item={item} />
                           {hasExpandableContent && (
                             <svg
@@ -312,15 +431,15 @@ export function VolunteerDetailModal({
                       </div>
                     </div>
 
-                    {/* Expanded milestone content */}
-                    {isExpanded && milestoneRecord && (
+                    {/* Expanded content (milestones and certifications) */}
+                    {isExpanded && hasExpandableContent && (
                       <div className="px-3 pb-3 border-t bg-white space-y-2">
                         {/* Notes */}
-                        {milestoneRecord.Notes && (
+                        {expandNotes && (
                           <div className="pt-2">
                             <p className="text-xs font-medium text-gray-700 mb-0.5">Notes</p>
                             <p className="text-xs text-muted-foreground whitespace-pre-wrap">
-                              {milestoneRecord.Notes}
+                              {expandNotes}
                             </p>
                           </div>
                         )}
@@ -413,18 +532,20 @@ export function VolunteerDetailModal({
               <h3 className="text-sm font-semibold text-gray-900">Quick Actions</h3>
               <div className="space-y-2">
                 <div className="flex gap-3">
-                  <div className="flex-1">
-                    <Label htmlFor="milestone-notes" className="text-xs">Notes (optional)</Label>
-                    <Textarea
-                      id="milestone-notes"
-                      value={milestoneNotes}
-                      onChange={(e) => setMilestoneNotes(e.target.value)}
-                      placeholder="Add notes for the milestone..."
-                      className="text-xs"
-                      rows={2}
-                    />
-                  </div>
-                  <div className="w-36">
+                  {selectedMilestoneKey !== "application" && (
+                    <div className="flex-1">
+                      <Label htmlFor="milestone-notes" className="text-xs">Notes (optional)</Label>
+                      <Textarea
+                        id="milestone-notes"
+                        value={milestoneNotes}
+                        onChange={(e) => setMilestoneNotes(e.target.value)}
+                        placeholder="Add notes for the milestone..."
+                        className="text-xs"
+                        rows={2}
+                      />
+                    </div>
+                  )}
+                  <div className={selectedMilestoneKey === "application" ? "flex-1" : "w-36"}>
                     <Label htmlFor="milestone-date" className="text-xs">Date</Label>
                     <Input
                       id="milestone-date"
@@ -443,34 +564,50 @@ export function VolunteerDetailModal({
                     ref={fileInputRef}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                     className="text-xs"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && file.size > MAX_FILE_SIZE) {
+                        setFileError(`File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum size is 1 MB.`);
+                      } else {
+                        setFileError(null);
+                      }
+                    }}
                   />
+                  {fileError && (
+                    <p className="text-xs text-red-600 mt-1">{fileError}</p>
+                  )}
                 </div>
                 {(() => {
                   const availableItems = detail?.writeBackConfig
-                    ? checklist.filter((item) => (item.status === "not_started" || item.status === "presumed_complete") && isMilestoneItem(item.key))
+                    ? checklist.filter((item) => (item.status === "not_started" || item.status === "presumed_complete") && isCreatableItem(item.key))
                     : [];
                   if (availableItems.length === 0) {
                     return (
                       <p className="text-xs text-muted-foreground">
-                        All milestone items are already in progress or complete.
+                        All items are already in progress or complete.
                       </p>
                     );
                   }
-                  const selectedId = selectedMilestoneKey && detail?.writeBackConfig
+                  const isApplicationSelected = selectedMilestoneKey === "application";
+                  const selectedId = selectedMilestoneKey && detail?.writeBackConfig && !isApplicationSelected
                     ? getMilestoneIdForKey(selectedMilestoneKey, detail.writeBackConfig)
                     : null;
                   const programId = detail?.writeBackConfig?.programId;
+                  const applicationFormId = detail?.writeBackConfig?.applicationFormId;
+                  const canSubmit = isApplicationSelected
+                    ? !!applicationFormId
+                    : !!selectedId && !!programId;
                   return (
                     <div className="flex items-end gap-2">
                       <div className="flex-1">
-                        <Label htmlFor="milestone-select" className="text-xs">Milestone</Label>
+                        <Label htmlFor="milestone-select" className="text-xs">Item</Label>
                         <select
                           id="milestone-select"
                           value={selectedMilestoneKey}
                           onChange={(e) => setSelectedMilestoneKey(e.target.value)}
                           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         >
-                          <option value="">Select a milestone...</option>
+                          <option value="">Select an item...</option>
                           {availableItems.map((item) => (
                             <option key={item.key} value={item.key}>
                               {item.label}
@@ -480,10 +617,16 @@ export function VolunteerDetailModal({
                       </div>
                       <Button
                         size="sm"
-                        onClick={() => selectedId && programId && handleMarkMilestoneComplete(selectedId, programId)}
-                        disabled={!selectedId || !programId || actionLoading?.startsWith("milestone-")}
+                        onClick={() => {
+                          if (isApplicationSelected) {
+                            handleCreateApplication();
+                          } else if (selectedId && programId) {
+                            handleMarkMilestoneComplete(selectedId, programId);
+                          }
+                        }}
+                        disabled={!selectedMilestoneKey || !canSubmit || actionLoading !== null || !!fileError}
                       >
-                        {actionLoading?.startsWith("milestone-") ? "Saving..." : "Mark Complete"}
+                        {actionLoading ? "Saving..." : "Mark Complete"}
                       </Button>
                     </div>
                   );
@@ -499,6 +642,10 @@ export function VolunteerDetailModal({
 
 function isMilestoneItem(key: string): boolean {
   return ["interview", "reference_1", "reference_2", "reference_3", "fully_approved", "elder_approved_teacher"].includes(key);
+}
+
+function isCreatableItem(key: string): boolean {
+  return isMilestoneItem(key) || key === "application";
 }
 
 function getMilestoneIdForKey(key: string, config: WriteBackConfig): number | null {

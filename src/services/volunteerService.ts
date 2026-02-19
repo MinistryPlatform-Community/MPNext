@@ -108,6 +108,7 @@ interface CertificationRecord {
   Certification_Completed: string | null;
   Certification_Expires: string | null;
   Passed: boolean | null;
+  Notes: string | null;
 }
 
 interface ParticipantRecord {
@@ -346,7 +347,8 @@ export class VolunteerService {
           Submitted: latestCert.Certification_Submitted,
           Completed: latestCert.Certification_Completed,
           Expires: latestCert.Certification_Expires,
-          Passed: latestCert.Passed
+          Passed: latestCert.Passed,
+          Notes: latestCert.Notes
         }
       : null;
 
@@ -382,6 +384,7 @@ export class VolunteerService {
       }));
 
     const writeBackConfig: WriteBackConfig = {
+      applicationFormId: getEnvId('VOLUNTEER_APPLICATION_FORM_ID'),
       programId: getEnvId('VOLUNTEER_PROGRAM_ID'),
       interviewMilestoneId: getEnvId('VOLUNTEER_INTERVIEW_MILESTONE_ID'),
       referenceMilestoneId: getEnvId('VOLUNTEER_REFERENCE_MILESTONE_ID'),
@@ -443,6 +446,77 @@ export class VolunteerService {
     const files = await this.mp!.getFilesByRecord({
       table: 'Participant_Milestones',
       recordId: milestoneRecordId
+    });
+
+    return files.map(f => {
+      const ext = (f.FileExtension || '').toLowerCase().replace('.', '');
+      return {
+        fileId: f.FileId,
+        fileName: f.FileName,
+        fileUrl: `${fileBaseUrl}/${f.UniqueFileId}`,
+        isPdf: ext === 'pdf',
+        isImage: f.IsImage
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Get Files for a Certification Record
+  // ---------------------------------------------------------------
+
+  public async getCertificationFiles(certificationRecordId: number): Promise<MilestoneFileInfo[]> {
+    const fileBaseUrl = process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL;
+    const files = await this.mp!.getFilesByRecord({
+      table: 'Participant_Certifications',
+      recordId: certificationRecordId
+    });
+
+    return files.map(f => {
+      const ext = (f.FileExtension || '').toLowerCase().replace('.', '');
+      return {
+        fileId: f.FileId,
+        fileName: f.FileName,
+        fileUrl: `${fileBaseUrl}/${f.UniqueFileId}`,
+        isPdf: ext === 'pdf',
+        isImage: f.IsImage
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Write-back: Create Form Response (for paper application uploads)
+  // ---------------------------------------------------------------
+
+  public async createFormResponse(data: {
+    Form_ID: number;
+    Contact_ID: number;
+    Response_Date?: string;
+  }, userId?: number): Promise<number> {
+    const record = {
+      Form_ID: data.Form_ID,
+      Contact_ID: data.Contact_ID,
+      Response_Date: data.Response_Date || new Date().toISOString(),
+      Notification_Sent: false,
+    };
+
+    const created = await this.mp!.createTableRecords(
+      'Form_Responses', [record], {
+        $userId: userId
+      }
+    ) as unknown as { Form_Response_ID: number }[];
+
+    return created[0].Form_Response_ID;
+  }
+
+  // ---------------------------------------------------------------
+  // Get Files for a Form Response Record
+  // ---------------------------------------------------------------
+
+  public async getFormResponseFiles(formResponseId: number): Promise<MilestoneFileInfo[]> {
+    const fileBaseUrl = process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL;
+    const files = await this.mp!.getFilesByRecord({
+      table: 'Form_Responses',
+      recordId: formResponseId
     });
 
     return files.map(f => {
@@ -713,7 +787,7 @@ export class VolunteerService {
       const batchIds = participantIds.slice(i, i + BATCH_SIZE);
       const batch = await this.mp!.getTableRecords<CertificationRecord>({
         table: 'Participant_Certifications',
-        select: 'Participant_Certification_ID,Participant_ID,Certification_Type_ID,Certification_Submitted,Certification_Completed,Certification_Expires,Passed',
+        select: 'Participant_Certification_ID,Participant_ID,Certification_Type_ID,Certification_Submitted,Certification_Completed,Certification_Expires,Passed,Notes',
         filter: `Certification_Type_ID = ${certTypeId} AND Participant_ID IN (${batchIds.join(',')})`,
         orderBy: 'Certification_Submitted DESC'
       });

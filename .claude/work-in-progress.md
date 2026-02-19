@@ -7,15 +7,22 @@
 **Implementation**: Full volunteer processing dashboard with:
 - Tab 1 (New Volunteers In Process) — production-ready
 - Tab 2 (Approved Active Volunteers) — dev-only, with group name filter dropdown
-- Detail modal with checklist, background check details, milestone creation with file attachments
-- Expandable milestone items showing notes and file attachments from MP
+- Detail modal with checklist, background check details, quick actions for milestones & application creation
+- Expandable checklist items (milestones, certifications, form responses) showing notes and file attachments
+- Attachment indicator (paperclip icon) on collapsed items when files exist
+- File size validation (1 MB limit) with user-facing error message
 - "View in MP" link in modal header
 - 10-item checklist per volunteer (Application, Interview, 3 References, Background Check, Mandated Reporter, Child Protection Policy, Fully Approved, Elder Approved Teacher)
 - "Fully Approved" milestone: yellow star icon on card, presumed_complete status for missing items
 - "Elder Approved Teacher" milestone: blue graduation cap icon on card (optional, does not affect star)
+- Application form response creation from modal (paper form submissions with file attach)
 - All MP record IDs configurable via 12 environment variables
 
 **Known Issue**: Audit log shows API client user instead of logged-in user for write operations. Tracked in ideas.md under permissions (#7).
+
+**Planned Next**:
+- Shareable direct links to volunteer modal (URL deep linking)
+- Assign to Group button for approved volunteers on the In Process tab
 
 **Files**: 9 new files, 8+ modified files. See session summaries for full lists.
 
