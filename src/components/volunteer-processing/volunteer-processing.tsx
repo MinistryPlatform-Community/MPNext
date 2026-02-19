@@ -7,8 +7,6 @@ import { VolunteerCard } from "./volunteer-card";
 import { VolunteerDetailModal } from "./volunteer-detail-modal";
 import { getInProcessVolunteers, getApprovedVolunteers } from "./actions";
 
-const isDev = process.env.NODE_ENV === "development";
-
 export function VolunteerProcessing({ initialVolunteerId }: { initialVolunteerId?: number | null }) {
   const [activeTab, setActiveTab] = useState("in-process");
   const [inProcessVolunteers, setInProcessVolunteers] = useState<VolunteerCardData[]>([]);
@@ -73,7 +71,7 @@ export function VolunteerProcessing({ initialVolunteerId }: { initialVolunteerId
     }
 
     // If in-process loaded but no match anywhere, try fetching approved tab
-    if (inProcessVolunteers.length >= 0 && approvedVolunteers.length === 0 && isDev) {
+    if (inProcessVolunteers.length >= 0 && approvedVolunteers.length === 0) {
       getApprovedVolunteers().then(result => {
         setApprovedVolunteers(result.volunteers);
         setApprovedGroups(result.groups);
@@ -127,16 +125,14 @@ export function VolunteerProcessing({ initialVolunteerId }: { initialVolunteerId
               </span>
             )}
           </TabsTrigger>
-          {isDev && (
-            <TabsTrigger value="approved">
-              Approved Active Volunteers
-              {approvedVolunteers.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs">
-                  {approvedVolunteers.length}
-                </span>
-              )}
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="approved">
+            Approved Active Volunteers
+            {approvedVolunteers.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs">
+                {approvedVolunteers.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="in-process">
@@ -149,40 +145,38 @@ export function VolunteerProcessing({ initialVolunteerId }: { initialVolunteerId
           />
         </TabsContent>
 
-        {isDev && (
-          <TabsContent value="approved">
-            {approvedGroups.length > 1 && (
-              <div className="flex items-center gap-2 mb-2">
-                <label htmlFor="group-filter" className="text-sm font-medium text-gray-700">
-                  Filter by group:
-                </label>
-                <select
-                  id="group-filter"
-                  value={selectedGroupId ?? ""}
-                  onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
-                  className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">All Groups ({approvedVolunteers.length})</option>
-                  {approvedGroups.map((group) => {
-                    const count = approvedVolunteers.filter(v => v.groupIds.includes(group.Group_ID)).length;
-                    return (
-                      <option key={group.Group_ID} value={group.Group_ID}>
-                        {group.Group_Name} ({count})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            )}
-            <VolunteerGrid
-              volunteers={currentVolunteers}
-              loading={loading && activeTab === "approved"}
-              error={error}
-              emptyMessage="No approved volunteers found."
-              onCardClick={handleCardClick}
-            />
-          </TabsContent>
-        )}
+        <TabsContent value="approved">
+          {approvedGroups.length > 1 && (
+            <div className="flex items-center gap-2 mb-2">
+              <label htmlFor="group-filter" className="text-sm font-medium text-gray-700">
+                Filter by group:
+              </label>
+              <select
+                id="group-filter"
+                value={selectedGroupId ?? ""}
+                onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : null)}
+                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">All Groups ({approvedVolunteers.length})</option>
+                {approvedGroups.map((group) => {
+                  const count = approvedVolunteers.filter(v => v.groupIds.includes(group.Group_ID)).length;
+                  return (
+                    <option key={group.Group_ID} value={group.Group_ID}>
+                      {group.Group_Name} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+          <VolunteerGrid
+            volunteers={currentVolunteers}
+            loading={loading && activeTab === "approved"}
+            error={error}
+            emptyMessage="No approved volunteers found."
+            onCardClick={handleCardClick}
+          />
+        </TabsContent>
       </Tabs>
 
       <VolunteerDetailModal
