@@ -6,6 +6,12 @@ This document provides detailed context about the `src/components/` folder struc
 
 ```
 src/components/
+├── layout/                     # Layout components (barrel export via index.ts)
+│   ├── auth-wrapper.tsx        # Authentication wrapper (Server Component)
+│   ├── header.tsx              # App header with navigation
+│   ├── sidebar.tsx             # Navigation sidebar
+│   ├── dynamic-breadcrumb.tsx  # Breadcrumb navigation
+│   └── index.ts               # Barrel exports
 ├── shared-actions/             # Shared server actions
 ├── ui/                         # shadcn/ui components (19 components)
 ├── contact-logs/               # Contact log CRUD feature
@@ -13,23 +19,20 @@ src/components/
 ├── contact-lookup-details/     # Contact details view
 ├── tool/                       # Tool layout components (ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug)
 ├── user-tools-debug/           # Debug: User permissions display (dev only)
-├── user-menu/                  # User dropdown menu
-├── auth-wrapper.tsx            # Authentication wrapper (Server Component)
-├── header.tsx                  # App header with navigation
-├── sidebar.tsx                 # Navigation sidebar
-└── dynamic-breadcrumb.tsx      # Breadcrumb navigation
+└── user-menu/                  # User dropdown menu
 ```
 
 ## Component Categories
 
-### Layout Components (Root Level)
+### Layout Components (`layout/` folder)
 
 | File | Type | Purpose |
 |------|------|---------|
-| `auth-wrapper.tsx` | Server | Wraps app to enforce authentication, redirects unauthenticated users |
-| `header.tsx` | Client | Top navigation bar with hamburger menu and user menu |
-| `sidebar.tsx` | Client | Slide-out navigation menu with page links |
-| `dynamic-breadcrumb.tsx` | Client | Auto-generates breadcrumbs from URL or custom segments |
+| `layout/auth-wrapper.tsx` | Server | Wraps app to enforce authentication, redirects unauthenticated users |
+| `layout/header.tsx` | Client | Top navigation bar with hamburger menu and user menu |
+| `layout/sidebar.tsx` | Client | Slide-out navigation menu with page links |
+| `layout/dynamic-breadcrumb.tsx` | Client | Auto-generates breadcrumbs from URL or custom segments |
+| `layout/index.ts` | - | Barrel exports: `AuthWrapper`, `Header`, `Sidebar`, `DynamicBreadcrumb` |
 
 ### Feature Components
 
@@ -89,9 +92,8 @@ import { ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug } from '@/compon
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardContent } from '@/components/ui/card';
 
-// Layout components (direct imports)
-import { AuthWrapper } from '@/components/auth-wrapper';
-import { Header } from '@/components/header';
+// Layout components (barrel export)
+import { AuthWrapper, Header, Sidebar, DynamicBreadcrumb } from '@/components/layout';
 
 // Co-located actions (relative import within feature)
 import { searchContacts } from './actions';
