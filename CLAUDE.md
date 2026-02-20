@@ -5,10 +5,11 @@ This guide provides essential information for AI assistants (like Claude) workin
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)
-- **Build**: `npm run build` (production build, runs type checking)
-- **Lint**: `npm run lint` (ESLint)
+- **Build**: `npm run build` (production build with Turbopack, runs type checking)
+- **Lint**: `npm run lint` (ESLint CLI — `next lint` was removed in Next.js 16)
 - **Generate MP Types**: `npm run mp:generate:models` (generates TypeScript types + Zod schemas from Ministry Platform API, cleans output directory first)
 - **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage)
+- **Setup**: `npm run setup` (interactive project setup wizard), `npm run setup:check` (validate setup without changes)
 
 ### Type Generation Notes
 
@@ -18,14 +19,26 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ## Architecture
 
-- **Framework**: Next.js 15 (App Router) with React 19, TypeScript strict mode
+- **Framework**: Next.js 16 (App Router, Turbopack) with React 19, TypeScript strict mode
 - **Ministry Platform Integration**: Custom provider at `src/lib/providers/ministry-platform/` with REST API client, auth, and type-safe models
 - **Auth**: NextAuth v5 (beta) with Ministry Platform OAuth provider (`src/auth.ts`)
+  - **Route Protection**: `src/proxy.ts` handles auth token checks (renamed from `middleware.ts` in Next.js 16)
   - **OIDC Logout**: Implements RP-initiated logout flow to properly end Ministry Platform OAuth sessions
   - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `NEXTAUTH_URL`
   - **MP OAuth Setup**: Requires Post-Logout Redirect URIs configured in Ministry Platform OAuth client (see README.md)
+- **Services Layer**: Singleton service classes in `src/services/` wrap MPHelper for domain logic (ContactService, ContactLogService, ToolService, UserService)
+- **Contexts**: React context providers in `src/contexts/` (UserProvider, SessionProvider) composed in `src/app/providers.tsx`
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
+- **Validation**: Zod v4 (`zod@^4.3`) — note: different API from Zod v3 (e.g., `z.object()` vs `z.interface()`)
 - **Path Alias**: `@/*` maps to `src/*`
+
+## Next.js 16 Notes
+
+- **Proxy (formerly Middleware)**: Route protection lives in `src/proxy.ts` with an exported `proxy()` function (not `middleware.ts`/`middleware()`)
+- **Turbopack**: Default bundler for both `dev` and `build` — no `--turbopack` flag needed
+- **ESLint**: Uses `eslint .` directly (not `next lint`); config is native flat config in `eslint.config.mjs`
+- **Async Dynamic APIs**: `params`, `searchParams`, `cookies()`, `headers()` must always be awaited — synchronous access is removed
+- **Dev output**: `next dev` outputs to `.next/dev` (not `.next`)
 
 ## Code Style
 
@@ -47,6 +60,7 @@ This guide provides essential information for AI assistants (like Claude) workin
   - Database models (generated): `src/lib/providers/ministry-platform/models/` - auto-generated from DBMS
   - Zod schemas (generated): `src/lib/providers/ministry-platform/models/*Schema.ts` - for optional runtime validation
   - DTOs/ViewModels (hand-written): `src/lib/dto/` - application-level data transfer objects
+  - Services (hand-written): `src/services/` - singleton classes wrapping MPHelper for domain operations
 - **Validation**: 
   - Use optional `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation before API calls
   - For updates, set `partial: false` to require all fields (default is `partial: true` for partial updates)
@@ -56,13 +70,21 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ```
 src/components/
+├── layout/               # Layout components (AuthWrapper, Header, Sidebar, DynamicBreadcrumb)
 ├── shared-actions/       # Shared actions used across features
 ├── ui/                   # shadcn/ui components
-├── feature-name/         # Feature components (kebab-case)
-│   ├── feature-name.tsx
-│   ├── actions.ts        # Feature-specific server actions
-│   └── index.ts          # Barrel exports
-└── shared-component.tsx  # Shared/layout components
+└── feature-name/         # Feature components (kebab-case)
+    ├── feature-name.tsx
+    ├── actions.ts        # Feature-specific server actions
+    └── index.ts          # Barrel exports
+```
+
+## Data Flow
+
+Server actions in `actions.ts` should call **service classes** (not MPHelper directly):
+
+```
+Component → Server Action → Service (singleton) → MPHelper → Ministry Platform API
 ```
 
 ## Import Patterns
@@ -71,8 +93,17 @@ src/components/
 // Feature components (using barrel exports)
 import { ContactLookup } from '@/components/contact-lookup';
 
+// Layout components (using barrel export)
+import { AuthWrapper, Header, Sidebar } from '@/components/layout';
+
 // Application DTOs
 import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
+
+// Service classes (used in server actions)
+import { ContactService } from '@/services/contactService';
+
+// React contexts
+import { UserProvider, useUser } from '@/contexts';
 
 // Ministry Platform models (generated)
 import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
@@ -80,7 +111,7 @@ import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/mode
 // Ministry Platform Zod schemas (for runtime validation)
 import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
 
-// Ministry Platform helper (main API entry point)
+// Ministry Platform helper (used by services, not directly by components)
 import { MPHelper } from '@/lib/providers/ministry-platform';
 
 // Feature-specific actions (relative path within same folder)
@@ -104,6 +135,7 @@ export default MyComponent;            // ❌ Avoid
 6. **Never manually edit generated files** - regenerate types using `npm run mp:generate:models`
 7. **Use TypeScript strict mode** - all code must be type-safe
 8. **Validate at API boundaries** - use Zod schemas with the `schema` parameter in `createTableRecords()` and `updateTableRecords()` for runtime validation
+9. **Use service classes in server actions** - call services from `src/services/`, not MPHelper directly from components or actions
 
 ## Validation Best Practices
 
