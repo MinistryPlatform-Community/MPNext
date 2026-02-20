@@ -1,6 +1,6 @@
 # MPNext
 
-A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 15, React 19, and NextAuth v5.
+A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and NextAuth v5.
 
 ## Table of Contents
 
@@ -26,18 +26,18 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - **Authentication**: NextAuth v5 with Ministry Platform OAuth provider and OIDC RP-initiated logout
 - **Modern UI**: Radix UI primitives + shadcn/ui components with Tailwind CSS v4
 - **Type-Safe API**: Full TypeScript support with auto-generated types from Ministry Platform schema
-- **Next.js 15**: App Router with React Server Components
+- **Next.js 16**: App Router with React Server Components and Turbopack
 - **REST API Client**: Comprehensive Ministry Platform REST API integration
 - **Type Generation**: CLI tool to generate TypeScript interfaces and Zod schemas from MP database
 - **Schema Documentation**: Auto-generated markdown documentation with type file links
-- **Validation**: Optional Zod schema validation in MPHelper for runtime data validation before API calls
-- **Testing**: Vitest test framework with comprehensive coverage for auth, middleware, and API services
+- **Validation**: Optional Zod v4 schema validation in MPHelper for runtime data validation before API calls
+- **Testing**: Vitest test framework with comprehensive coverage for auth, proxy, and API services
 - **Tools Framework**: Reusable tool components for building Ministry Platform page tools
 
 ## Architecture
 
 ### Framework
-- **Next.js 15.5.6** with App Router
+- **Next.js 16** with App Router and Turbopack (default bundler for dev and build)
 - **React 19** with Server Components by default
 - **TypeScript** in strict mode
 - **Tailwind CSS v4** for styling
@@ -55,7 +55,7 @@ Custom provider located at `src/lib/providers/ministry-platform/` featuring:
 NextAuth v5 (beta) with custom Ministry Platform OAuth provider (`src/auth.ts`)
 - JWT session strategy with automatic token refresh
 - OIDC RP-initiated logout for proper session termination
-- Middleware-based route protection
+- Proxy-based route protection (`src/proxy.ts` — Next.js 16 replaces middleware with proxy)
 
 ## Prerequisites
 
@@ -395,8 +395,8 @@ MPNext/
 │   │
 │   ├── auth.ts                           # NextAuth configuration
 │   ├── auth.test.ts                      # Auth tests
-│   ├── middleware.ts                     # Next.js middleware
-│   ├── middleware.test.ts                # Middleware tests
+│   ├── proxy.ts                          # Next.js 16 proxy (route protection)
+│   ├── proxy.test.ts                     # Proxy tests
 │   └── test-setup.ts                     # Vitest setup
 │
 ├── .claude/                              # Claude AI configuration
@@ -618,7 +618,7 @@ npm run test:coverage
 | Area | Files | Coverage |
 |------|-------|----------|
 | Authentication | `auth.test.ts` | JWT callbacks, token refresh, session handling |
-| Middleware | `middleware.test.ts` | Route protection, token validation |
+| Proxy | `proxy.test.ts` | Route protection, token validation |
 | MP Client | `client.test.ts` | OAuth token management |
 | MPHelper | `helper.test.ts` | All CRUD operations, validation |
 | Table Service | `table.service.test.ts` | Table operations |
@@ -641,13 +641,13 @@ Tests are configured in `vitest.config.ts`:
 # Start development server
 npm run dev
 
-# Build for production (includes type checking)
+# Build for production (Turbopack, includes type checking)
 npm run build
 
 # Start production server
 npm start
 
-# Run ESLint
+# Run ESLint (native flat config — `next lint` was removed in Next.js 16)
 npm run lint
 
 # Run tests
