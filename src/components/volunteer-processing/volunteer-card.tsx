@@ -4,6 +4,7 @@ import React from "react";
 import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { VolunteerCard as VolunteerCardData, ChecklistItemStatus } from "@/lib/dto";
+import { useRuntimeConfig } from "@/contexts";
 
 interface VolunteerCardProps {
   volunteer: VolunteerCardData;
@@ -21,8 +22,8 @@ function getInitials(firstName: string, nickname: string | null, lastName: strin
   return first + last;
 }
 
-function getImageUrl(imageGuid: string): string {
-  return `${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${imageGuid}?$thumbnail=true`;
+function getImageUrl(baseUrl: string, imageGuid: string): string {
+  return `${baseUrl}/${imageGuid}?$thumbnail=true`;
 }
 
 function StatusIcon({ item }: { item: ChecklistItemStatus }) {
@@ -66,6 +67,7 @@ function StatusIcon({ item }: { item: ChecklistItemStatus }) {
 }
 
 export function VolunteerCard({ volunteer, onClick }: VolunteerCardProps) {
+  const { mpFileUrl } = useRuntimeConfig();
   const { info, checklist, completedCount, totalCount, fullyApproved, elderApprovedTeacher } = volunteer;
   const displayName = getDisplayName(info.First_Name, info.Nickname);
 
@@ -92,9 +94,9 @@ export function VolunteerCard({ volunteer, onClick }: VolunteerCardProps) {
         )}
         {/* Photo */}
         <div className="w-16 h-16 rounded-full overflow-hidden relative flex-shrink-0 mb-2">
-          {info.Image_GUID ? (
+          {info.Image_GUID && mpFileUrl ? (
             <Image
-              src={getImageUrl(info.Image_GUID)}
+              src={getImageUrl(mpFileUrl, info.Image_GUID)}
               alt={`${displayName} ${info.Last_Name}`}
               fill
               className="object-cover"

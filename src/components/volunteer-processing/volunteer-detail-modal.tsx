@@ -29,6 +29,7 @@ import {
   getApprovedGroupsList,
   assignVolunteerToGroup,
 } from "./actions";
+import { useRuntimeConfig } from "@/contexts";
 
 interface VolunteerDetailModalProps {
   volunteer: VolunteerCardData | null;
@@ -50,8 +51,8 @@ function getInitials(firstName: string, nickname: string | null, lastName: strin
   return first + last;
 }
 
-function getImageUrl(imageGuid: string): string {
-  return `${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${imageGuid}?$thumbnail=true`;
+function getImageUrl(baseUrl: string, imageGuid: string): string {
+  return `${baseUrl}/${imageGuid}?$thumbnail=true`;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -98,6 +99,7 @@ export function VolunteerDetailModal({
   approvedGroups,
   isInProcessTab,
 }: VolunteerDetailModalProps) {
+  const { mpFileUrl } = useRuntimeConfig();
   const [detail, setDetail] = useState<VolunteerDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -517,8 +519,8 @@ export function VolunteerDetailModal({
   const displayName = getDisplayName(info.First_Name, info.Nickname);
   const checklist = detail?.checklist || volunteer.checklist;
   const currentImageGuid = detail?.info.Image_GUID ?? info.Image_GUID;
-  const mpBaseOrigin = process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL
-    ? new URL(process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL).origin
+  const mpBaseOrigin = mpFileUrl
+    ? new URL(mpFileUrl).origin
     : null;
   const mpParticipantUrl = mpBaseOrigin ? `${mpBaseOrigin}/mp/355/${info.Participant_ID}` : null;
 
@@ -532,10 +534,10 @@ export function VolunteerDetailModal({
               onClick={() => photoInputRef.current?.click()}
               title={photoUploading ? "Uploading..." : "Upload photo"}
             >
-              {currentImageGuid ? (
+              {currentImageGuid && mpFileUrl ? (
                 <>
                   <Image
-                    src={getImageUrl(currentImageGuid)}
+                    src={getImageUrl(mpFileUrl, currentImageGuid)}
                     alt={`${displayName} ${info.Last_Name}`}
                     fill
                     className="object-cover"

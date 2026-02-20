@@ -1,5 +1,18 @@
 # Work in Progress
 
+## Production Image & MP Link Fix (2026-02-20) — Issues #30, #31
+
+### Status: ✅ COMPLETED
+
+**Root cause**: `NEXT_PUBLIC_*` env vars used in `"use client"` components were inlined as `undefined` during Docker build (Dockerfile doesn't set them at build time). Works in dev because `next dev` reads `.env.local` at runtime.
+
+**Fix**: Created `RuntimeConfigProvider` context — server component reads env vars at runtime, passes to client components via React context. All client-side `process.env.NEXT_PUBLIC_*` references replaced with `useRuntimeConfig()` hook.
+
+**Files created**: `src/contexts/runtime-config-context.tsx`
+**Files modified**: `src/contexts/index.ts`, `src/app/providers.tsx`, `src/app/(web)/layout.tsx`, `src/components/volunteer-processing/volunteer-card.tsx`, `src/components/volunteer-processing/volunteer-detail-modal.tsx`, `src/components/layout/header.tsx`, `src/components/contact-lookup-details/contact-lookup-details.tsx`, `src/components/contact-lookup/contact-lookup-results.tsx`
+
+---
+
 ## Volunteer Processing (2026-02-19) — Branch: `feature/volunteer-processing`
 
 ### Status: ✅ Feature Complete — Deployed to Production

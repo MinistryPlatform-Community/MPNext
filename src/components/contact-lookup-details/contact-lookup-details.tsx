@@ -5,6 +5,7 @@ import Image from "next/image";
 import { getContactDetails, getContactLogsByContactId } from "./actions";
 import { ContactLookupDetails as ContactLookupDetailsType, ContactLogDisplay } from "@/lib/dto";
 import { ContactLogs } from "@/components/contact-logs";
+import { useRuntimeConfig } from "@/contexts";
 
 interface ContactLookupDetailsProps {
   guid: string;
@@ -13,6 +14,7 @@ interface ContactLookupDetailsProps {
 export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   guid,
 }) => {
+  const { mpFileUrl } = useRuntimeConfig();
   const [contact, setContact] = useState<ContactLookupDetailsType | null>(null);
   const [contactLogs, setContactLogs] = useState<ContactLogDisplay[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -66,7 +68,7 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   };
 
   const getImageUrl = (imageGuid: string) => {
-    return `${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${imageGuid}?$thumbnail=true`;
+    return `${mpFileUrl}/${imageGuid}?$thumbnail=true`;
   };
 
   if (loading) {
@@ -121,7 +123,7 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
           <div className="flex items-center space-x-5">
             <div className="flex-shrink-0">
               <div className="h-20 w-20 rounded-full overflow-hidden relative">
-                {contact.Image_GUID ? (
+                {contact.Image_GUID && mpFileUrl ? (
                   <Image
                     src={getImageUrl(contact.Image_GUID)}
                     alt={`${displayName} ${contact.Last_Name}`}
