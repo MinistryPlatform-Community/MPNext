@@ -307,7 +307,7 @@ MINISTRY_PLATFORM_BASE_URL=https://your-mp-instance.com/ministryplatformapi
 
 # Public URLs
 NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=https://your-mp-instance.com/ministryplatformapi/files
-NEXT_PUBLIC_APP_NAME=MPNext
+NEXT_PUBLIC_APP_NAME=MP Tools
 ```
 
 ## Troubleshooting

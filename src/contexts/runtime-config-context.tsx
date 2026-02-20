@@ -11,7 +11,7 @@ export interface RuntimeConfig {
 
 const RuntimeConfigContext = createContext<RuntimeConfig>({
   mpFileUrl: null,
-  appName: "Pastor App",
+  appName: "MP Tools",
 });
 
 export function RuntimeConfigProvider({

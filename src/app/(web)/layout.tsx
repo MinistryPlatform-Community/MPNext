@@ -6,8 +6,8 @@ import { AuthWrapper, Header, DynamicBreadcrumb } from "@/components/layout";
 import type { RuntimeConfig } from "@/contexts";
 
 export const metadata: Metadata = {
-  title: "Pastor App",
-  description: "Ministry Platform Pastor Application",
+  title: "MP Tools",
+  description: "Ministry Platform Tools",
   icons: {
     icon: "/assets/icons/favicon.ico",
   },
@@ -26,7 +26,7 @@ export default async function WebLayout({
   // (client components can't read process.env in standalone Docker builds)
   const runtimeConfig: RuntimeConfig = {
     mpFileUrl: process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL || null,
-    appName: process.env.NEXT_PUBLIC_APP_NAME || "Pastor App",
+    appName: process.env.NEXT_PUBLIC_APP_NAME || "MP Tools",
   };
 
   return (

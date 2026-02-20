@@ -40,3 +40,20 @@ Created a React context that passes server-read env vars to client components at
 - Production build (`npm run build`): ✅ Compiled successfully, all 9 routes generated
 - ESLint (`npm run lint`): ✅ No new warnings (1 pre-existing unused import warning)
 - No remaining `process.env.NEXT_PUBLIC_*` references in any client components
+
+---
+
+## Rename App to "MP Tools" (Issue #4)
+
+Unified the app display name from inconsistent "Pastor App" / "MPNext" / "MPNextApp" to **"MP Tools"** across all occurrences.
+
+### Files Modified
+- `src/app/(web)/layout.tsx` — Page title "MP Tools", description "Ministry Platform Tools", fallback default
+- `src/contexts/runtime-config-context.tsx` — Default context value
+- `.env.example` — Default `NEXT_PUBLIC_APP_NAME=MP Tools`
+- `DOCKER.md` — Example env var
+- `README.md` — Example env var
+
+## Close Issue #6 (Hide Unused Modules)
+
+Already implemented — Contact Lookup and Template Tool gated behind `isDev` in sidebar and home page. Marked as completed in ideas.md.

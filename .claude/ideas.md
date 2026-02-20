@@ -73,11 +73,11 @@ The mobile view needs redevelopment. Charts are squeezed and the data overlay wh
 ### ~~Executive Dashboard One Month Charts Fix ([#12](https://github.com/The-Moody-Church/mp-charts/issues/12))~~ ✅ COMPLETED
 When only one month of data is selected on the executive dashboard, charts that normally show monthly averages should instead show individual data points. For example, if February is selected, the service attendance chart should show the four data points for February on their dates instead of a single average data point. This applies to all charts that show monthly averages.
 
-### Hide Unused Modules in Production ([#6](https://github.com/The-Moody-Church/mp-charts/issues/6))
-In production, hide modules that are not in use.
+### ~~Hide Unused Modules in Production ([#6](https://github.com/The-Moody-Church/mp-charts/issues/6))~~ ✅ COMPLETED
+Contact Lookup and Template Tool are gated behind `isDev` in sidebar and home page. Routes still exist but are not linked from the UI in production.
 
-### Update Webpage Title ([#4](https://github.com/The-Moody-Church/mp-charts/issues/4))
-Code currently says "Pastor App". Update the webpage tab name to "TMC MP Apps".
+### ~~Update Webpage Title ([#4](https://github.com/The-Moody-Church/mp-charts/issues/4))~~ ✅ COMPLETED
+Renamed from "Pastor App" to "MP Tools" in page title, metadata, and all default fallbacks.
 
 ### Small Group Trends Chart ([#15](https://github.com/The-Moody-Church/mp-charts/issues/15))
 The Small Group Trends line chart may not be the best visualization for this data. Consider switching to a bar chart or removing it entirely if it doesn't add enough value to the dashboard.
