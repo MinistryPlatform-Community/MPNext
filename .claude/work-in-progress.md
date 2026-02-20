@@ -1,5 +1,35 @@
 # Work in Progress
 
+## MP Auth: User Token Pass-Through (2026-02-20) — Issue #7
+
+### Status: ⚠️ IN PROGRESS (Code complete, needs live testing)
+
+**Problem**: All API calls used the API Client User's credentials (client_credentials grant), so:
+1. Audit logs showed "API User" instead of the actual logged-in user
+2. Users could see data their MP account shouldn't have access to (e.g., background checks)
+3. `$userId` query parameter was passed but MP doesn't honor it for audit attribution
+
+**Fix**: Modified the full stack to use the logged-in user's OIDC access token (already captured in the NextAuth session) for API calls instead of client credentials.
+
+**Architecture changes**:
+- `MinistryPlatformClient` — supports user access token mode (skips client_credentials refresh)
+- `MinistryPlatformProvider` — added `withAccessToken()` factory (non-singleton)
+- `MPHelper` — constructor accepts `{ accessToken }` option
+- All 6 services — `getInstance(accessToken?)` creates per-request instances with user token
+- All server actions — pass `session.accessToken` to `getInstance()`
+- Dashboard cached lookups remain on client credentials (aggregate data, no user context in `unstable_cache`)
+- JWT callback in `auth.ts` remains on client credentials (runs during login before session exists)
+
+**Files modified**: `client.ts`, `provider.ts`, `helper.ts`, `index.ts`, 6 services, 6 action files, `shared-actions/user.ts`
+
+**What still needs testing**:
+- Verify audit logs in MP show the actual user name
+- Verify users with restricted MP permissions get appropriate 403 errors
+- Verify background check data is hidden from users without BG_Check table access
+- Verify the user's token refresh works correctly for long sessions
+
+---
+
 ## Production Image & MP Link Fix (2026-02-20) — Issues #30, #31
 
 ### Status: ✅ COMPLETED
@@ -31,7 +61,7 @@
 - Application form response creation from modal (paper form submissions with file attach)
 - All MP record IDs configurable via 12 environment variables
 
-**Known Issue**: Audit log shows API client user instead of logged-in user for write operations. Tracked in ideas.md under permissions (#7).
+**Known Issue**: Audit log previously showed API client user instead of logged-in user — addressed in the "MP Auth: User Token Pass-Through" work above (Issue #7).
 
 **Planned Next**:
 - Shareable direct links to volunteer modal (URL deep linking)

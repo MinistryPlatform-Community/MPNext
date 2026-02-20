@@ -57,3 +57,43 @@ Unified the app display name from inconsistent "Pastor App" / "MPNext" / "MPNext
 ## Close Issue #6 (Hide Unused Modules)
 
 Already implemented — Contact Lookup and Template Tool gated behind `isDev` in sidebar and home page. Marked as completed in ideas.md.
+
+---
+
+## MP Auth: User Token Pass-Through (Issue #7)
+
+### Problem
+
+All MP API calls used the `MPNext` client credentials token, causing:
+1. Audit logs attributed to "API User" instead of the logged-in user
+2. Data access not scoped to user's MP permissions (any user could see whatever the API Client User could)
+3. `$userId` query parameter not honored by MP for audit attribution
+
+### Solution
+
+Modified the full stack to use the logged-in user's OIDC access token for API calls.
+
+**Core MP Layer (4 files):**
+- `src/lib/providers/ministry-platform/client.ts` — Added `accessToken` option; skips client_credentials in user-token mode
+- `src/lib/providers/ministry-platform/provider.ts` — Added `withAccessToken()` non-singleton factory
+- `src/lib/providers/ministry-platform/helper.ts` — Constructor accepts `{ accessToken }`
+- `src/lib/providers/ministry-platform/index.ts` — Type export
+
+**Service Layer (6 services):**
+- `src/services/volunteerService.ts` — `getInstance(accessToken?)`, `bgStatusCache` made static
+- `src/services/contactLogService.ts`, `contactService.ts`, `userService.ts`, `toolService.ts`, `dashboardService.ts` — Same `getInstance(accessToken?)` pattern
+
+**Server Actions (6 files + 1 shared):**
+- `src/components/volunteer-processing/actions.ts` — All 14 actions pass `session.accessToken`
+- `src/components/contact-logs/actions.ts` — 6 actions + 2 fallback MPHelper calls
+- `src/components/contact-lookup/actions.ts` — Added auth check + token
+- `src/components/contact-lookup-details/actions.ts` — Added auth checks + token
+- `src/components/user-tools-debug/actions.ts` — Token pass-through
+- `src/components/shared-actions/user.ts` — Added auth() call + token
+
+**Exceptions (remain on client credentials):**
+- Dashboard `unstable_cache` callbacks (no user context available)
+- JWT callback in `auth.ts` (runs during login)
+
+### Testing
+- 150 tests pass, production build succeeds

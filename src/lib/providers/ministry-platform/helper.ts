@@ -17,27 +17,44 @@ import {
 } from "./types";
 import type { ZodObject, ZodRawShape } from "zod";
 
+export interface MPHelperOptions {
+  /** Pre-authenticated user access token (from OIDC session). When provided,
+   *  all API calls authenticate as the user instead of the API Client User. */
+  accessToken?: string;
+}
+
 /**
  * MPHelper - Main Public API for Ministry Platform Operations
  *
  * Provides a simplified, type-safe interface for all Ministry Platform functionality.
- * Acts as a facade over the ministryPlatformProvider singleton, offering:
+ * Acts as a facade over the MinistryPlatformProvider, offering:
  * - Simplified parameter handling
  * - Type safety with generics
  * - Comprehensive error handling and logging
  * - Consistent API patterns across all operations
  *
+ * Supports two authentication modes:
+ * - `new MPHelper()` — uses client credentials (API Client User). Suitable for
+ *   system-level operations like dashboard caches and type generation.
+ * - `new MPHelper({ accessToken })` — uses the logged-in user's OIDC token.
+ *   API calls respect the user's MP permissions and produce accurate audit logs.
+ *
  * This is the primary entry point for all Ministry Platform operations in the application.
  */
 export class MPHelper {
-  private provider: MinistryPlatformProvider; // Reference to the singleton provider instance
+  private provider: MinistryPlatformProvider;
 
   /**
    * Creates a new MPHelper instance
-   * Gets the singleton provider instance for all operations
+   * @param options Optional configuration. Pass `accessToken` to authenticate as the
+   *               logged-in user instead of the API Client User.
    */
-  constructor() {
-    this.provider = MinistryPlatformProvider.getInstance();
+  constructor(options?: MPHelperOptions) {
+    if (options?.accessToken) {
+      this.provider = MinistryPlatformProvider.withAccessToken(options.accessToken);
+    } else {
+      this.provider = MinistryPlatformProvider.getInstance();
+    }
   }
 
   // =================================================================

@@ -119,22 +119,28 @@ interface ParticipantRecord {
 export class VolunteerService {
   private static instance: VolunteerService;
   private mp: MPHelper | null = null;
-  private bgStatusCache: Map<number, string> | null = null;
+  private static bgStatusCache: Map<number, string> | null = null;
 
-  private constructor() {
-    this.initialize();
-  }
+  private constructor() {}
 
-  public static async getInstance(): Promise<VolunteerService> {
+  /**
+   * Returns a VolunteerService instance.
+   * @param accessToken Optional user access token from the OIDC session. When provided,
+   *                    creates a per-request instance that authenticates as the logged-in
+   *                    user (respecting their MP permissions and producing accurate audit logs).
+   *                    When omitted, returns the singleton instance using client credentials.
+   */
+  public static async getInstance(accessToken?: string): Promise<VolunteerService> {
+    if (accessToken) {
+      const instance = new VolunteerService();
+      instance.mp = new MPHelper({ accessToken });
+      return instance;
+    }
     if (!VolunteerService.instance) {
       VolunteerService.instance = new VolunteerService();
-      await VolunteerService.instance.initialize();
+      VolunteerService.instance.mp = new MPHelper();
     }
     return VolunteerService.instance;
-  }
-
-  private async initialize(): Promise<void> {
-    this.mp = new MPHelper();
   }
 
   // ---------------------------------------------------------------
@@ -142,17 +148,17 @@ export class VolunteerService {
   // ---------------------------------------------------------------
 
   private async getBackgroundCheckStatuses(): Promise<Map<number, string>> {
-    if (this.bgStatusCache) return this.bgStatusCache;
+    if (VolunteerService.bgStatusCache) return VolunteerService.bgStatusCache;
 
     const statuses = await this.mp!.getTableRecords<BackgroundCheckStatusRecord>({
       table: 'Background_Check_Statuses',
       select: 'Background_Check_Status_ID,Background_Check_Status'
     });
 
-    this.bgStatusCache = new Map(
+    VolunteerService.bgStatusCache = new Map(
       statuses.map(s => [s.Background_Check_Status_ID, s.Background_Check_Status])
     );
-    return this.bgStatusCache;
+    return VolunteerService.bgStatusCache;
   }
 
   // ---------------------------------------------------------------

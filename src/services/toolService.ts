@@ -12,36 +12,26 @@ export class ToolService {
   private static instance: ToolService;
   private mp: MPHelper | null = null;
 
-  /**
-   * Private constructor to enforce singleton pattern
-   * Initializes the service when instantiated
-   */
-  private constructor() {
-    this.initialize();
-  }
+  private constructor() {}
 
   /**
-   * Gets the singleton instance of ToolService
-   * Creates a new instance if one doesn't exist and ensures it's properly initialized
-   * 
-   * @returns Promise<ToolService> - The initialized ToolService instance
+   * Returns a ToolService instance.
+   * @param accessToken Optional user access token from the OIDC session. When provided,
+   *                    creates a per-request instance that authenticates as the logged-in
+   *                    user (respecting their MP permissions and producing accurate audit logs).
+   *                    When omitted, returns the singleton instance using client credentials.
    */
-  public static async getInstance(): Promise<ToolService> {
+  public static async getInstance(accessToken?: string): Promise<ToolService> {
+    if (accessToken) {
+      const instance = new ToolService();
+      instance.mp = new MPHelper({ accessToken });
+      return instance;
+    }
     if (!ToolService.instance) {
       ToolService.instance = new ToolService();
-      await ToolService.instance.initialize();
+      ToolService.instance.mp = new MPHelper();
     }
     return ToolService.instance;
-  }
-
-  /**
-   * Initializes the ToolService by creating a new MPHelper instance
-   * This method sets up the Ministry Platform connection helper
-   * 
-   * @returns Promise<void>
-   */
-  private async initialize(): Promise<void> {
-    this.mp = new MPHelper();
   }
 
   /**

@@ -68,36 +68,30 @@ export class DashboardService {
   private static instance: DashboardService;
   private mp: MPHelper | null = null;
 
-  /**
-   * Private constructor to enforce singleton pattern
-   * Initializes the service when instantiated
-   */
-  private constructor() {
-    this.initialize();
-  }
+  private constructor() {}
 
   /**
-   * Gets the singleton instance of DashboardService
-   * Creates a new instance if one doesn't exist and ensures it's properly initialized
+   * Returns a DashboardService instance.
+   * @param accessToken Optional user access token from the OIDC session. When provided,
+   *                    creates a per-request instance that authenticates as the logged-in
+   *                    user (respecting their MP permissions and producing accurate audit logs).
+   *                    When omitted, returns the singleton instance using client credentials.
    *
-   * @returns Promise<DashboardService> - The initialized DashboardService instance
+   * Note: Cached lookups (Group_Types, Event_Types via unstable_cache) always use client
+   * credentials since they run outside user request context. The main data queries
+   * use the access token when provided.
    */
-  public static async getInstance(): Promise<DashboardService> {
+  public static async getInstance(accessToken?: string): Promise<DashboardService> {
+    if (accessToken) {
+      const instance = new DashboardService();
+      instance.mp = new MPHelper({ accessToken });
+      return instance;
+    }
     if (!DashboardService.instance) {
       DashboardService.instance = new DashboardService();
-      await DashboardService.instance.initialize();
+      DashboardService.instance.mp = new MPHelper();
     }
     return DashboardService.instance;
-  }
-
-  /**
-   * Initializes the DashboardService by creating a new MPHelper instance
-   * This method sets up the Ministry Platform connection helper
-   *
-   * @returns Promise<void>
-   */
-  private async initialize(): Promise<void> {
-    this.mp = new MPHelper();
   }
 
   /**

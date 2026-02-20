@@ -11,7 +11,7 @@ export async function getInProcessVolunteers(): Promise<VolunteerCard[]> {
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getInProcessVolunteers();
   } catch (error) {
     console.error("Error fetching in-process volunteers:", error);
@@ -26,7 +26,7 @@ export async function getApprovedVolunteers(): Promise<ApprovedVolunteersResult>
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getApprovedVolunteers();
   } catch (error) {
     console.error("Error fetching approved volunteers:", error);
@@ -45,7 +45,7 @@ export async function getVolunteerDetail(
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getVolunteerDetail(contactId, participantId, groupParticipantId);
   } catch (error) {
     console.error("Error fetching volunteer detail:", error);
@@ -60,7 +60,7 @@ export async function getMilestoneFiles(milestoneRecordId: number): Promise<Mile
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getMilestoneFiles(milestoneRecordId);
   } catch (error) {
     console.error("Error fetching milestone files:", error);
@@ -75,7 +75,7 @@ export async function getCertificationFiles(certificationRecordId: number): Prom
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getCertificationFiles(certificationRecordId);
   } catch (error) {
     console.error("Error fetching certification files:", error);
@@ -90,7 +90,7 @@ export async function getFormResponseFiles(formResponseId: number): Promise<Mile
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getFormResponseFiles(formResponseId);
   } catch (error) {
     console.error("Error fetching form response files:", error);
@@ -110,7 +110,7 @@ export async function createFormResponse(formData: FormData): Promise<void> {
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     const newFormResponseId = await service.createFormResponse({
       Form_ID: Number(formData.get("Form_ID")),
       Contact_ID: Number(formData.get("Contact_ID")),
@@ -161,7 +161,7 @@ export async function uploadVolunteerPhoto(formData: FormData): Promise<{ succes
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     await service.uploadContactPhoto(contactId, file, userId);
     return { success: true };
   } catch (error) {
@@ -182,7 +182,7 @@ export async function createVolunteerMilestone(formData: FormData): Promise<void
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     const newMilestoneId = await service.createMilestone({
       Participant_ID: Number(formData.get("Participant_ID")),
       Milestone_ID: Number(formData.get("Milestone_ID")),
@@ -225,7 +225,7 @@ export async function updateVolunteerMilestone(formData: FormData): Promise<{ su
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     await service.updateMilestone({
       Participant_Milestone_ID: milestoneRecordId,
       Date_Accomplished: formData.get("Date_Accomplished") as string || undefined,
@@ -268,7 +268,7 @@ export async function updateVolunteerCertification(formData: FormData): Promise<
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     await service.updateCertification({
       Participant_Certification_ID: certId,
       Certification_Completed: formData.get("Certification_Completed") as string || undefined,
@@ -311,7 +311,7 @@ export async function updateVolunteerFormResponse(formData: FormData): Promise<{
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     await service.updateFormResponse({
       Form_Response_ID: frId,
       Response_Date: formData.get("Response_Date") as string || undefined,
@@ -343,7 +343,7 @@ export async function getApprovedGroupRoles(): Promise<GroupRoleOption[]> {
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getApprovedGroupRoles();
   } catch (error) {
     console.error("Error fetching approved group roles:", error);
@@ -358,7 +358,7 @@ export async function getApprovedGroupsList(): Promise<GroupFilterOption[]> {
       throw new Error("Authentication required");
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     return await service.getApprovedGroupsList();
   } catch (error) {
     console.error("Error fetching approved groups list:", error);
@@ -387,7 +387,7 @@ export async function assignVolunteerToGroup(formData: FormData): Promise<{ succ
       userId = session.userProfile.User_ID;
     }
 
-    const service = await VolunteerService.getInstance();
+    const service = await VolunteerService.getInstance(session.accessToken);
     await service.assignVolunteerToGroup({
       currentGroupParticipantId,
       participantId,

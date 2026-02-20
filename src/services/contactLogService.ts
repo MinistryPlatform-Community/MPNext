@@ -14,36 +14,26 @@ export class ContactLogService {
   private static instance: ContactLogService;
   private mp: MPHelper | null = null;
 
-  /**
-   * Private constructor to enforce singleton pattern
-   * Initializes the service when instantiated
-   */
-  private constructor() {
-    this.initialize();
-  }
+  private constructor() {}
 
   /**
-   * Gets the singleton instance of ContactLogService
-   * Creates a new instance if one doesn't exist and ensures it's properly initialized
-   * 
-   * @returns Promise<ContactLogService> - The initialized ContactLogService instance
+   * Returns a ContactLogService instance.
+   * @param accessToken Optional user access token from the OIDC session. When provided,
+   *                    creates a per-request instance that authenticates as the logged-in
+   *                    user (respecting their MP permissions and producing accurate audit logs).
+   *                    When omitted, returns the singleton instance using client credentials.
    */
-  public static async getInstance(): Promise<ContactLogService> {
+  public static async getInstance(accessToken?: string): Promise<ContactLogService> {
+    if (accessToken) {
+      const instance = new ContactLogService();
+      instance.mp = new MPHelper({ accessToken });
+      return instance;
+    }
     if (!ContactLogService.instance) {
       ContactLogService.instance = new ContactLogService();
-      await ContactLogService.instance.initialize();
+      ContactLogService.instance.mp = new MPHelper();
     }
     return ContactLogService.instance;
-  }
-
-  /**
-   * Initializes the ContactLogService by creating a new MPHelper instance
-   * This method sets up the Ministry Platform connection helper
-   * 
-   * @returns Promise<void>
-   */
-  private async initialize(): Promise<void> {
-    this.mp = new MPHelper();
   }
 
   /**

@@ -13,7 +13,7 @@ export async function getContactLogTypes(): Promise<ContactLogTypes[]> {
       throw new Error("Authentication required");
     }
 
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     const types = await contactLogService.getContactLogTypes();
     
     return types;
@@ -44,8 +44,8 @@ export async function createContactLog(
       // Fallback: Fetch user profile using User_GUID
       console.log("User profile not in session, fetching from MP...");
       const { MPHelper } = await import("@/lib/providers/ministry-platform");
-      const mp = new MPHelper();
-      
+      const mp = new MPHelper({ accessToken: session.accessToken });
+
       const users = await mp.getTableRecords<{ User_ID: number }>({
         table: "dp_Users",
         filter: `User_GUID = '${session.user.id}'`,
@@ -73,7 +73,7 @@ export async function createContactLog(
 
     console.log("createContactLog action - Creating with data:", JSON.stringify(logDataWithUser, null, 2));
     
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     const contactLog = await contactLogService.createContactLog(logDataWithUser);
     
     console.log("createContactLog action - Successfully created");
@@ -103,8 +103,8 @@ export async function updateContactLog(
       // Fallback: Fetch user profile using User_GUID
       console.log("User profile not in session, fetching from MP...");
       const { MPHelper } = await import("@/lib/providers/ministry-platform");
-      const mp = new MPHelper();
-      
+      const mp = new MPHelper({ accessToken: session.accessToken });
+
       const users = await mp.getTableRecords<{ User_ID: number }>({
         table: "dp_Users",
         filter: `User_GUID = '${session.user.id}'`,
@@ -132,7 +132,7 @@ export async function updateContactLog(
     console.log("updateContactLog action - Updating log:", contactLogId);
     console.log("updateContactLog action - Update data:", JSON.stringify(logDataWithUser, null, 2));
     
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     const contactLog = await contactLogService.updateContactLog(contactLogId, logDataWithUser);
     
     console.log("updateContactLog action - Successfully updated");
@@ -156,7 +156,7 @@ export async function deleteContactLog(contactLogId: number): Promise<void> {
 
     console.log("deleteContactLog action - Deleting log:", contactLogId);
     
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     await contactLogService.deleteContactLog(contactLogId);
     
     console.log("deleteContactLog action - Successfully deleted");
@@ -177,7 +177,7 @@ export async function getContactLogsByContactId(contactId: number): Promise<Cont
       throw new Error("Valid contact ID is required");
     }
 
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     const results = await contactLogService.getContactLogsByContactId(contactId);
     
     return results;
@@ -198,7 +198,7 @@ export async function getContactLogById(contactLogId: number): Promise<ContactLo
       throw new Error("Valid contact log ID is required");
     }
 
-    const contactLogService = await ContactLogService.getInstance();
+    const contactLogService = await ContactLogService.getInstance(session.accessToken);
     const result = await contactLogService.getContactLogById(contactLogId);
     
     return result;

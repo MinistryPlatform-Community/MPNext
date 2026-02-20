@@ -11,36 +11,26 @@ export class UserService {
   private static instance: UserService;
   private mp: MPHelper | null = null;
 
-  /**
-   * Private constructor to enforce singleton pattern
-   * Initializes the service when instantiated
-   */
-  private constructor() {
-    this.initialize();
-  }
+  private constructor() {}
 
   /**
-   * Gets the singleton instance of UserService
-   * Creates a new instance if one doesn't exist and ensures it's properly initialized
-   * 
-   * @returns Promise<UserService> - The initialized UserService instance
+   * Returns a UserService instance.
+   * @param accessToken Optional user access token from the OIDC session. When provided,
+   *                    creates a per-request instance that authenticates as the logged-in
+   *                    user (respecting their MP permissions and producing accurate audit logs).
+   *                    When omitted, returns the singleton instance using client credentials.
    */
-  public static async getInstance(): Promise<UserService> {
+  public static async getInstance(accessToken?: string): Promise<UserService> {
+    if (accessToken) {
+      const instance = new UserService();
+      instance.mp = new MPHelper({ accessToken });
+      return instance;
+    }
     if (!UserService.instance) {
       UserService.instance = new UserService();
-      await UserService.instance.initialize();
+      UserService.instance.mp = new MPHelper();
     }
     return UserService.instance;
-  }
-
-  /**
-   * Initializes the UserService by creating a new MPHelper instance
-   * This method sets up the Ministry Platform connection helper
-   * 
-   * @returns Promise<void>
-   */
-  private async initialize(): Promise<void> {
-    this.mp = new MPHelper();
   }
 
   /**

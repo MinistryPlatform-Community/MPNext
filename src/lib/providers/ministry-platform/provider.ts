@@ -1,5 +1,5 @@
 import { MinistryPlatformClient } from "./client";
-import { 
+import {
     TableService,
     ProcedureService,
     CommunicationService,
@@ -7,11 +7,11 @@ import {
     DomainService,
     FileService
 } from "./services";
-import { 
-    TableQueryParams, 
-    ProcedureInfo, 
-    CommunicationInfo, 
-    Communication, 
+import {
+    TableQueryParams,
+    ProcedureInfo,
+    CommunicationInfo,
+    Communication,
     MessageInfo,
     DomainInfo,
     GlobalFilterItem,
@@ -25,9 +25,18 @@ import {
 } from "./types";
 
 /**
- * MinistryPlatformProvider - Core Provider Singleton
- * 
- * Central orchestrator for all Ministry Platform operations using the Singleton pattern.
+ * MinistryPlatformProvider - Core Provider
+ *
+ * Central orchestrator for all Ministry Platform operations. Supports two modes:
+ *
+ * 1. **Singleton (client credentials)** — via `getInstance()`. Shared across all
+ *    requests, authenticates as the API Client User. Used for system-level operations
+ *    (dashboard cache, type generation, auth callbacks).
+ *
+ * 2. **Per-request (user token)** — via `withAccessToken()`. Creates a fresh instance
+ *    that authenticates as the logged-in user, respecting their MP permissions and
+ *    producing accurate audit logs.
+ *
  * Manages service instances and provides a unified interface for:
  * - Table operations (CRUD)
  * - Stored procedure execution
@@ -35,18 +44,15 @@ import {
  * - File management
  * - Metadata operations
  * - Domain configuration
- * 
- * All services share a single MinistryPlatformClient instance for consistent
- * authentication and configuration management.
  */
 export class MinistryPlatformProvider {
-    
-    // Singleton instance storage
+
+    // Singleton instance storage (client credentials mode only)
     private static instance: MinistryPlatformProvider;
 
     // Core client for HTTP operations and authentication
     private client: MinistryPlatformClient;
-    
+
     // Specialized service instances for different domains of functionality
     private tableService: TableService;           // CRUD operations for all tables
     private procedureService: ProcedureService;   // Stored procedure execution
@@ -56,13 +62,16 @@ export class MinistryPlatformProvider {
     private fileService: FileService;             // File upload/download operations
 
     /**
-     * Private constructor for Singleton pattern
-     * Initializes the core client and all specialized service instances
+     * Private constructor — initializes the core client and all service instances.
+     * @param accessToken Optional user access token. When provided, the client authenticates
+     *                    as the user instead of using client credentials.
      */
-    private constructor() {
+    private constructor(accessToken?: string) {
         // Create the core HTTP client with authentication management
-        this.client = new MinistryPlatformClient();
-        
+        this.client = accessToken
+            ? new MinistryPlatformClient({ accessToken })
+            : new MinistryPlatformClient();
+
         // Initialize all service instances with shared client
         this.tableService = new TableService(this.client);
         this.procedureService = new ProcedureService(this.client);
@@ -70,11 +79,11 @@ export class MinistryPlatformProvider {
         this.metadataService = new MetadataService(this.client);
         this.domainService = new DomainService(this.client);
         this.fileService = new FileService(this.client);
-    }    
-    
+    }
+
     /**
-     * Returns the singleton instance of the Ministry Platform provider
-     * Creates the instance on first call, returns existing instance on subsequent calls
+     * Returns the singleton instance using client credentials authentication.
+     * All API calls will run as the API Client User.
      * @returns The singleton MinistryPlatformProvider instance
      */
     public static getInstance(): MinistryPlatformProvider {
@@ -84,6 +93,16 @@ export class MinistryPlatformProvider {
         }
 
         return this.instance;
+    }
+
+    /**
+     * Creates a per-request provider that authenticates as the logged-in user.
+     * API calls will respect the user's MP permissions and produce accurate audit logs.
+     * @param accessToken The user's OIDC access token from the session
+     * @returns A new (non-singleton) MinistryPlatformProvider instance
+     */
+    public static withAccessToken(accessToken: string): MinistryPlatformProvider {
+        return new MinistryPlatformProvider(accessToken);
     }
 
     // Domain Service Methods
