@@ -5,8 +5,8 @@ This guide provides essential information for AI assistants (like Claude) workin
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)
-- **Build**: `npm run build` (production build, runs type checking)
-- **Lint**: `npm run lint` (ESLint)
+- **Build**: `npm run build` (production build with Turbopack, runs type checking)
+- **Lint**: `npm run lint` (ESLint CLI — `next lint` was removed in Next.js 16)
 - **Generate MP Types**: `npm run mp:generate:models` (generates TypeScript types + Zod schemas from Ministry Platform API, cleans output directory first)
 - **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage)
 
@@ -18,14 +18,23 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 ## Architecture
 
-- **Framework**: Next.js 15 (App Router) with React 19, TypeScript strict mode
+- **Framework**: Next.js 16 (App Router, Turbopack) with React 19, TypeScript strict mode
 - **Ministry Platform Integration**: Custom provider at `src/lib/providers/ministry-platform/` with REST API client, auth, and type-safe models
 - **Auth**: NextAuth v5 (beta) with Ministry Platform OAuth provider (`src/auth.ts`)
+  - **Route Protection**: `src/proxy.ts` handles auth token checks (renamed from `middleware.ts` in Next.js 16)
   - **OIDC Logout**: Implements RP-initiated logout flow to properly end Ministry Platform OAuth sessions
   - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `NEXTAUTH_URL`
   - **MP OAuth Setup**: Requires Post-Logout Redirect URIs configured in Ministry Platform OAuth client (see README.md)
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
 - **Path Alias**: `@/*` maps to `src/*`
+
+## Next.js 16 Notes
+
+- **Proxy (formerly Middleware)**: Route protection lives in `src/proxy.ts` with an exported `proxy()` function (not `middleware.ts`/`middleware()`)
+- **Turbopack**: Default bundler for both `dev` and `build` — no `--turbopack` flag needed
+- **ESLint**: Uses `eslint .` directly (not `next lint`); config is native flat config in `eslint.config.mjs`
+- **Async Dynamic APIs**: `params`, `searchParams`, `cookies()`, `headers()` must always be awaited — synchronous access is removed
+- **Dev output**: `next dev` outputs to `.next/dev` (not `.next`)
 
 ## Code Style
 
