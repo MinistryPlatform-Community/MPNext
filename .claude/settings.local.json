@@ -40,7 +40,9 @@
       "Bash(npm dedupe:*)",
       "Bash(npx shadcn@latest add tabs:*)",
       "Bash(npm run lint:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": [],
     "ask": []

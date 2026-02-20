@@ -64,11 +64,32 @@ Added client-side file size validation to prevent crashes from oversized uploads
 - `.claude/session-summary-2026-02-19.md` — Updated
 - `.claude/work-in-progress.md` — Updated
 
+---
+
+### Commit 3 — Deploy Volunteer System to Production (Issue #27)
+
+Removed all `isDev` / `NODE_ENV === "development"` gates from the volunteer processing feature, making the entire system (including "Approved Active Volunteers" tab) visible in production builds.
+
+**Changes:**
+- **`src/components/volunteer-processing/volunteer-processing.tsx`**
+  - Removed `const isDev = process.env.NODE_ENV === "development"` constant
+  - Removed `isDev &&` wrapper from "Approved Active Volunteers" tab trigger (line ~130)
+  - Removed `isDev &&` wrapper from "Approved Active Volunteers" tab content (line ~152)
+  - Removed `isDev` condition from deep-link auto-open logic for approved volunteers (line ~76)
+- **`CLAUDE.md`**
+  - Removed volunteer processing from dev-only list
+  - Removed `volunteer-processing.tsx` from list of files with isDev gates
+  - Updated "Visible in all environments" to include both volunteer processing tabs
+- **`.claude/work-in-progress.md`** — Updated status from "dev-only" to "production"
+- **`.claude/session-summary-2026-02-19.md`** — Added this commit entry
+
+**Closes**: Issue #27 (BUG: No Volunteers in Production Builds)
+
 ### Build Status
-- `npm run build` — ✅ Passed with no errors
+- `npm run build` — pending
 
 ### Commit Status
-- Committed on `feature/volunteer-processing`
+- Branch: `claude/deploy-volunteer-system-diSF5`
 
 ---
 

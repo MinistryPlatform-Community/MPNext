@@ -56,10 +56,10 @@ This interface should not be read-only. The volunteer processing team should be 
 
 Implemented as "Fully Approved Volunteer" (Milestone_ID = 33) with yellow star icon on card. Missing application/interview/reference items for fully-approved volunteers show yellow question mark ("presumed_complete" status). Also added optional "Elder Approved Teacher" milestone (Milestone_ID = 34) with blue graduation cap icon.
 
-### Volunteer Processing: Shareable Direct Links to Volunteer Modal ([#24](https://github.com/The-Moody-Church/mp-charts/issues/24))
+### ~~Volunteer Processing: Shareable Direct Links to Volunteer Modal ([#24](https://github.com/The-Moody-Church/mp-charts/issues/24))~~ ✅ COMPLETED
 Add a URL-based deep link to open a specific volunteer's detail modal directly (e.g., `/volunteer-processing?volunteer=123`). This lets staff share a link to a specific volunteer's record with another staff person without them having to search for the card.
 
-### Volunteer Processing: Assign to Group on Approval ([#25](https://github.com/The-Moody-Church/mp-charts/issues/25))
+### ~~Volunteer Processing: Assign to Group on Approval ([#25](https://github.com/The-Moody-Church/mp-charts/issues/25))~~ ✅ COMPLETED
 On the "New Volunteers In Process" tab, when a volunteer receives the fully approved star, add an "Assign to Group" button that reassigns their `Group_Participant` record from the volunteer-in-processing group to an active ministry group. The group picker should use the same list of groups available on the "Approved Active Volunteers" tab.
 
 ### Pastoral Interface for Contact Logs ([#19](https://github.com/The-Moody-Church/mp-charts/issues/19))
@@ -110,3 +110,6 @@ Refine Ministry Platform permissions for the application.
 ### Migrate `middleware.ts` to `proxy.ts` ([#22](https://github.com/The-Moody-Church/mp-charts/issues/22))
 Next.js 16 deprecates `middleware.ts` in favor of `proxy.ts`. However, `proxy.ts` uses the Node.js runtime (not edge). Evaluate whether the current edge-runtime middleware (using `next-auth/jwt` `getToken`) can work in the Node.js proxy runtime before migrating.
 
+
+### ~~BUG: No Volunteers in Production Builds ([#27](https://github.com/The-Moody-Church/mp-charts/issues/27))~~ ✅ COMPLETED
+There are no volunteers showing up in volunteer processing in the production builds. The All volunteers tab is hidden as expecte, but i'm not seeing any volunteers in progress, which i know there is at least one showinng up in dev. At this point, we can expore all the volunteer system to production, no need to keep it dev only any more.
