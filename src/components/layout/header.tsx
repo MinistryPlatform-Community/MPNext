@@ -6,12 +6,13 @@ import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
 import { Sidebar } from "./sidebar";
 import { UserMenu } from "@/components/user-menu";
-import { useAppSession, useUser } from "@/contexts";
+import { useAppSession, useUser, useRuntimeConfig } from "@/contexts";
 
 export function Header() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { userProfile, isLoading } = useUser();
   const session = useAppSession();
+  const { mpFileUrl, appName } = useRuntimeConfig();
 
   return (
     <>
@@ -28,7 +29,7 @@ export function Header() {
 
           {/* Center - App title */}
           <h1 className="text-lg font-semibold text-white truncate">
-            {process.env.NEXT_PUBLIC_APP_NAME || "Pastor App"}
+            {appName}
           </h1>
 
           {/* Right side - User avatar */}
@@ -46,9 +47,9 @@ export function Header() {
                         "User menu"
                   }
                 >
-                  {userProfile?.Image_GUID ? (
+                  {userProfile?.Image_GUID && mpFileUrl ? (
                     <Image
-                      src={`${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${userProfile.Image_GUID}?$thumbnail=true`}
+                      src={`${mpFileUrl}/${userProfile.Image_GUID}?$thumbnail=true`}
                       alt={
                         userProfile.First_Name && userProfile.Last_Name
                           ? `${userProfile.First_Name} ${userProfile.Last_Name}`

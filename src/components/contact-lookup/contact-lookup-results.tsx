@@ -4,6 +4,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ContactSearch } from "@/lib/dto";
+import { useRuntimeConfig } from "@/contexts";
 
 interface ContactLookupResultsProps {
   results: ContactSearch[];
@@ -19,6 +20,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
   onContactSelect,
 }) => {
   const router = useRouter();
+  const { mpFileUrl } = useRuntimeConfig();
 
   const handleContactClick = (contact: ContactSearch) => {
     // Call the optional callback first
@@ -66,7 +68,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
   };
 
   const getImageUrl = (imageGuid: string) => {
-    return `${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${imageGuid}?$thumbnail=true`;
+    return `${mpFileUrl}/${imageGuid}?$thumbnail=true`;
   };
 
   return (
@@ -83,7 +85,7 @@ export const ContactLookupResults: React.FC<ContactLookupResultsProps> = ({
           >
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-full flex-shrink-0 overflow-hidden relative">
-                {contact.Image_GUID ? (
+                {contact.Image_GUID && mpFileUrl ? (
                   <Image
                     src={getImageUrl(contact.Image_GUID)}
                     alt={`${getDisplayName(
