@@ -1,17 +1,15 @@
-import { auth } from "@/auth";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { SessionProvider } from "@/contexts";
 
 export async function AuthWrapper({ children }: { children: React.ReactNode }) {
-  const session = await auth();
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
 
   if (!session) {
-    redirect("/api/auth/signin");
+    redirect("/signin");
   }
 
-  if (session.error === "RefreshTokenError") {
-    redirect("/api/auth/signout?callbackUrl=/api/auth/signin");
-  }
-
-  return <SessionProvider session={session}>{children}</SessionProvider>;
+  return <>{children}</>;
 }

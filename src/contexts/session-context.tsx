@@ -1,28 +1,15 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { Session } from "next-auth";
+import { authClient } from "@/lib/auth-client";
 
-const SessionContext = createContext<Session | null>(null);
+type SessionData = typeof authClient.$Infer.Session;
 
-export function SessionProvider({
-  children,
-  session,
-}: {
-  children: React.ReactNode;
-  session: Session;
-}) {
-  return (
-    <SessionContext.Provider value={session}>
-      {children}
-    </SessionContext.Provider>
-  );
-}
+const SessionContext = createContext<SessionData | null>(null);
+
+export type { SessionData };
 
 export function useAppSession() {
-  const session = useContext(SessionContext);
-  if (session === null) {
-    throw new Error("useAppSession must be used within a SessionProvider");
-  }
-  return session;
+  const { data } = authClient.useSession();
+  return data;
 }

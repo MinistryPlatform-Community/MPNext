@@ -1,6 +1,6 @@
 # MPNext
 
-A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and NextAuth v5.
+A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and Better Auth.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 
 ## Features
 
-- **Authentication**: NextAuth v5 with Ministry Platform OAuth provider and OIDC RP-initiated logout
+- **Authentication**: Better Auth with Ministry Platform OAuth (via genericOAuth plugin) and OIDC RP-initiated logout
 - **Modern UI**: Radix UI primitives + shadcn/ui components with Tailwind CSS v4
 - **Type-Safe API**: Full TypeScript support with auto-generated types from Ministry Platform schema
 - **Next.js 16**: App Router with React Server Components and Turbopack
@@ -52,10 +52,12 @@ Custom provider located at `src/lib/providers/ministry-platform/` featuring:
 - Six specialized services: Table, Procedure, Communication, File, Metadata, Domain
 
 ### Authentication
-NextAuth v5 (beta) with custom Ministry Platform OAuth provider (`src/auth.ts`)
-- JWT session strategy with automatic token refresh
+Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.ts`)
+- Stateless JWT cookie sessions (no database required)
+- Custom session enrichment with `MPUserProfile` data via `customSession` plugin
 - OIDC RP-initiated logout for proper session termination
 - Proxy-based route protection (`src/proxy.ts` — Next.js 16 replaces middleware with proxy)
+- Client-side auth via `authClient` (`src/lib/auth-client.ts`)
 
 ## Prerequisites
 
@@ -81,7 +83,7 @@ The interactive setup command will:
 2. Check git status
 3. Create `.env.local` from `.env.example` (if needed)
 4. Prompt for missing environment variables
-5. Auto-generate `NEXTAUTH_SECRET` (optional)
+5. Auto-generate `BETTER_AUTH_SECRET` (optional)
 6. Install and update dependencies
 7. Generate Ministry Platform types
 8. Run a production build to verify configuration
@@ -127,19 +129,15 @@ cp .env.example .env.local
 Update `.env.local` with your configuration:
 
 ```env
-# NextAuth Provider Configuration
-OIDC_PROVIDER_NAME="MinistryPlatform"
+# Better Auth Configuration
 OIDC_CLIENT_ID=MPNext
 OIDC_CLIENT_SECRET=your_client_secret
-OIDC_WELL_KNOWN_URL=https://your-instance.ministryplatform.com/ministryplatformapi/oauth/.well-known/openid-configuration
-OIDC_SCOPE=openid profile email offline_access http://www.thinkministry.com/dataplatform/scopes/all
 
-# Generate this secret via: npx auth secret
-NEXTAUTH_SECRET=your_generated_secret
+# Generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET=your_generated_secret
 
 # Update for production
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_DEBUG=false
+BETTER_AUTH_URL=http://localhost:3000
 
 # MinistryPlatform API Configuration
 MINISTRY_PLATFORM_CLIENT_ID=MPNext
@@ -172,15 +170,15 @@ Add these authorized redirect URIs where users will be sent after authentication
 
 **Development:**
 ```
-http://localhost:3000/api/auth/callback/ministryplatform
+http://localhost:3000/api/auth/oauth2/callback/ministry-platform
 ```
 
 **Production:**
 ```
-https://yourdomain.com/api/auth/callback/ministryplatform
+https://yourdomain.com/api/auth/oauth2/callback/ministry-platform
 ```
 
-> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs.
+> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs. The callback path uses Better Auth's genericOAuth plugin convention: `/api/auth/oauth2/callback/{providerId}`.
 
 ##### Post-Logout Redirect URIs (Required)
 Add these URIs where users will be redirected after signing out:
@@ -200,15 +198,15 @@ https://yourdomain.com
 ##### Token Lifetimes (Default Settings)
 
 
-#### Generate NextAuth Secret
+#### Generate Better Auth Secret
 
-Generate a secure secret for NextAuth session encryption:
+Generate a secure secret for Better Auth session signing (must be at least 32 characters):
 
 ```bash
-npx auth secret
+openssl rand -base64 32
 ```
 
-Copy the generated secret to your `.env.local` file as `NEXTAUTH_SECRET`.
+Copy the generated secret to your `.env.local` file as `BETTER_AUTH_SECRET`.
 
 
 ### 4. Generate Ministry Platform Types
@@ -284,8 +282,8 @@ npm run dev
 
 When deploying to production:
 
-1. Update `NEXTAUTH_URL` to your production domain
-2. Add production redirect URIs to Ministry Platform OAuth client
+1. Update `BETTER_AUTH_URL` to your production domain
+2. Add production redirect URI (`https://yourdomain.com/api/auth/oauth2/callback/ministry-platform`) to Ministry Platform OAuth client
 3. Add production post-logout redirect URIs
 4. Ensure environment variables are set in your hosting provider
 5. Enable HTTPS/SSL certificates
@@ -305,7 +303,7 @@ MPNext/
 │   │   │   │   └── template/             # Template tool example
 │   │   │   ├── layout.tsx                # Web layout with auth
 │   │   │   └── page.tsx                  # Dashboard/home page
-│   │   ├── api/auth/[...nextauth]/       # NextAuth API routes
+│   │   ├── api/auth/[...all]/             # Better Auth API routes
 │   │   ├── signin/                       # Sign-in page
 │   │   ├── layout.tsx                    # Root layout
 │   │   └── providers.tsx                 # App providers wrapper
@@ -355,6 +353,8 @@ MPNext/
 │   │   └── index.ts
 │   │
 │   ├── lib/                              # Shared libraries
+│   │   ├── auth.ts                       # Better Auth server configuration
+│   │   ├── auth-client.ts                # Better Auth client (React hooks)
 │   │   ├── dto/                          # Application DTOs/ViewModels
 │   │   │   ├── contacts.ts
 │   │   │   ├── contact-logs.ts
@@ -364,7 +364,6 @@ MPNext/
 │   │   └── providers/
 │   │       └── ministry-platform/        # Ministry Platform provider
 │   │           ├── auth/                 # OAuth authentication
-│   │           │   ├── auth-provider.ts
 │   │           │   ├── client-credentials.ts
 │   │           │   └── types.ts
 │   │           ├── services/             # API services
@@ -390,10 +389,6 @@ MPNext/
 │   │   ├── userService.ts
 │   │   └── toolService.ts
 │   │
-│   ├── types/                            # Application-wide types
-│   │   └── next-auth.d.ts                # NextAuth type extensions
-│   │
-│   ├── auth.ts                           # NextAuth configuration
 │   ├── auth.test.ts                      # Auth tests
 │   ├── proxy.ts                          # Next.js 16 proxy (route protection)
 │   ├── proxy.test.ts                     # Proxy tests
@@ -617,8 +612,8 @@ npm run test:coverage
 
 | Area | Files | Coverage |
 |------|-------|----------|
-| Authentication | `auth.test.ts` | JWT callbacks, token refresh, session handling |
-| Proxy | `proxy.test.ts` | Route protection, token validation |
+| Authentication | `auth.test.ts` | Custom session enrichment, profile fetching, OAuth config |
+| Proxy | `proxy.test.ts` | Route protection, session cookie validation |
 | MP Client | `client.test.ts` | OAuth token management |
 | MPHelper | `helper.test.ts` | All CRUD operations, validation |
 | Table Service | `table.service.test.ts` | Table operations |
