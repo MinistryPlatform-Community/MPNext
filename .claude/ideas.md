@@ -116,3 +116,6 @@ There are no volunteers showing up in volunteer processing in the production bui
 
 ### Images are not showing on the volunteers. Perhaps a permssions issue? ([#30](https://github.com/The-Moody-Church/mp-charts/issues/30))
 
+
+### Links to MP are not showing in production in the volunteer processing pages. ([#31](https://github.com/The-Moody-Church/mp-charts/issues/31))
+
