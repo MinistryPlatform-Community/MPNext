@@ -1093,6 +1093,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   ];
 
   // Now check for other missing/empty required variables
+  // eslint-disable-next-line prefer-const
   let { result: envVarsResult, missing, empty } = validateEnvVars();
 
   if (!envVarsResult.success) {
