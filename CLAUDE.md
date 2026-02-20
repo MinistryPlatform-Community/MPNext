@@ -21,13 +21,13 @@ This guide provides essential information for AI assistants (like Claude) workin
 
 - **Framework**: Next.js 16 (App Router, Turbopack) with React 19, TypeScript strict mode
 - **Ministry Platform Integration**: Custom provider at `src/lib/providers/ministry-platform/` with REST API client, auth, and type-safe models
-- **Auth**: NextAuth v5 (beta) with Ministry Platform OAuth provider (`src/auth.ts`)
-  - **Route Protection**: `src/proxy.ts` handles auth token checks (renamed from `middleware.ts` in Next.js 16)
-  - **OIDC Logout**: Implements RP-initiated logout flow to properly end Ministry Platform OAuth sessions
-  - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `NEXTAUTH_URL`
-  - **MP OAuth Setup**: Requires Post-Logout Redirect URIs configured in Ministry Platform OAuth client (see README.md)
+- **Auth**: Better Auth with Ministry Platform OAuth via genericOAuth plugin — see **[Auth Reference](.claude/references/auth.md)** for full details
+  - **Key files**: `src/lib/auth.ts` (server config), `src/lib/auth-client.ts` (client), `src/proxy.ts` (route protection)
+  - **Critical**: `session.user.id` is Better Auth's internal ID, NOT the MP User_GUID. Use `session.user.userGuid` for all MP API lookups.
+  - **Stateless Sessions**: JWT cookie cache, no database; `customSession` does name splitting only (no API calls)
+  - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL` (or `NEXTAUTH_URL` fallback), `BETTER_AUTH_SECRET` (or `NEXTAUTH_SECRET` fallback)
 - **Services Layer**: Singleton service classes in `src/services/` wrap MPHelper for domain logic (ContactService, ContactLogService, ToolService, UserService)
-- **Contexts**: React context providers in `src/contexts/` (UserProvider, SessionProvider) composed in `src/app/providers.tsx`
+- **Contexts**: React context providers in `src/contexts/` (UserProvider) composed in `src/app/providers.tsx`; `useAppSession()` wraps Better Auth's `authClient.useSession()`
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
 - **Validation**: Zod v4 (`zod@^4.3`) — note: different API from Zod v3 (e.g., `z.object()` vs `z.interface()`)
 - **Path Alias**: `@/*` maps to `src/*`
@@ -103,7 +103,16 @@ import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
 import { ContactService } from '@/services/contactService';
 
 // React contexts
-import { UserProvider, useUser } from '@/contexts';
+import { UserProvider, useUser, useAppSession } from '@/contexts';
+
+// Better Auth (server-side)
+import { auth } from '@/lib/auth';
+import { headers } from 'next/headers';
+const session = await auth.api.getSession({ headers: await headers() });
+
+// Better Auth (client-side)
+import { authClient } from '@/lib/auth-client';
+const { data: session, isPending } = authClient.useSession();
 
 // Ministry Platform models (generated)
 import { ContactLog, Congregation } from '@/lib/providers/ministry-platform/models';
@@ -177,5 +186,6 @@ await mp.createTableRecords('Contact_Log', records, {
 
 For detailed context on specific areas, see:
 
+- **[Auth Reference](.claude/references/auth.md)** - Better Auth configuration, OAuth flow, session access patterns, `userGuid` vs `user.id`, and known limitations
 - **[Components Reference](.claude/references/components.md)** - Detailed inventory of all components, their purposes, server actions, and compliance status
 - **[Ministry Platform Schema](.claude/references/ministryplatform.schema.md)** - Auto-generated summary of Ministry Platform database tables, primary keys, and foreign key relationships

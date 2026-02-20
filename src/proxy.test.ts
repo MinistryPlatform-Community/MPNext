@@ -7,14 +7,13 @@ import { NextRequest, NextResponse } from 'next/server';
  * Tests for the authentication proxy in src/proxy.ts
  * These tests verify route protection behavior including:
  * - Public path access
- * - Token validation
- * - Token expiration checks
+ * - Session cookie validation
  * - Redirect behavior
  */
 
-// Mock next-auth/jwt
-vi.mock('next-auth/jwt', () => ({
-  getToken: vi.fn(),
+// Mock better-auth/cookies
+vi.mock('better-auth/cookies', () => ({
+  getSessionCookie: vi.fn(),
 }));
 
 // Mock NextResponse
@@ -29,13 +28,13 @@ vi.mock('next/server', async () => {
   };
 });
 
-describe('Middleware', () => {
-  let mockGetToken: ReturnType<typeof vi.fn>;
+describe('Proxy', () => {
+  let mockGetSessionCookie: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    const { getToken } = await import('next-auth/jwt');
-    mockGetToken = getToken as ReturnType<typeof vi.fn>;
+    const { getSessionCookie } = await import('better-auth/cookies');
+    mockGetSessionCookie = getSessionCookie as ReturnType<typeof vi.fn>;
   });
 
   afterEach(() => {
@@ -54,21 +53,21 @@ describe('Middleware', () => {
         getAll: () => [],
         get: () => undefined,
       },
+      headers: new Headers(),
     } as unknown as NextRequest;
   }
 
   describe('Public Paths', () => {
-    it('should allow access to /api routes without authentication', async () => {
+    it('should allow access to /api routes without authentication', () => {
       const request = createMockRequest('/api/auth/session');
 
-      // Simulate middleware logic for public paths
       const { pathname } = request.nextUrl;
       const isPublicPath = pathname.startsWith('/api') || pathname === '/signin';
 
       expect(isPublicPath).toBe(true);
     });
 
-    it('should allow access to /signin without authentication', async () => {
+    it('should allow access to /signin without authentication', () => {
       const request = createMockRequest('/signin');
 
       const { pathname } = request.nextUrl;
@@ -77,7 +76,7 @@ describe('Middleware', () => {
       expect(isPublicPath).toBe(true);
     });
 
-    it('should allow access to nested /api routes', async () => {
+    it('should allow access to nested /api routes', () => {
       const request = createMockRequest('/api/some/nested/route');
 
       const { pathname } = request.nextUrl;
@@ -86,196 +85,52 @@ describe('Middleware', () => {
       expect(isPublicPath).toBe(true);
     });
 
-    it('should NOT consider /api-docs as a public API path', async () => {
+    it('should NOT consider /api-docs as a public API path', () => {
       const request = createMockRequest('/api-docs');
 
       const { pathname } = request.nextUrl;
-      // startsWith('/api') would match '/api-docs', which could be a bug
-      // But based on the current implementation, it would be allowed
+      // startsWith('/api') would match '/api-docs'
       const isPublicPath = pathname.startsWith('/api') || pathname === '/signin';
 
       expect(isPublicPath).toBe(true); // Current behavior - may want to fix this
     });
   });
 
-  describe('Token Validation', () => {
-    it('should redirect to signin when no token exists', async () => {
-      mockGetToken.mockResolvedValue(null);
+  describe('Session Cookie Validation', () => {
+    it('should redirect to signin when no session cookie exists', () => {
+      mockGetSessionCookie.mockReturnValue(null);
 
       const request = createMockRequest('/dashboard');
+      const sessionCookie = mockGetSessionCookie(request);
 
-      // Simulate middleware logic
-      let token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      if (!token) {
-        token = await mockGetToken({
-          req: request,
-          secret: 'test-secret',
-          cookieName: 'next-auth.session-token',
-        });
-      }
-
-      expect(token).toBeNull();
+      expect(sessionCookie).toBeNull();
 
       // Should redirect
       const redirectUrl = new URL('/signin', request.url);
       expect(redirectUrl.pathname).toBe('/signin');
     });
 
-    it('should allow access when valid token exists', async () => {
-      const validToken = {
-        sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-      };
-      mockGetToken.mockResolvedValue(validToken);
+    it('should allow access when session cookie exists', () => {
+      mockGetSessionCookie.mockReturnValue('valid-session-token');
 
       const request = createMockRequest('/dashboard');
+      const sessionCookie = mockGetSessionCookie(request);
 
-      const token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      expect(token).not.toBeNull();
-      expect(token?.sub).toBe('user-123');
-
-      // Token not expired
-      const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-      expect(isExpired).toBe(false);
-    });
-
-    it('should try fallback cookie when secure cookie fails', async () => {
-      // First call (secure cookie) returns null, second call (regular cookie) returns token
-      mockGetToken
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          sub: 'user-123',
-          exp: Math.floor(Date.now() / 1000) + 3600,
-        });
-
-      const request = createMockRequest('/dashboard');
-
-      // Try secure cookie first
-      let token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      // Fallback to regular cookie
-      if (!token) {
-        token = await mockGetToken({
-          req: request,
-          secret: 'test-secret',
-          cookieName: 'next-auth.session-token',
-        });
-      }
-
-      expect(token).not.toBeNull();
-      expect(token?.sub).toBe('user-123');
-      expect(mockGetToken).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('Token Expiration', () => {
-    it('should redirect to signin when token is expired', async () => {
-      const expiredToken = {
-        sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
-      };
-      mockGetToken.mockResolvedValue(expiredToken);
-
-      const request = createMockRequest('/dashboard');
-
-      const token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      // Check expiration
-      const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-      expect(isExpired).toBe(true);
-    });
-
-    it('should allow access when token expires in the future', async () => {
-      const futureToken = {
-        sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000) + 7200, // 2 hours from now
-      };
-      mockGetToken.mockResolvedValue(futureToken);
-
-      const request = createMockRequest('/protected-page');
-
-      const token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-      expect(isExpired).toBe(false);
-    });
-
-    it('should redirect when token expires exactly now', async () => {
-      const exactlyNowToken = {
-        sub: 'user-123',
-        exp: Math.floor(Date.now() / 1000),
-      };
-      mockGetToken.mockResolvedValue(exactlyNowToken);
-
-      const request = createMockRequest('/dashboard');
-
-      const token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      // Check: Date.now() >= exp * 1000 (should be true or very close)
-      const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-      expect(isExpired).toBe(true);
-    });
-
-    it('should handle token without exp claim', async () => {
-      const tokenWithoutExp = {
-        sub: 'user-123',
-        // No exp claim
-      };
-      mockGetToken.mockResolvedValue(tokenWithoutExp);
-
-      const request = createMockRequest('/dashboard');
-
-      const token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: '__Secure-next-auth.session-token',
-      });
-
-      // If no exp, the check should not trigger redirect
-      const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-      expect(isExpired).toBeFalsy();
+      expect(sessionCookie).not.toBeNull();
     });
   });
 
   describe('Error Handling', () => {
-    it('should redirect to signin when getToken throws an error', async () => {
-      mockGetToken.mockRejectedValue(new Error('Token verification failed'));
+    it('should redirect to signin when getSessionCookie throws an error', () => {
+      mockGetSessionCookie.mockImplementation(() => {
+        throw new Error('Cookie parsing failed');
+      });
 
       const request = createMockRequest('/dashboard');
 
       let shouldRedirect = false;
       try {
-        await mockGetToken({
-          req: request,
-          secret: 'test-secret',
-          cookieName: '__Secure-next-auth.session-token',
-        });
+        mockGetSessionCookie(request);
       } catch {
         shouldRedirect = true;
       }
@@ -336,16 +191,18 @@ describe('Middleware', () => {
   });
 });
 
-describe('Middleware Integration', () => {
-  it('should follow the complete authentication flow for protected routes', async () => {
-    const { getToken } = await import('next-auth/jwt');
-    const mockGetToken = getToken as ReturnType<typeof vi.fn>;
+describe('Proxy Integration', () => {
+  let mockGetSessionCookie: ReturnType<typeof vi.fn>;
 
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const { getSessionCookie } = await import('better-auth/cookies');
+    mockGetSessionCookie = getSessionCookie as ReturnType<typeof vi.fn>;
+  });
+
+  it('should follow the complete authentication flow for protected routes', () => {
     // Scenario: Valid authenticated user accessing protected route
-    mockGetToken.mockResolvedValue({
-      sub: 'user-123',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
+    mockGetSessionCookie.mockReturnValue('valid-session-token');
 
     const request = createMockRequest('/dashboard');
 
@@ -354,29 +211,18 @@ describe('Middleware Integration', () => {
     const isPublicPath = pathname.startsWith('/api') || pathname === '/signin';
     expect(isPublicPath).toBe(false);
 
-    // Step 2: Get token
-    const token = await mockGetToken({
-      req: request,
-      secret: 'test-secret',
-      cookieName: '__Secure-next-auth.session-token',
-    });
-    expect(token).not.toBeNull();
+    // Step 2: Check session cookie
+    const sessionCookie = mockGetSessionCookie(request);
+    expect(sessionCookie).not.toBeNull();
 
-    // Step 3: Check expiration
-    const isExpired = token?.exp && Date.now() >= (token.exp * 1000);
-    expect(isExpired).toBe(false);
-
-    // Step 4: Should allow access (NextResponse.next())
+    // Step 3: Should allow access (NextResponse.next())
     const response = NextResponse.next();
     expect(response).toEqual({ type: 'next' });
   });
 
-  it('should follow the complete flow for unauthenticated user', async () => {
-    const { getToken } = await import('next-auth/jwt');
-    const mockGetToken = getToken as ReturnType<typeof vi.fn>;
-
-    // Scenario: No token - unauthenticated user
-    mockGetToken.mockResolvedValue(null);
+  it('should follow the complete flow for unauthenticated user', () => {
+    // Scenario: No session cookie - unauthenticated user
+    mockGetSessionCookie.mockReturnValue(null);
 
     const request = createMockRequest('/dashboard');
 
@@ -385,20 +231,9 @@ describe('Middleware Integration', () => {
     const isPublicPath = pathname.startsWith('/api') || pathname === '/signin';
     expect(isPublicPath).toBe(false);
 
-    // Step 2: Get token (both cookies fail)
-    let token = await mockGetToken({
-      req: request,
-      secret: 'test-secret',
-      cookieName: '__Secure-next-auth.session-token',
-    });
-    if (!token) {
-      token = await mockGetToken({
-        req: request,
-        secret: 'test-secret',
-        cookieName: 'next-auth.session-token',
-      });
-    }
-    expect(token).toBeNull();
+    // Step 2: Check session cookie
+    const sessionCookie = mockGetSessionCookie(request);
+    expect(sessionCookie).toBeNull();
 
     // Step 3: Should redirect to signin
     const redirectUrl = new URL('/signin', request.url);
@@ -410,7 +245,7 @@ describe('Middleware Integration', () => {
   });
 
   /**
-   * Helper to create a mock NextRequest (defined again for integration tests)
+   * Helper to create a mock NextRequest
    */
   function createMockRequest(pathname: string, baseUrl = 'http://localhost:3000'): NextRequest {
     const url = new URL(pathname, baseUrl);
@@ -421,6 +256,7 @@ describe('Middleware Integration', () => {
         getAll: () => [],
         get: () => undefined,
       },
+      headers: new Headers(),
     } as unknown as NextRequest;
   }
 });
