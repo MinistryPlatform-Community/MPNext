@@ -144,8 +144,13 @@ function sanitizeTypeName(name: string): string {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join("")
     .replace(/[^a-zA-Z0-9]/g, "");
-  // TypeScript identifiers cannot start with a digit; prefix with underscore
-  return /^[0-9]/.test(result) ? `_${result}` : result;
+
+  // Prefix with underscore if the name starts with a digit (invalid TS identifier)
+  if (/^\d/.test(result)) {
+    result = `_${result}`;
+  }
+
+  return result;
 }
 
 function isValidIdentifier(name: string): boolean {
