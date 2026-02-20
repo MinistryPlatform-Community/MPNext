@@ -28,6 +28,31 @@ gh pr create --title "..." --body "..."
 2. The base branch is correct (usually `main`)
 3. You are NOT creating a PR on `MinistryPlatform-Community/MPNext`
 
+### Upstream Sync
+
+This fork tracks `MinistryPlatform-Community/MPNext`. Upstream changes are reviewed periodically and cherry-picked selectively — we do **not** merge upstream directly, since the fork has intentionally diverged (e.g., Next.js 16 vs upstream's Next.js 15).
+
+To check for new upstream changes:
+
+```bash
+git fetch upstream
+git log main..upstream/main --oneline
+```
+
+Or review PRs at: https://github.com/MinistryPlatform-Community/MPNext/pulls
+
+#### Last Review: 2026-02-19
+
+Reviewed all open/merged upstream PRs through PR #40. Status:
+
+| PR | Title | Action | Notes |
+|----|-------|--------|-------|
+| #37 | Security patches (Next.js + React) | Partial | Already on Next.js 16; pinned `react`/`react-dom` ≥19.1.0 |
+| #38 | Dependency version updates | Incorporated | Bumped minimum pinned versions for 5 packages |
+| #40 | Generator fix for digit-leading names | Incorporated | `sanitizeTypeName` prefixes `_` when result starts with a digit |
+
+**GitHub will show "N commits behind"** — this is expected and harmless. It reflects diverged commit history, not missing changes.
+
 ### Auto-Commit `.claude/settings.local.json`
 
 When committing changes, if `.claude/settings.local.json` has pending modifications, include it in the commit. This file tracks Claude Code permission settings and should stay in sync.

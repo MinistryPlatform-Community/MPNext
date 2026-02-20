@@ -90,3 +90,22 @@ Removed all `isDev` / `NODE_ENV === "development"` gates from the volunteer proc
 
 ### Commit Status
 - Branch: `claude/deploy-volunteer-system-diSF5`
+
+---
+
+## Branch: `claude/compare-upstream-fork-6oHFK` (merged to main)
+
+### Upstream Sync — Reviewed all upstream PRs through #40
+
+Compared fork against `MinistryPlatform-Community/MPNext` and selectively incorporated changes:
+
+| PR | Title | Action | Notes |
+|----|-------|--------|-------|
+| #37 | Security patches | Partial | Already on Next.js 16; pinned `react`/`react-dom` ≥19.1.0 |
+| #38 | Dependency updates | Incorporated | Bumped 5 package minimums |
+| #40 | Generator digit fix | Incorporated | `sanitizeTypeName` prefixes `_` for digit-leading names |
+
+**Files Modified:**
+- `package.json` — Pinned `react`/`react-dom` ≥19.1.0; bumped minimums for `@auth/core`, `next-auth`, `zod`, `@tailwindcss/postcss`, `tailwindcss`
+- `src/lib/providers/ministry-platform/scripts/generate-types.ts` — Added digit-prefix guard to `sanitizeTypeName()`
+- `CLAUDE.md` — Added "Upstream Sync" section documenting review process and last-reviewed state
