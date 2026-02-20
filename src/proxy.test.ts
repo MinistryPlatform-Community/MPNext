@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Middleware Tests
+ * Proxy Tests
  *
- * Tests for the authentication middleware in src/middleware.ts
+ * Tests for the authentication proxy in src/proxy.ts
  * These tests verify route protection behavior including:
  * - Public path access
  * - Token validation
