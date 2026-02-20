@@ -139,7 +139,7 @@ function getTableName(table: TableMetadata): string | undefined {
 
 function sanitizeTypeName(name: string): string {
   // Convert table name to PascalCase and remove special characters
-  let result = name
+  const result = name
     .split(/[-_\s\/]+/) // Added slash to handle field names like "SSN/EIN"
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join("")
