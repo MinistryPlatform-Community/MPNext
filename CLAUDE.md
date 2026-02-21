@@ -182,6 +182,17 @@ await mp.createTableRecords('Contact_Log', records, {
 });
 ```
 
+## Testing
+
+- **Framework**: Vitest with jsdom environment, `@testing-library/react` for hooks/components, v8 coverage
+- **Config**: `vitest.config.ts` (runner), `src/test-setup.ts` (env vars + jest-dom)
+- **Co-location**: Test files live next to source — `foo.ts` → `foo.test.ts`
+- **Critical**: Use `vi.hoisted()` for any mock variables referenced inside `vi.mock()` factories (hoisting causes `ReferenceError` otherwise)
+- **MPHelper mock**: Use mock class (`MPHelper: class { method = mockFn; }`), not `vi.fn().mockImplementation()`
+- **Singleton reset**: Reset `(ServiceClass as any).instance = undefined` in `beforeEach` to prevent state leakage
+- **Server action tests**: Mock `@/lib/auth` (`auth.api.getSession`), `next/headers` (`headers()`), and service singletons
+- See **[Testing Reference](.claude/references/testing.md)** for all mock patterns, coverage data, and test inventory
+
 ## Reference Documents
 
 For detailed context on specific areas, see:
@@ -189,3 +200,4 @@ For detailed context on specific areas, see:
 - **[Auth Reference](.claude/references/auth.md)** - Better Auth configuration, OAuth flow, session access patterns, `userGuid` vs `user.id`, and known limitations
 - **[Components Reference](.claude/references/components.md)** - Detailed inventory of all components, their purposes, server actions, and compliance status
 - **[Ministry Platform Schema](.claude/references/ministryplatform.schema.md)** - Auto-generated summary of Ministry Platform database tables, primary keys, and foreign key relationships
+- **[Testing Reference](.claude/references/testing.md)** - Vitest setup, mock patterns (`vi.hoisted`, MPHelper, auth), coverage data, and test file inventory
