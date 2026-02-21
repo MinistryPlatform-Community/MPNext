@@ -1,5 +1,8 @@
 # MPNext
 
+[![Tests](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml/badge.svg)](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/MinistryPlatform-Community/MPNext/graph/badge.svg)](https://codecov.io/gh/MinistryPlatform-Community/MPNext)
+
 A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and Better Auth.
 
 ## Table of Contents
