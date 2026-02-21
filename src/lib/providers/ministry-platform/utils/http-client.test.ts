@@ -141,6 +141,7 @@ describe('HttpClient', () => {
         ok: false,
         status: 404,
         statusText: 'Not Found',
+        text: () => Promise.resolve(''),
       });
 
       await expect(httpClient.get('/tables/NonExistent')).rejects.toThrow(
@@ -153,6 +154,7 @@ describe('HttpClient', () => {
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
+        text: () => Promise.resolve(''),
       });
 
       await expect(httpClient.get('/tables/Contacts')).rejects.toThrow(
@@ -165,6 +167,7 @@ describe('HttpClient', () => {
         ok: false,
         status: 500,
         statusText: 'Internal Server Error',
+        text: () => Promise.resolve(''),
       });
 
       await expect(httpClient.get('/tables/Contacts')).rejects.toThrow(
