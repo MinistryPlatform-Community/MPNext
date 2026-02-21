@@ -2,6 +2,7 @@
 
 [![Tests](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml/badge.svg)](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MinistryPlatform-Community/MPNext/graph/badge.svg)](https://codecov.io/gh/MinistryPlatform-Community/MPNext)
+[![Version](https://img.shields.io/github/v/release/MinistryPlatform-Community/MPNext)](https://github.com/MinistryPlatform-Community/MPNext/releases/latest)
 
 A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and Better Auth.
 
