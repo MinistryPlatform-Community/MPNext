@@ -8,7 +8,7 @@ import { UserService } from '@/services/userService';
  * @param id - The user's contact ID
  * @returns The user's profile data
  */
-export async function getCurrentUserProfile(id: string): Promise<MPUserProfile> {
+export async function getCurrentUserProfile(id: string): Promise<MPUserProfile | undefined> {
   const userService = await UserService.getInstance();
   const userProfile = await userService.getUserProfile(id);
   return userProfile;

@@ -30,6 +30,8 @@ describe('getCurrentUserProfile', () => {
       Email_Address: 'john@example.com',
       Mobile_Phone: null,
       Image_GUID: null,
+      roles: ['Admin'],
+      userGroups: ['Staff'],
     };
     mockGetUserProfile.mockResolvedValueOnce(mockProfile);
 
