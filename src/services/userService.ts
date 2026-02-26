@@ -57,15 +57,34 @@ export class UserService {
    * @returns Promise<MPUserProfile> - The user profile data from Ministry Platform
    * @throws Will throw an error if the Ministry Platform query fails
    */
-  public async getUserProfile(id: string): Promise<MPUserProfile> {
+  public async getUserProfile(id: string): Promise<MPUserProfile | undefined> {
     const records = await this.mp!.getTableRecords<MPUserProfile>({
       table: "dp_Users",
       filter: `User_GUID = '${id}'`,
-      select: "User_GUID, Contact_ID_TABLE.First_Name,Contact_ID_TABLE.Nickname,Contact_ID_TABLE.Last_Name,Contact_ID_TABLE.Email_Address,Contact_ID_TABLE.Mobile_Phone,Contact_ID_TABLE.dp_fileUniqueId AS Image_GUID",
+      select: "User_ID, User_GUID, Contact_ID_TABLE.First_Name,Contact_ID_TABLE.Nickname,Contact_ID_TABLE.Last_Name,Contact_ID_TABLE.Email_Address,Contact_ID_TABLE.Mobile_Phone,Contact_ID_TABLE.dp_fileUniqueId AS Image_GUID",
       top: 1
     });
-    
-    // Return the first (and should be only) matching record
-    return records[0];
+
+    const profile = records[0];
+    if (!profile) return undefined;
+
+    const [roleRecords, groupRecords] = await Promise.all([
+      this.mp!.getTableRecords<{ Role_Name: string }>({
+        table: "dp_User_Roles",
+        filter: `User_ID = ${profile.User_ID}`,
+        select: "Role_ID_TABLE.Role_Name",
+      }),
+      this.mp!.getTableRecords<{ User_Group_Name: string }>({
+        table: "dp_User_User_Groups",
+        filter: `User_ID = ${profile.User_ID}`,
+        select: "User_Group_ID_TABLE.User_Group_Name",
+      }),
+    ]);
+
+    return {
+      ...profile,
+      roles: roleRecords.map((r) => r.Role_Name),
+      userGroups: groupRecords.map((g) => g.User_Group_Name),
+    };
   }
 }
