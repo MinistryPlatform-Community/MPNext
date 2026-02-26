@@ -20,9 +20,10 @@ jobs:
           RELEASE_TIMESTAMP: ${{ github.event.release.published_at }}
           REPO: ${{ github.repository }}
         run: |
+          DESC=$(printf '%s\n\n%s' "$RELEASE_NAME" "$RELEASE_BODY")
           PAYLOAD=$(jq -n \
             --arg title "🚀 New Release: $RELEASE_TAG" \
-            --arg desc "$RELEASE_NAME\n\n$RELEASE_BODY" \
+            --arg desc "$DESC" \
             --arg url "$RELEASE_URL" \
             --arg author "$RELEASE_AUTHOR" \
             --arg repo "$REPO" \
