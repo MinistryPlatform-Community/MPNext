@@ -13,6 +13,8 @@ function getUserGuid(session: { user: Record<string, unknown> }): string {
   return guid;
 }
 
+import { MAX_SELECTION_RECORDS } from "./constants";
+
 export interface CreateMpSelectionInput {
   selectionName: string;
   pageId: number;
@@ -23,6 +25,11 @@ export async function createMpSelection(
   input: CreateMpSelectionInput
 ): Promise<SelectionResult> {
   try {
+    if (input.recordIds.length > MAX_SELECTION_RECORDS) {
+      throw new Error(
+        `Too many records: ${input.recordIds.length} exceeds the maximum of ${MAX_SELECTION_RECORDS}`
+      );
+    }
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
       throw new Error("Authentication required");

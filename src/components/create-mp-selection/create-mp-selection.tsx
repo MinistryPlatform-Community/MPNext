@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -14,27 +21,57 @@ import {
 } from "@/components/ui/dialog";
 import { Copy, ExternalLink } from "lucide-react";
 import { createMpSelection } from "./actions";
+import { MAX_SELECTION_RECORDS } from "./constants";
 import { SelectionResult } from "@/lib/dto/selections";
 
-export interface CreateMpSelectionProps {
+function generateDefaultName(base: string): string {
+  const now = new Date();
+  const timestamp = now.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return base ? `${base} ${timestamp}` : timestamp;
+}
+
+export interface MpPageOption {
   pageId: number;
+  label: string;
+}
+
+export interface CreateMpSelectionProps {
+  pageId?: number;
+  pageOptions?: MpPageOption[];
   recordIds: number[];
   defaultSelectionName?: string;
   triggerLabel?: string;
   onSuccess?: (result: SelectionResult) => void;
+  onPageChange?: (page: MpPageOption | null) => void;
   disabled?: boolean;
 }
 
 export function CreateMpSelection({
   pageId,
+  pageOptions = [],
   recordIds,
   defaultSelectionName = "",
   triggerLabel = "Create MP Selection",
   onSuccess,
+  onPageChange,
   disabled = false,
 }: CreateMpSelectionProps) {
+  // If pageOptions has entries, show a picker; otherwise use the fixed pageId prop.
+  const showPicker = pageOptions.length > 1;
+  const exceedsLimit = recordIds.length > MAX_SELECTION_RECORDS;
   const [isOpen, setIsOpen] = useState(false);
-  const [selectionName, setSelectionName] = useState(defaultSelectionName);
+  const [selectionName, setSelectionName] = useState(
+    generateDefaultName(defaultSelectionName)
+  );
+  const [selectedPageId, setSelectedPageId] = useState<number | undefined>(
+    pageOptions.length === 1 ? pageOptions[0].pageId : pageId
+  );
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SelectionResult | null>(null);
@@ -42,8 +79,11 @@ export function CreateMpSelection({
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
-    if (!open) {
-      setSelectionName(defaultSelectionName);
+    if (open) {
+      // Regenerate timestamp on each open so the name is unique
+      setSelectionName(generateDefaultName(defaultSelectionName));
+    } else {
+      setSelectedPageId(pageOptions.length === 1 ? pageOptions[0].pageId : pageId);
       setError(null);
       setResult(null);
       setCopied(false);
@@ -52,14 +92,14 @@ export function CreateMpSelection({
   };
 
   const handleCreate = async () => {
-    if (!selectionName.trim()) return;
+    if (!selectionName.trim() || !selectedPageId) return;
 
     try {
       setIsCreating(true);
       setError(null);
       const selectionResult = await createMpSelection({
         selectionName: selectionName.trim(),
-        pageId,
+        pageId: selectedPageId,
         recordIds,
       });
       setResult(selectionResult);
@@ -88,7 +128,11 @@ export function CreateMpSelection({
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={disabled || recordIds.length === 0}>
+        <Button
+          variant="outline"
+          disabled={disabled || recordIds.length === 0 || exceedsLimit}
+          title={exceedsLimit ? `Maximum ${MAX_SELECTION_RECORDS.toLocaleString()} records allowed` : undefined}
+        >
           {triggerLabel}
         </Button>
       </DialogTrigger>
@@ -98,12 +142,39 @@ export function CreateMpSelection({
           <DialogDescription>
             {result
               ? "Your selection has been created in Ministry Platform."
-              : `Create a named selection from ${recordIds.length} record${recordIds.length !== 1 ? "s" : ""}.`}
+              : `Create a named selection from ${recordIds.length.toLocaleString()} record${recordIds.length !== 1 ? "s" : ""}.`}
           </DialogDescription>
         </DialogHeader>
 
         {!result ? (
           <div className="space-y-4 mt-2">
+            {showPicker && (
+              <div className="space-y-2">
+                <Label htmlFor="page-select">MP Page</Label>
+                <Select
+                  value={selectedPageId?.toString()}
+                  onValueChange={(val) => {
+                    const id = Number(val);
+                    setSelectedPageId(id);
+                    const opt = pageOptions.find((o) => o.pageId === id) ?? null;
+                    onPageChange?.(opt);
+                  }}
+                  disabled={isCreating}
+                >
+                  <SelectTrigger id="page-select">
+                    <SelectValue placeholder="Select a page" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pageOptions.map((opt) => (
+                      <SelectItem key={opt.pageId} value={opt.pageId.toString()}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="selection-name">Selection Name</Label>
               <Input
@@ -131,7 +202,7 @@ export function CreateMpSelection({
               <Button
                 className="flex-1"
                 onClick={handleCreate}
-                disabled={isCreating || !selectionName.trim()}
+                disabled={isCreating || !selectionName.trim() || !selectedPageId}
               >
                 {isCreating ? "Creating..." : "Create Selection"}
               </Button>
