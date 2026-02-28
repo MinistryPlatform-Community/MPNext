@@ -115,38 +115,20 @@ const ENV_VARS: EnvVar[] = [
     description: 'Ministry Platform API base URL',
   },
   {
-    name: 'NEXTAUTH_SECRET',
+    name: 'BETTER_AUTH_SECRET',
     required: true,
     sensitive: true,
-    description: 'NextAuth encryption secret',
+    description: 'Better Auth encryption secret (fallback: NEXTAUTH_SECRET)',
     autoGenerate: true,
   },
   {
-    name: 'NEXTAUTH_URL',
+    name: 'BETTER_AUTH_URL',
     required: true,
     sensitive: false,
-    description: 'Application URL',
+    description: 'Application URL (fallback: NEXTAUTH_URL)',
     defaultValue: 'http://localhost:3000',
   },
   // Optional variables
-  {
-    name: 'OIDC_PROVIDER_NAME',
-    required: false,
-    sensitive: false,
-    description: 'OAuth provider display name',
-  },
-  {
-    name: 'OIDC_SCOPE',
-    required: false,
-    sensitive: false,
-    description: 'OAuth scopes',
-  },
-  {
-    name: 'OIDC_WELL_KNOWN_URL',
-    required: false,
-    sensitive: false,
-    description: 'OIDC well-known configuration URL',
-  },
   {
     name: 'NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL',
     required: false,
@@ -158,12 +140,6 @@ const ENV_VARS: EnvVar[] = [
     required: false,
     sensitive: false,
     description: 'Application display name',
-  },
-  {
-    name: 'NEXTAUTH_DEBUG',
-    required: false,
-    sensitive: false,
-    description: 'Enable NextAuth debug logging',
   },
 ];
 
@@ -395,7 +371,7 @@ function printResult(result: StepResult): void {
   }
 }
 
-async function generateNextAuthSecret(): Promise<string> {
+async function generateAuthSecret(): Promise<string> {
   // Generate a random secret using Node.js crypto
   const { randomBytes } = await import('node:crypto');
   return randomBytes(32).toString('base64');
@@ -412,13 +388,11 @@ function normalizeMPHost(input: string): string {
 
 function deriveMPUrls(host: string): {
   baseUrl: string;
-  wellKnownUrl: string;
   fileUrl: string;
 } {
   const normalizedHost = normalizeMPHost(host);
   return {
     baseUrl: `https://${normalizedHost}/ministryplatformapi`,
-    wellKnownUrl: `https://${normalizedHost}/ministryplatformapi/oauth/.well-known/openid-configuration`,
     fileUrl: `https://${normalizedHost}/ministryplatformapi/files`,
   };
 }
@@ -849,7 +823,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   console.log(chalk.bold.blue('\nMPNext Setup'));
   console.log(chalk.blue('============'));
 
-  const totalSteps = 10;
+  const totalSteps = 9;
   let passedSteps = 0;
   let warnings = 0;
   let failedSteps = 0;
@@ -998,7 +972,6 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   // Variables that are auto-derived from the MP host
   const mpDerivedVars = [
     'MINISTRY_PLATFORM_BASE_URL',
-    'OIDC_WELL_KNOWN_URL',
     'NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL',
   ];
 
@@ -1027,11 +1000,9 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   if (mpHost) {
     const derived = deriveMPUrls(mpHost);
     updates.set('MINISTRY_PLATFORM_BASE_URL', derived.baseUrl);
-    updates.set('OIDC_WELL_KNOWN_URL', derived.wellKnownUrl);
     updates.set('NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL', derived.fileUrl);
 
     console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_BASE_URL = ${derived.baseUrl}`));
-    console.log(chalk.green(`  ✓ OIDC_WELL_KNOWN_URL = ${derived.wellKnownUrl}`));
     console.log(chalk.green(`  ✓ NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL = ${derived.fileUrl}`));
   }
 
@@ -1110,14 +1081,14 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
 
       console.log(chalk.yellow(`\n  ${varDef.name}: ${varDef.description}`));
 
-      if (varDef.autoGenerate && varDef.name === 'NEXTAUTH_SECRET') {
+      if (varDef.autoGenerate && varDef.name === 'BETTER_AUTH_SECRET') {
         const shouldGenerate = await confirm({
           message: `Auto-generate ${varDef.name}?`,
           default: true,
         });
 
         if (shouldGenerate) {
-          const secret = await generateNextAuthSecret();
+          const secret = await generateAuthSecret();
           updates.set(varDef.name, secret);
           console.log(chalk.green(`  ✓ Generated ${varDef.name}`));
         } else {
@@ -1263,7 +1234,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     failedSteps++;
   }
 
-  // Step 9: Summary
+  // Summary
   console.log(chalk.bold.blue('\n\nSetup Complete!'));
   console.log(chalk.blue('==============='));
 

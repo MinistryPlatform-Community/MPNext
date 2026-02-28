@@ -27,9 +27,9 @@ ministry-platform/
 ├── provider.ts                 # Main provider class
 ├── helper.ts                   # Public API helper
 ├── auth/                       # Authentication
-│   ├── auth-provider.ts        # NextAuth provider
 │   ├── client-credentials.ts   # OAuth client credentials
-│   └── types.ts                # Auth-related types
+│   ├── types.ts                # Auth-related types
+│   └── index.ts                # Barrel export
 ├── services/                   # Service layer
 │   ├── table.service.ts
 │   ├── procedure.service.ts
@@ -87,7 +87,7 @@ MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 - ✅ Automatic OAuth2 token management
 - ✅ Service-oriented architecture
 - ✅ Zod schema validation
-- ✅ NextAuth integration
+- ✅ Better Auth integration
 - ✅ File upload/download support
 - ✅ Comprehensive error handling
 - ✅ Clean, standards-compliant code organization
