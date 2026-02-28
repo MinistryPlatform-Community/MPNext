@@ -1,13 +1,14 @@
 # OAuth Logout Configuration for Ministry Platform
 
 ## Current Status
-✅ Basic sign-out implemented using NextAuth server action  
-⚠️ OIDC RP-initiated logout not yet configured
+✅ Basic sign-out implemented using Better Auth server action
+✅ OIDC RP-initiated logout configured
 
 ## What's Working
 - Application-level session termination via `signOut()` server action
-- NextAuth clears local session cookies
+- Better Auth clears local session cookies
 - User is logged out of the Next.js application
+- OIDC RP-initiated logout ends Ministry Platform OAuth session
 
 ## What's Missing (For Complete OIDC Logout)
 
@@ -30,7 +31,7 @@ http://localhost:3000/signin
 
 #### OIDC RP-Initiated Logout Flow:
 When a user clicks "Sign out", the current implementation:
-1. ✅ Destroys NextAuth session (JWT)
+1. ✅ Destroys Better Auth session (JWT)
 2. ❌ Does NOT notify Ministry Platform to end the OAuth session
 
 #### To implement full logout:
@@ -67,17 +68,17 @@ export async function handleSignOut() {
   // Get current session to extract id_token
   const session = await auth();
   const idToken = session?.idToken;
-  
+
   const params = new URLSearchParams({
-    post_logout_redirect_uri: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+    post_logout_redirect_uri: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL || 'http://localhost:3000',
   });
   
   if (idToken) {
     params.append('id_token_hint', idToken);
   }
   
-  // Sign out of NextAuth first
-  await signOut({ 
+  // Sign out of Better Auth first
+  await signOut({
     redirect: false  // Don't redirect yet
   });
   
@@ -86,8 +87,8 @@ export async function handleSignOut() {
 }
 ```
 
-#### Option B: Simple logout (Current Implementation)
-Current implementation only logs out of NextAuth locally. This is acceptable if:
+#### Option B: Simple logout
+Local-only logout of Better Auth. This is acceptable if:
 - You don't need to clear Ministry Platform session
 - Users are okay with auto-login on next visit (SSO behavior)
 
@@ -96,8 +97,8 @@ Ensure these are set:
 
 ```env
 MINISTRY_PLATFORM_BASE_URL=https://your-mp-instance.com
-NEXTAUTH_URL=https://yourdomain.com  # Production
-NEXTAUTH_URL=http://localhost:3000   # Development
+BETTER_AUTH_URL=https://yourdomain.com  # Production
+BETTER_AUTH_URL=http://localhost:3000   # Development
 ```
 
 ### 5. Testing
@@ -117,7 +118,7 @@ NEXTAUTH_URL=http://localhost:3000   # Development
 
 ## References
 - [OpenID Connect RP-Initiated Logout Spec](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
-- [NextAuth.js v5 Logout Documentation](https://authjs.dev/guides/basics/signout)
+- [Better Auth Documentation](https://www.better-auth.com/docs)
 
 ## Decision Required
 
@@ -133,4 +134,4 @@ Choose implementation based on your requirements:
 - Cons: SSO session remains, users auto-login
 - Use when: SSO convenience is preferred
 
-Currently implemented: **Option B**
+Currently implemented: **Option A (Full OIDC Logout)**
