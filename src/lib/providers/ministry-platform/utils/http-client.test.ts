@@ -242,6 +242,7 @@ describe('HttpClient', () => {
         ok: false,
         status: 400,
         statusText: 'Bad Request',
+        text: () => Promise.resolve(''),
       });
 
       await expect(

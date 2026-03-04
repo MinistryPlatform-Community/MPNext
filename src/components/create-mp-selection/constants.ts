@@ -1,0 +1,1 @@
+export const MAX_SELECTION_RECORDS = 1500;
