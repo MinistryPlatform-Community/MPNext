@@ -302,6 +302,7 @@ MPNext/
 │   │   ├── (web)/                        # Protected route group
 │   │   │   ├── contactlookup/            # Contact lookup demo
 │   │   │   │   └── [guid]/               # Dynamic contact detail page
+│   │   │   ├── create-mp-selection/       # Selection creation demo
 │   │   │   ├── home/                     # Home redirect
 │   │   │   ├── tools/                    # Tools framework
 │   │   │   │   └── template/             # Template tool example
@@ -321,6 +322,11 @@ MPNext/
 │   │   │   ├── contact-lookup.tsx
 │   │   │   ├── contact-lookup-search.tsx
 │   │   │   ├── contact-lookup-results.tsx
+│   │   │   ├── actions.ts
+│   │   │   └── index.ts
+│   │   ├── create-mp-selection/           # MP Selection creation
+│   │   │   ├── create-mp-selection.tsx
+│   │   │   ├── constants.ts
 │   │   │   ├── actions.ts
 │   │   │   └── index.ts
 │   │   ├── contact-lookup-details/       # Contact details feature
@@ -362,6 +368,7 @@ MPNext/
 │   │   ├── dto/                          # Application DTOs/ViewModels
 │   │   │   ├── contacts.ts
 │   │   │   ├── contact-logs.ts
+│   │   │   ├── selections.ts
 │   │   │   └── index.ts
 │   │   ├── tool-params.ts                # Tool parameter utilities
 │   │   ├── utils.ts                      # General utilities
@@ -390,6 +397,7 @@ MPNext/
 │   ├── services/                         # Application services
 │   │   ├── contactService.ts
 │   │   ├── contactLogService.ts
+│   │   ├── selectionService.ts
 │   │   ├── userService.ts
 │   │   └── toolService.ts
 │   │
@@ -535,6 +543,7 @@ Built with Radix UI primitives and styled with Tailwind CSS. Located in `src/com
 - **contact-lookup**: Contact search with fuzzy matching
 - **contact-lookup-details**: Detailed contact view with logs
 - **contact-logs**: Full CRUD for contact interaction history
+- **create-mp-selection**: Save filtered record IDs as named MP Selections with deep-link URLs
 - **user-menu**: User profile dropdown with sign-out
 
 ### Tool Components (`src/components/tool/`)
@@ -554,6 +563,7 @@ Application services provide business logic abstraction over the Ministry Platfo
 | **ContactService** | `contactService.ts` | Contact search and updates |
 | **ContactLogService** | `contactLogService.ts` | Contact log CRUD with validation |
 | **UserService** | `userService.ts` | User profile retrieval |
+| **SelectionService** | `selectionService.ts` | Create MP Selections via stored procedures |
 | **ToolService** | `toolService.ts` | Tool page data and user permissions |
 
 All services follow the singleton pattern and use `MPHelper` for API communication.
@@ -588,6 +598,107 @@ src/app/(web)/tools/template/
 Tools receive standard MP parameters like `pageID`, `s` (selection), and `recordDescription`. Use `parseToolParams()` to handle them consistently.
 
 See the [template tool](src/app/(web)/tools/template/) for implementation details.
+
+## Create MP Selection
+
+The **CreateMpSelection** component lets users save a filtered set of record IDs as a named Selection in Ministry Platform, then provides a deep-link URL to open that selection directly in MP.
+
+### How It Works
+
+1. User selects records and clicks "Save as MP Selection"
+2. A dialog opens with an auto-generated timestamped name and (optionally) a page picker dropdown
+3. On submit, the server action calls `SelectionService.createSelection()` which executes the `api_custom_CreateSelection` stored procedure
+4. The dialog shows the resulting deep-link URL with copy-to-clipboard and "Open in MP" buttons
+
+### Component Usage
+
+```tsx
+import { CreateMpSelection } from '@/components/create-mp-selection';
+
+// Single page mode
+<CreateMpSelection
+  pageId={292}
+  recordIds={[1001, 1002, 1003]}
+  defaultSelectionName="My Contacts"
+/>
+
+// Multi-page mode with page picker
+<CreateMpSelection
+  pageOptions={[
+    { pageId: 292, label: "Contacts" },
+    { pageId: 2, label: "Households" },
+  ]}
+  recordIds={selectedIds}
+  onPageChange={(page) => console.log(page)}
+  onSuccess={(result) => console.log(result.selectionUrl)}
+/>
+```
+
+### Required Stored Procedures
+
+This feature requires two custom stored procedures installed on your Ministry Platform database. These are needed because `dp_Selections`, `dp_Selected_Records`, and `dp_Pages` are not accessible via the REST API.
+
+**Install scripts** are provided in the `scripts/` directory and must be run against your Ministry Platform SQL Server database by a database administrator:
+
+| Script | Purpose |
+|--------|---------|
+| [`scripts/api_Custom_CreateSelection.sql`](scripts/api_Custom_CreateSelection.sql) | Creates selections with record IDs |
+| [`scripts/api_custom_GetPages.sql`](scripts/api_custom_GetPages.sql) | Returns pages with optional name search |
+
+Each script is self-contained — it creates the stored procedure, registers it in `dp_API_Procedures`, and grants execute permission to the Administrators role.
+
+#### `api_custom_CreateSelection`
+
+Creates a selection header and inserts selected records in a single transaction.
+
+```sql
+CREATE PROCEDURE [dbo].[api_custom_CreateSelection]
+  @DomainID INT,
+  @PageID INT,
+  @UserID INT,
+  @SelectionName NVARCHAR(255),
+  @RecordIDs NVARCHAR(MAX)
+AS BEGIN
+  SET NOCOUNT ON;
+  INSERT INTO dp_Selections (Selection_Name, Page_ID, User_ID)
+  VALUES (@SelectionName, @PageID, @UserID);
+  DECLARE @Selection_ID INT = SCOPE_IDENTITY();
+  INSERT INTO dp_Selected_Records (Selection_ID, Record_ID)
+  SELECT @Selection_ID, CAST(LTRIM(RTRIM(value)) AS INT)
+  FROM STRING_SPLIT(@RecordIDs, ',')
+  WHERE LTRIM(RTRIM(value)) != '';
+  SELECT @Selection_ID AS Selection_ID, @SelectionName AS Selection_Name,
+    (SELECT COUNT(*) FROM dp_Selected_Records WHERE Selection_ID = @Selection_ID) AS Record_Count;
+END
+```
+
+#### `api_custom_GetPages`
+
+Returns page metadata from `dp_Pages` with optional name filtering.
+
+```sql
+CREATE PROCEDURE [dbo].[api_custom_GetPages]
+  @SearchName NVARCHAR(255) = NULL
+AS BEGIN
+  SET NOCOUNT ON;
+  SELECT Page_ID, Display_Name
+  FROM dp_Pages
+  WHERE @SearchName IS NULL
+    OR Display_Name LIKE '%' + @SearchName + '%'
+  ORDER BY Display_Name;
+END
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MINISTRY_PLATFORM_DOMAIN_ID` | No | Domain ID for stored procedure calls (default: `1`) |
+| `NEXT_PUBLIC_MINISTRY_PLATFORM_URL` | Yes | MP application URL for deep-links (e.g., `https://my.yourorg.com/mp`) — **not** the API URL |
+
+### Demo Page
+
+A working demo is available at `/create-mp-selection` that loads contacts, fetches page options dynamically, and demonstrates the full selection creation flow.
 
 ## Testing
 

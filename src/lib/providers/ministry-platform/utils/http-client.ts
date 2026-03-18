@@ -48,7 +48,14 @@ export class HttpClient {
         });
 
         if (!response.ok) {
-            throw new Error(`POST ${endpoint} failed: ${response.status} ${response.statusText}`);
+            const errorBody = await response.text().catch(() => "");
+            console.error("POST Request failed:", {
+                status: response.status,
+                statusText: response.statusText,
+                url,
+                responseBody: errorBody
+            });
+            throw new Error(`POST ${endpoint} failed: ${response.status} ${response.statusText}${errorBody ? ` — ${errorBody}` : ""}`);
         }
 
         return await response.json() as T;
