@@ -1,7 +1,11 @@
 "use client";
 
 import { XMarkIcon } from "@heroicons/react/24/outline";
-import { HomeIcon, UsersIcon } from "@heroicons/react/24/outline";
+import {
+  HomeIcon,
+  UsersIcon,
+  QueueListIcon,
+} from "@heroicons/react/24/outline";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -11,6 +15,11 @@ interface SidebarProps {
 const navigation = [
   { name: "Dashboard", href: "/", icon: HomeIcon },
   { name: "Contact Lookup", href: "/contactlookup", icon: UsersIcon },
+  {
+    name: "Create Selection",
+    href: "/create-mp-selection",
+    icon: QueueListIcon,
+  },
   // { name: 'Calendar', href: '/calendar', icon: CalendarIcon },
   // { name: 'Settings', href: '/settings', icon: CogIcon },
 ];

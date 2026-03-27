@@ -38,6 +38,20 @@ export default function Home() {
             </Link>
           </CardContent>
         </Card>
+
+        <Card className="flex flex-col">
+          <CardHeader>
+            <CardTitle>Create MP Selection</CardTitle>
+            <CardDescription>
+              Save a filtered set of record IDs as a named Selection in Ministry Platform and get a deep-link URL back
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="mt-auto">
+            <Link href="/create-mp-selection">
+              <Button className="w-full">View Demo</Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
