@@ -2,6 +2,31 @@
 
 This guide provides essential information for AI assistants (like Claude) working on the MPNext project.
 
+## Ministry Platform Data Safety — MANDATORY
+
+**NEVER delete, update, or create records in Ministry Platform without explicit user confirmation first.** No exceptions. No agents. No scripts. No "cleanup" operations. No "it's just one record." No "it's obviously safe."
+
+Ministry Platform is a shared production database containing real church member data — contacts, communications, subscriptions, donations, groups, events. Unauthorized writes can affect thousands of people.
+
+**Before ANY write operation** (`DELETE`, `UPDATE`, `INSERT`, or any API call that modifies data — including `deleteTableRecords`, `updateTableRecords`, `createTableRecords`, stored procedures that mutate state, or any HTTP `POST`/`PUT`/`DELETE` to the MP API):
+
+1. **Stop.** Do not execute the operation.
+2. **Show the user** exactly what will be affected: the table name, the record IDs, the fields that will change, and the old → new values where applicable.
+3. **Wait for the user to explicitly say yes** before proceeding.
+4. If the user says no, do not retry or suggest alternatives unless asked.
+
+**Read-only operations are always fine** — `SELECT` queries, `GET` requests, `getTableRecords` calls. Only writes require confirmation.
+
+**This rule applies to:**
+- The main agent
+- All subagents and background agents
+- All general-purpose, Explore, and Plan agents
+- All one-off scripts (e.g., `npx tsx` scripts)
+- All automated cleanup, migration, or fix operations
+- All hooks and scheduled tasks
+
+**There are zero exceptions.** If you think "this is obviously safe and I don't need to ask," you are wrong. Ask anyway.
+
 ## Commands
 
 - **Dev**: `npm run dev` (Next.js dev server)
