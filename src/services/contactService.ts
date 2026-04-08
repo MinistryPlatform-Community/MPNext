@@ -1,5 +1,6 @@
 import { ContactSearch } from "@/lib/dto";
 import { MPHelper } from "@/lib/providers/ministry-platform";
+import { sanitizeFilterValue, sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 
 /**
  * ContactService - Singleton service for managing contact-related operations
@@ -54,7 +55,7 @@ export class ContactService {
   public async contactSearch(search: string): Promise<ContactSearch[]> {
     const records = await this.mp!.getTableRecords<ContactSearch>({
       table: "Contacts",
-      filter: `First_Name LIKE '%${search}%' OR Last_Name LIKE '%${search}%' OR Nickname LIKE '%${search}%' OR Email_Address LIKE '%${search}%' OR Mobile_Phone LIKE '%${search}%'`,
+      filter: `First_Name LIKE '%${sanitizeFilterValue(search)}%' OR Last_Name LIKE '%${sanitizeFilterValue(search)}%' OR Nickname LIKE '%${sanitizeFilterValue(search)}%' OR Email_Address LIKE '%${sanitizeFilterValue(search)}%' OR Mobile_Phone LIKE '%${sanitizeFilterValue(search)}%'`,
       select: "Contact_ID, Contact_GUID,First_Name,Nickname,Last_Name,Email_Address,Mobile_Phone,dp_fileUniqueId AS Image_GUID",
       top: 20
     });
@@ -71,7 +72,7 @@ export class ContactService {
   public async getContactByGuid(contactGuid: string): Promise<ContactSearch | null> {
     const records = await this.mp!.getTableRecords<ContactSearch>({
       table: "Contacts",
-      filter: `Contact_GUID = '${contactGuid}'`,
+      filter: `Contact_GUID = '${sanitizeGuid(contactGuid)}'`,
       select: "Contact_ID, Contact_GUID,First_Name,Nickname,Last_Name,Email_Address,Mobile_Phone,dp_fileUniqueId AS Image_GUID",
       top: 1
     });
@@ -92,8 +93,7 @@ export class ContactService {
     fields: Partial<Pick<ContactSearch, "Email_Address" | "Mobile_Phone">>
   ): Promise<void> {
     const record = { Contact_ID: contactId, ...fields };
-    console.log("ContactService.updateContact - Updating record:", JSON.stringify(record, null, 2));
-    
+
     await this.mp!.updateTableRecords(
       "Contacts",
       [record]
