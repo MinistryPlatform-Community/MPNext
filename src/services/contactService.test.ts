@@ -69,19 +69,32 @@ describe('ContactService', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('should sanitize single quotes in search input', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.contactSearch("O'Brien");
+
+      const filter = mockGetTableRecords.mock.calls[0][0].filter;
+      expect(filter).toContain("O''Brien");
+      expect(filter).not.toContain("O'Brien");
+    });
   });
 
   describe('getContactByGuid', () => {
+    const validGuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+
     it('should return contact when found', async () => {
-      const mockContact = { Contact_ID: 1, Contact_GUID: 'guid-123', First_Name: 'John' };
+      const mockContact = { Contact_ID: 1, Contact_GUID: validGuid, First_Name: 'John' };
       mockGetTableRecords.mockResolvedValueOnce([mockContact]);
 
       const service = await ContactService.getInstance();
-      const result = await service.getContactByGuid('guid-123');
+      const result = await service.getContactByGuid(validGuid);
 
       expect(mockGetTableRecords).toHaveBeenCalledWith({
         table: 'Contacts',
-        filter: "Contact_GUID = 'guid-123'",
+        filter: `Contact_GUID = '${validGuid}'`,
         select: expect.stringContaining('Contact_GUID'),
         top: 1,
       });
@@ -92,9 +105,14 @@ describe('ContactService', () => {
       mockGetTableRecords.mockResolvedValueOnce([]);
 
       const service = await ContactService.getInstance();
-      const result = await service.getContactByGuid('nonexistent-guid');
+      const result = await service.getContactByGuid(validGuid);
 
       expect(result).toBeNull();
+    });
+
+    it('should throw on invalid GUID format', async () => {
+      const service = await ContactService.getInstance();
+      await expect(service.getContactByGuid('not-a-guid')).rejects.toThrow('Invalid GUID format');
     });
   });
 
