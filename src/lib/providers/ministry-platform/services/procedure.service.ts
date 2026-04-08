@@ -33,13 +33,9 @@ export class ProcedureService {
         try {
             await this.client.ensureValidToken();
 
-            console.log('Executing procedure:', procedure);
-            console.log('Query Params:', params);
-
             const endpoint = `/procs/${encodeURIComponent(procedure)}`;
             const data = await this.client.getHttpClient().get<unknown[][]>(endpoint, params);
-            
-            console.log('Procedure results:', data);
+
             return data;
         } catch (error) {
             console.error(`Error executing procedure ${procedure}:`, error);
@@ -57,13 +53,9 @@ export class ProcedureService {
         try {
             await this.client.ensureValidToken();
 
-            console.log('Executing procedure with body:', procedure);
-            console.log('Parameters:', parameters);
-
             const endpoint = `/procs/${encodeURIComponent(procedure)}`;
             const data = await this.client.getHttpClient().post<unknown[][]>(endpoint, parameters);
-            
-            console.log('Procedure results:', data);
+
             return data;
         } catch (error) {
             console.error(`Error executing procedure ${procedure}:`, error);

@@ -15,13 +15,9 @@ export class TableService {
             try {
                 await this.client.ensureValidToken();
 
-                console.log('Fetching records from table:', table);
-                console.log('Query Params:', params);
-
                 const endpoint = `/tables/${encodeURIComponent(table)}`;
                 const data = await this.client.getHttpClient().get<T[]>(endpoint, params as QueryParams);
-        
-                console.log('Fetched records:', data);
+
                 return data;
             } catch (error) {
                 console.error(`Error fetching records from table ${table}:`, error);
