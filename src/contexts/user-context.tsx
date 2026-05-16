@@ -38,11 +38,14 @@ export function UserProvider({ children }: UserProviderProps) {
   const [userProfilePromise, setUserProfilePromise] =
     useState<Promise<MPUserProfile | null>>(RESOLVED_NULL);
 
-  // Server actions trigger router cache invalidation, so kick them off from
-  // an effect — calling during render would setState on the Router mid-render.
+  // Server actions trigger router cache invalidation, so the fetch must be
+  // kicked off from an effect — calling during render would setState on the
+  // Router mid-render. set-state-in-effect is disabled because driving a
+  // Suspense-consumed promise into state is the React 19 pattern for this.
   useEffect(() => {
     if (isPending) return;
     if (!userGuid) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUserProfilePromise(RESOLVED_NULL);
       return;
     }
