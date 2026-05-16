@@ -1,54 +1,26 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { use } from "react";
 import Image from "next/image";
-import { getContactDetails, getContactLogsByContactId } from "./actions";
-import { ContactLookupDetails as ContactLookupDetailsType, ContactLogDisplay } from "@/lib/dto";
+import { useRouter } from "next/navigation";
+import {
+  ContactLookupDetails as ContactLookupDetailsType,
+  ContactLogDisplay,
+} from "@/lib/dto";
 import { ContactLogs } from "@/components/contact-logs";
 
 interface ContactLookupDetailsProps {
-  guid: string;
+  contactPromise: Promise<ContactLookupDetailsType>;
+  contactLogsPromise: Promise<ContactLogDisplay[]>;
 }
 
 export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
-  guid,
+  contactPromise,
+  contactLogsPromise,
 }) => {
-  const [contact, setContact] = useState<ContactLookupDetailsType | null>(null);
-  const [contactLogs, setContactLogs] = useState<ContactLogDisplay[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchContactDetails = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const contactDetails = await getContactDetails(guid);
-      setContact(contactDetails);
-      
-      // Fetch contact logs
-      if (contactDetails.Contact_ID) {
-        const logs = await getContactLogsByContactId(contactDetails.Contact_ID);
-        setContactLogs(logs);
-      }
-    } catch (err) {
-      console.error("Error loading contact details:", err);
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "An error occurred while loading contact details";
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (guid) {
-      fetchContactDetails();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guid]);
+  const contact = use(contactPromise);
+  const contactLogs = use(contactLogsPromise);
+  const router = useRouter();
 
   const getDisplayName = (firstName?: string, nickname?: string) => {
     return nickname && nickname.trim() ? nickname : firstName;
@@ -68,32 +40,6 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   const getImageUrl = (imageGuid: string) => {
     return `${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${imageGuid}?$thumbnail=true`;
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p>Loading contact details...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <div className="flex">
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-red-800">Error</h3>
-            <div className="mt-2 text-sm text-red-700">
-              <p>{error}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (!contact) {
     return (
@@ -214,13 +160,13 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
           </div>
         </div>
       </div>
-      
+
       <ContactLogs
         contactLogs={contactLogs}
         contactId={contact.Contact_ID}
         contactNickname={contact.Nickname}
         contactLastName={contact.Last_Name}
-        onRefresh={fetchContactDetails}
+        onRefresh={() => router.refresh()}
       />
     </>
   );
