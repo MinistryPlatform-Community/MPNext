@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Save, Trash2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
@@ -104,7 +104,7 @@ export function ContactLogs({
     formState: { errors },
     reset,
     setValue,
-    watch,
+    control,
   } = useForm<ContactLogFormData>({
     resolver: zodResolver(ContactLogFormSchema),
     defaultValues: {
@@ -112,6 +112,8 @@ export function ContactLogs({
       contactId: contactId,
     },
   });
+
+  const contactLogTypeValue = useWatch({ control, name: "contactLogType" });
 
   const onCreateLog = async (data: ContactLogFormData) => {
     try {
@@ -288,7 +290,7 @@ export function ContactLogs({
         <Label htmlFor={isEdit ? "editContactLogType" : "createContactLogType"}>Log Type</Label>
         <Select
           onValueChange={(value) => setValue("contactLogType", value)}
-          value={watch("contactLogType")}
+          value={contactLogTypeValue}
         >
           <SelectTrigger>
             <SelectValue

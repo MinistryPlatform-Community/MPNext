@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/app/providers";
 import { AuthWrapper, Header, DynamicBreadcrumb } from "@/components/layout";
@@ -34,7 +35,9 @@ export default async function WebLayout({
     <AuthWrapper>
       <Providers>
         <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
-          <Header />
+          <Suspense fallback={<div className="h-16" />}>
+            <Header />
+          </Suspense>
           <main className="flex-1 mt-16">
             <div className="px-4 py-3 border-b bg-muted/30">
               <DynamicBreadcrumb />

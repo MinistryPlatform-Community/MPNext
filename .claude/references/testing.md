@@ -218,12 +218,10 @@ npx vitest run --coverage --coverage.reportOnFailure
 | `services/contactService.test.ts` | 10 | Contact search, getByGuid, updateContact |
 | `services/contactLogService.test.ts` | 16 | Contact log CRUD, date conversion, Zod validation |
 | `services/userService.test.ts` | 4 | User profile lookup |
-| `services/toolService.test.ts` | 7 | Page data + user tools via stored procedures |
 | `components/contact-lookup/actions.test.ts` | 5 | Search contacts action |
 | `components/contact-logs/actions.test.ts` | 19 | Contact log CRUD actions with auth |
 | `components/contact-lookup-details/actions.test.ts` | 10 | Contact details + log type mapping |
 | `components/user-menu/actions.test.ts` | 3 | Sign-out + OAuth end session redirect |
-| `components/user-tools-debug/actions.test.ts` | 4 | User tools with auth + MP lookup |
 | `components/shared-actions/user.test.ts` | 2 | getCurrentUserProfile delegation |
 | `proxy.test.ts` | 8 | Route protection (public paths, session, errors) |
 | `lib/providers/ministry-platform/provider.test.ts` | 9 | Provider delegation to services |

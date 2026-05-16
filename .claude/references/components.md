@@ -17,8 +17,6 @@ src/components/
 ├── contact-logs/               # Contact log CRUD feature
 ├── contact-lookup/             # Contact search feature
 ├── contact-lookup-details/     # Contact details view
-├── tool/                       # Tool layout components (ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug)
-├── user-tools-debug/           # Debug: User permissions display (dev only)
 └── user-menu/                  # User dropdown menu
 ```
 
@@ -42,16 +40,6 @@ src/components/
 | `contact-lookup/` | Contact search with results display | Yes |
 | `contact-lookup-details/` | Contact profile and logs view | Yes |
 | `user-menu/` | User dropdown with sign-out | Yes |
-| `tool/` | Tool layout components (ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug) | No |
-
-### Debug Components (Development Only)
-
-| Folder | Purpose | Remove Before Production |
-|--------|---------|-------------------------|
-| `tool/` (ToolParamsDebug) | Displays parsed URL tool parameters | Yes |
-| `user-tools-debug/` | Shows user's authorized tool paths | Yes |
-
-**Note**: `ToolParamsDebug` is located inside the consolidated `tool/` folder alongside the other tool layout components.
 
 ### UI Components (shadcn/ui)
 
@@ -72,7 +60,6 @@ Actions are co-located with their feature components:
 | contact-lookup | `contact-lookup/actions.ts` | `searchContacts` |
 | contact-lookup-details | `contact-lookup-details/actions.ts` | `getContactDetails`, `getContactLogsByContactId` |
 | user-menu | `user-menu/actions.ts` | `handleSignOut` |
-| user-tools-debug | `user-tools-debug/actions.ts` | `getUserTools` |
 | **shared** | `shared-actions/user.ts` | `getCurrentUserProfile` |
 
 **Shared Actions Folder**: `src/components/shared-actions/` contains actions used across multiple features. See the README in that folder for guidelines on when to use shared vs co-located actions.
@@ -84,9 +71,6 @@ Actions are co-located with their feature components:
 import { ContactLookup } from '@/components/contact-lookup';
 import { ContactLogs } from '@/components/contact-logs';
 import { UserMenu } from '@/components/user-menu';
-
-// Tool components (use barrel export)
-import { ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug } from '@/components/tool';
 
 // UI components (individual imports)
 import { Button } from '@/components/ui/button';
@@ -136,17 +120,6 @@ All components pass the following checks:
 - **dialog.tsx**: Uses mixed patterns (direct assignment vs forwardRef) - works but inconsistent.
 - **tooltip.tsx**: Auto-wraps with `TooltipProvider` internally - no need to wrap manually.
 
-### Debug Components
-
-The `ToolParamsDebug` (inside `tool/`) and `user-tools-debug` components are marked for removal before production. They are currently used in `src/app/(web)/tools/template/template-tool.tsx`.
-
-Consider conditional rendering:
-```typescript
-import { ToolParamsDebug } from '@/components/tool';
-
-{process.env.NODE_ENV === 'development' && <ToolParamsDebug params={params} />}
-```
-
 ## Quick Reference: Component Responsibilities
 
 ### contact-logs
@@ -163,14 +136,6 @@ import { ToolParamsDebug } from '@/components/tool';
 - **Purpose**: Display full contact profile with associated logs
 - **Features**: Profile info display, embedded ContactLogs component, loading/error states
 
-### tool
-- **Purpose**: Consolidated folder containing reusable layout components for tool interfaces
-- **Components**: `ToolContainer`, `ToolHeader`, `ToolFooter`, `ToolParamsDebug`
-- **Usage**: Wrap tool content with consistent header/footer styling
-- **Pattern**: Composition via children prop
-- **Import**: `import { ToolContainer, ToolHeader, ToolFooter, ToolParamsDebug } from '@/components/tool';`
-- **Note**: `ToolParamsDebug` is a debug component for development only
-
 ### user-menu
 - **Purpose**: User profile dropdown with sign-out
 - **Features**: Displays user name/email, implements OIDC logout flow
@@ -184,7 +149,6 @@ Components interact with these service classes:
 |---------|----------|---------|
 | ContactService | `@/services/contactService` | contact-lookup, contact-lookup-details |
 | ContactLogService | `@/services/contactLogService` | contact-logs |
-| ToolService | `@/services/toolService` | user-tools-debug |
 | UserService | `@/services/userService` | user-menu |
 
 All services ultimately use `MPHelper` from `@/lib/providers/ministry-platform` for API calls.

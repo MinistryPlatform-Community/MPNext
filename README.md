@@ -1,8 +1,16 @@
 # MPNext
 
+[![Release](https://img.shields.io/github/v/release/MinistryPlatform-Community/MPNext?logo=github)](https://github.com/MinistryPlatform-Community/MPNext/releases/latest)
 [![Tests](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml/badge.svg)](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MinistryPlatform-Community/MPNext/graph/badge.svg)](https://codecov.io/gh/MinistryPlatform-Community/MPNext)
-[![Version](https://img.shields.io/github/v/release/MinistryPlatform-Community/MPNext)](https://github.com/MinistryPlatform-Community/MPNext/releases/latest)
+
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-new--york-000000?logo=shadcnui&logoColor=white)](https://ui.shadcn.com/)
+[![Radix UI](https://img.shields.io/badge/Radix_UI-primitives-161618?logo=radixui&logoColor=white)](https://www.radix-ui.com/)
+[![Lucide](https://img.shields.io/badge/Lucide-icons-F56565?logo=lucide&logoColor=white)](https://lucide.dev/)
 
 A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and Better Auth.
 
@@ -36,7 +44,6 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - **Schema Documentation**: Auto-generated markdown documentation with type file links
 - **Validation**: Optional Zod v4 schema validation in MPHelper for runtime data validation before API calls
 - **Testing**: Vitest test framework with comprehensive coverage for auth, proxy, and API services
-- **Tools Framework**: Reusable tool components for building Ministry Platform page tools
 
 ## Architecture
 
@@ -303,8 +310,6 @@ MPNext/
 │   │   │   ├── contactlookup/            # Contact lookup demo
 │   │   │   │   └── [guid]/               # Dynamic contact detail page
 │   │   │   ├── home/                     # Home redirect
-│   │   │   ├── tools/                    # Tools framework
-│   │   │   │   └── template/             # Template tool example
 │   │   │   ├── layout.tsx                # Web layout with auth
 │   │   │   └── page.tsx                  # Dashboard/home page
 │   │   ├── api/auth/[...all]/             # Better Auth API routes
@@ -333,18 +338,8 @@ MPNext/
 │   │   │   ├── header.tsx
 │   │   │   ├── sidebar.tsx
 │   │   │   └── index.ts
-│   │   ├── tool/                         # Tool framework components
-│   │   │   ├── tool-container.tsx
-│   │   │   ├── tool-header.tsx
-│   │   │   ├── tool-footer.tsx
-│   │   │   ├── tool-params-debug.tsx
-│   │   │   └── index.ts
 │   │   ├── user-menu/                    # User menu feature
 │   │   │   ├── user-menu.tsx
-│   │   │   ├── actions.ts
-│   │   │   └── index.ts
-│   │   ├── user-tools-debug/             # Development debug helper
-│   │   │   ├── user-tools-debug.tsx
 │   │   │   ├── actions.ts
 │   │   │   └── index.ts
 │   │   ├── shared-actions/               # Cross-feature server actions
@@ -363,7 +358,6 @@ MPNext/
 │   │   │   ├── contacts.ts
 │   │   │   ├── contact-logs.ts
 │   │   │   └── index.ts
-│   │   ├── tool-params.ts                # Tool parameter utilities
 │   │   ├── utils.ts                      # General utilities
 │   │   └── providers/
 │   │       └── ministry-platform/        # Ministry Platform provider
@@ -390,8 +384,7 @@ MPNext/
 │   ├── services/                         # Application services
 │   │   ├── contactService.ts
 │   │   ├── contactLogService.ts
-│   │   ├── userService.ts
-│   │   └── toolService.ts
+│   │   └── userService.ts
 │   │
 │   ├── auth.test.ts                      # Auth tests
 │   ├── proxy.ts                          # Next.js 16 proxy (route protection)
@@ -537,12 +530,6 @@ Built with Radix UI primitives and styled with Tailwind CSS. Located in `src/com
 - **contact-logs**: Full CRUD for contact interaction history
 - **user-menu**: User profile dropdown with sign-out
 
-### Tool Components (`src/components/tool/`)
-- **ToolContainer**: Main wrapper for tool pages
-- **ToolHeader**: Tool title bar with optional info tooltip
-- **ToolFooter**: Save/Close action buttons
-- **ToolParamsDebug**: Development helper for debugging URL parameters
-
 All components follow kebab-case naming and use named exports for consistency.
 
 ## Services
@@ -554,40 +541,8 @@ Application services provide business logic abstraction over the Ministry Platfo
 | **ContactService** | `contactService.ts` | Contact search and updates |
 | **ContactLogService** | `contactLogService.ts` | Contact log CRUD with validation |
 | **UserService** | `userService.ts` | User profile retrieval |
-| **ToolService** | `toolService.ts` | Tool page data and user permissions |
 
 All services follow the singleton pattern and use `MPHelper` for API communication.
-
-## Building Custom Tools
-
-### Template Tool
-
-The project includes a template tool (`src/app/(web)/tools/template/`) that demonstrates best practices for building Ministry Platform tools that can be launched from within MP pages.
-
-**Key features:**
-- URL parameter parsing for MP page context (`pageID`, record selection, etc.)
-- Dual-mode support (create new vs. edit existing records)
-- Standard tool UI with save/close actions
-- Development helpers for debugging tool params and user context
-- Integration with `ToolContainer` component for consistent UX
-
-**Structure:**
-```
-src/app/(web)/tools/template/
-├── page.tsx           # Server component that parses URL params
-└── template-tool.tsx  # Client component with tool UI
-```
-
-**Usage as a starting point:**
-1. Copy the `template` folder to create your new tool
-2. Rename files and components appropriately
-3. Implement your tool logic inside the `ToolContainer`
-4. Remove `ToolParamsDebug` and `UserToolsDebug` before production
-
-**URL Parameters:**
-Tools receive standard MP parameters like `pageID`, `s` (selection), and `recordDescription`. Use `parseToolParams()` to handle them consistently.
-
-See the [template tool](src/app/(web)/tools/template/) for implementation details.
 
 ## Testing
 
@@ -765,7 +720,6 @@ import { MPHelper } from '@/lib/providers/ministry-platform';
 import { Button } from '@/components/ui/button';
 import { ContactSearch } from '@/lib/dto';
 import { Header, Sidebar } from '@/components/layout';
-import { ToolContainer } from '@/components/tool';
 ```
 
 ### Component Style
@@ -788,7 +742,6 @@ src/components/
 ├── shared-actions/       # Cross-feature server actions
 ├── ui/                   # shadcn/ui components
 ├── layout/               # Layout components (header, sidebar, etc.)
-├── tool/                 # Tool framework components
 ├── feature-name/         # Feature folder (kebab-case)
 │   ├── feature-name.tsx  # Main component
 │   ├── actions.ts        # Feature-specific server actions
@@ -804,9 +757,6 @@ import { UserMenu } from '@/components/user-menu';
 
 // Import layout components
 import { Header, Sidebar, AuthWrapper } from '@/components/layout';
-
-// Import tool components
-import { ToolContainer, ToolParamsDebug } from '@/components/tool';
 
 // Import application DTOs
 import { ContactSearch, ContactLookupDetails } from '@/lib/dto';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { ReactNode } from 'react';
+import { render, renderHook, screen, waitFor, act } from '@testing-library/react';
+import { Component, ReactNode, Suspense } from 'react';
 
 const { mockUseSession, mockGetCurrentUserProfile } = vi.hoisted(() => ({
   mockUseSession: vi.fn(),
@@ -19,10 +19,46 @@ vi.mock('@/components/shared-actions/user', () => ({
 
 import { UserProvider, useUser } from './user-context';
 
-function createWrapper() {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return <UserProvider>{children}</UserProvider>;
-  };
+function ProfileProbe({
+  onRefresh,
+}: {
+  onRefresh?: (fn: () => void) => void;
+}) {
+  const { userProfile, refreshUserProfile } = useUser();
+  if (onRefresh) onRefresh(refreshUserProfile);
+  return (
+    <span data-testid="name">{userProfile?.First_Name ?? 'none'}</span>
+  );
+}
+
+class Boundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return <div data-testid="err">{this.state.error.message}</div>;
+    }
+    return this.props.children;
+  }
+}
+
+async function renderWithProvider(ui: ReactNode) {
+  let result!: ReturnType<typeof render>;
+  await act(async () => {
+    result = render(
+      <UserProvider>
+        <Boundary>
+          <Suspense fallback={<div>loading</div>}>{ui}</Suspense>
+        </Boundary>
+      </UserProvider>
+    );
+  });
+  return result;
 }
 
 describe('UserContext', () => {
@@ -32,7 +68,6 @@ describe('UserContext', () => {
 
   describe('useUser', () => {
     it('should throw when used outside UserProvider', () => {
-      // Suppress console.error for this test
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       expect(() => {
@@ -58,62 +93,58 @@ describe('UserContext', () => {
       });
       mockGetCurrentUserProfile.mockResolvedValueOnce(mockProfile);
 
-      const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
+      await renderWithProvider(<ProfileProbe />);
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
       });
-
-      expect(result.current.userProfile).toEqual(mockProfile);
-      expect(result.current.error).toBeNull();
       expect(mockGetCurrentUserProfile).toHaveBeenCalledWith('guid-123');
     });
 
-    it('should set null profile when no session', async () => {
+    it('should resolve to null profile when no session', async () => {
       mockUseSession.mockReturnValue({
         data: null,
         isPending: false,
       });
 
-      const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
+      await renderWithProvider(<ProfileProbe />);
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
-
-      expect(result.current.userProfile).toBeNull();
       expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
     });
 
-    it('should not fetch profile when session has no userGuid', () => {
+    it('should not fetch profile when session has no userGuid', async () => {
       mockUseSession.mockReturnValue({
         data: { user: { id: 'internal-id' } },
         isPending: false,
       });
 
-      const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
+      await renderWithProvider(<ProfileProbe />);
 
-      // When session exists but has no userGuid, neither effect branch triggers
-      expect(result.current.userProfile).toBeNull();
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
       expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
     });
 
-    it('should handle profile load error', async () => {
+    it('should propagate profile load error to ErrorBoundary', async () => {
       mockUseSession.mockReturnValue({
         data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
         isPending: false,
       });
       mockGetCurrentUserProfile.mockRejectedValueOnce(new Error('Network error'));
 
-      const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(<ProfileProbe />);
 
       await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
+        expect(screen.getByTestId('err')).toHaveTextContent('Network error');
       });
 
-      expect(result.current.userProfile).toBeNull();
-      expect(result.current.error).toBeInstanceOf(Error);
-      expect(result.current.error?.message).toBe('Network error');
+      spy.mockRestore();
     });
 
     it('should refresh profile when refreshUserProfile is called', async () => {
@@ -128,17 +159,28 @@ describe('UserContext', () => {
         .mockResolvedValueOnce(mockProfile)
         .mockResolvedValueOnce(updatedProfile);
 
-      const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
+      const refreshRef: { current: (() => void) | null } = { current: null };
+
+      await renderWithProvider(
+        <ProfileProbe
+          onRefresh={(fn) => {
+            refreshRef.current = fn;
+          }}
+        />
+      );
 
       await waitFor(() => {
-        expect(result.current.userProfile).toEqual(mockProfile);
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
       });
 
       await act(async () => {
-        await result.current.refreshUserProfile();
+        refreshRef.current?.();
       });
 
-      expect(result.current.userProfile).toEqual(updatedProfile);
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('Jane');
+      });
+
       expect(mockGetCurrentUserProfile).toHaveBeenCalledTimes(2);
     });
   });

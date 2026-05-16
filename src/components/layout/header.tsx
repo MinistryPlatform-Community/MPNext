@@ -10,7 +10,7 @@ import { useAppSession, useUser } from "@/contexts";
 
 export function Header() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { userProfile, isLoading } = useUser();
+  const { userProfile } = useUser();
   const session = useAppSession();
 
   return (
@@ -33,7 +33,7 @@ export function Header() {
 
           {/* Right side - User avatar */}
           <div className="relative">
-            {!isLoading && userProfile ? (
+            {userProfile ? (
               <UserMenu userProfile={userProfile}>
                 <button
                   className="p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -68,7 +68,6 @@ export function Header() {
               <button
                 className="p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
                 aria-label="User menu"
-                disabled={isLoading}
               >
                 <UserCircleIcon className="h-8 w-8 text-white" />
               </button>
