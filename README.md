@@ -1,8 +1,16 @@
 # MPNext
 
+[![Release](https://img.shields.io/github/v/release/MinistryPlatform-Community/MPNext?logo=github)](https://github.com/MinistryPlatform-Community/MPNext/releases/latest)
 [![Tests](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml/badge.svg)](https://github.com/MinistryPlatform-Community/MPNext/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/MinistryPlatform-Community/MPNext/graph/badge.svg)](https://codecov.io/gh/MinistryPlatform-Community/MPNext)
-[![Version](https://img.shields.io/github/v/release/MinistryPlatform-Community/MPNext)](https://github.com/MinistryPlatform-Community/MPNext/releases/latest)
+
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-new--york-000000?logo=shadcnui&logoColor=white)](https://ui.shadcn.com/)
+[![Radix UI](https://img.shields.io/badge/Radix_UI-primitives-161618?logo=radixui&logoColor=white)](https://www.radix-ui.com/)
+[![Lucide](https://img.shields.io/badge/Lucide-icons-F56565?logo=lucide&logoColor=white)](https://lucide.dev/)
 
 A modern Next.js application integrated with Ministry Platform authentication and REST API, built with TypeScript, Next.js 16, React 19, and Better Auth.
 
