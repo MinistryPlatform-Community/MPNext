@@ -225,4 +225,5 @@ For detailed context on specific areas, see:
 - **[Auth Reference](.claude/references/auth.md)** - Better Auth configuration, OAuth flow, session access patterns, `userGuid` vs `user.id`, and known limitations
 - **[Components Reference](.claude/references/components.md)** - Detailed inventory of all components, their purposes, server actions, and compliance status
 - **[Ministry Platform Schema](.claude/references/ministryplatform.schema.md)** - Auto-generated summary of Ministry Platform database tables, primary keys, and foreign key relationships
+- **[Ministry Platform Query Syntax](.claude/references/ministryplatform.query-syntax.md)** - SQL-style query syntax for `/tables/{table}/get` (filters, aggregates, `_TABLE` FK traversal rules, common errors and fixes)
 - **[Testing Reference](.claude/references/testing.md)** - Vitest setup, mock patterns (`vi.hoisted`, MPHelper, auth), coverage data, and test file inventory
