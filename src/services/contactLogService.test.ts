@@ -6,12 +6,14 @@ const {
   mockUpdateTableRecords,
   mockDeleteTableRecords,
   mockGetDomainInfo,
+  mockGetActingUserIdForWrite,
 } = vi.hoisted(() => ({
   mockGetTableRecords: vi.fn(),
   mockCreateTableRecords: vi.fn(),
   mockUpdateTableRecords: vi.fn(),
   mockDeleteTableRecords: vi.fn(),
   mockGetDomainInfo: vi.fn(),
+  mockGetActingUserIdForWrite: vi.fn(),
 }));
 
 vi.mock('@/lib/providers/ministry-platform', () => {
@@ -26,6 +28,14 @@ vi.mock('@/lib/providers/ministry-platform', () => {
   };
 });
 
+vi.mock('@/services/sessionContextService', () => ({
+  SessionContextService: {
+    getInstance: () => ({
+      getActingUserIdForWrite: mockGetActingUserIdForWrite,
+    }),
+  },
+}));
+
 import { ContactLogService } from '@/services/contactLogService';
 import { DomainTimezoneService } from '@/services/domainTimezoneService';
 
@@ -36,6 +46,8 @@ describe('ContactLogService', () => {
     mockUpdateTableRecords.mockReset();
     mockDeleteTableRecords.mockReset();
     mockGetDomainInfo.mockReset();
+    mockGetActingUserIdForWrite.mockReset();
+    mockGetActingUserIdForWrite.mockResolvedValue(500);
     mockGetDomainInfo.mockResolvedValue({
       TimeZoneName: 'America/New_York',
       DisplayName: 'Test',
@@ -186,15 +198,47 @@ describe('ContactLogService', () => {
         Feedback_Entry_ID: null,
       });
 
-      expect(mockCreateTableRecords).toHaveBeenCalledWith('Contact_Log', [
-        expect.objectContaining({
-          Contact_ID: 42,
-          Contact_Date: '2026-05-17 00:00:00',
-          Notes: 'Test note',
-          Made_By: 100,
-        }),
-      ]);
+      expect(mockCreateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [
+          expect.objectContaining({
+            Contact_ID: 42,
+            Contact_Date: '2026-05-17 00:00:00',
+            Notes: 'Test note',
+            Made_By: 100,
+          }),
+        ],
+        { $userId: 500 },
+      );
+      expect(mockGetActingUserIdForWrite).toHaveBeenCalledWith({
+        table: 'Contact_Log',
+        operation: 'create',
+      });
       expect(result).toEqual(mockCreated);
+    });
+
+    it('omits $userId param when SessionContextService resolves to null (anonymous write)', async () => {
+      mockGetActingUserIdForWrite.mockResolvedValueOnce(null);
+      mockCreateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.createContactLog({
+        Contact_ID: 42,
+        Contact_Date: '2026-05-17',
+        Contact_Log_Type_ID: 1,
+        Made_By: 100,
+        Notes: 'Test note',
+        Planned_Contact_ID: null,
+        Contact_Successful: null,
+        Original_Contact_Log_Entry: null,
+        Feedback_Entry_ID: null,
+      });
+
+      expect(mockCreateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        expect.any(Array),
+        undefined,
+      );
     });
 
     it('converts a UTC-tagged Contact_Date into MP-TZ wall-clock', async () => {
@@ -214,9 +258,11 @@ describe('ContactLogService', () => {
         Feedback_Entry_ID: null,
       });
 
-      expect(mockCreateTableRecords).toHaveBeenCalledWith('Contact_Log', [
-        expect.objectContaining({ Contact_Date: '2026-05-16 23:33:00' }),
-      ]);
+      expect(mockCreateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [expect.objectContaining({ Contact_Date: '2026-05-16 23:33:00' })],
+        { $userId: 500 },
+      );
     });
 
     it('throws when API returns empty result', async () => {
@@ -261,12 +307,20 @@ describe('ContactLogService', () => {
       const service = await ContactLogService.getInstance();
       const result = await service.updateContactLog(1, { Notes: 'Updated note' });
 
-      expect(mockUpdateTableRecords).toHaveBeenCalledWith('Contact_Log', [
-        expect.objectContaining({
-          Contact_Log_ID: 1,
-          Notes: 'Updated note',
-        }),
-      ]);
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [
+          expect.objectContaining({
+            Contact_Log_ID: 1,
+            Notes: 'Updated note',
+          }),
+        ],
+        { $userId: 500 },
+      );
+      expect(mockGetActingUserIdForWrite).toHaveBeenCalledWith({
+        table: 'Contact_Log',
+        operation: 'update',
+      });
       expect(result).toEqual(mockUpdated);
     });
 
@@ -276,12 +330,30 @@ describe('ContactLogService', () => {
       const service = await ContactLogService.getInstance();
       await service.updateContactLog(1, { Contact_Date: '2026-05-17' });
 
-      expect(mockUpdateTableRecords).toHaveBeenCalledWith('Contact_Log', [
-        expect.objectContaining({
-          Contact_Log_ID: 1,
-          Contact_Date: '2026-05-17 00:00:00',
-        }),
-      ]);
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [
+          expect.objectContaining({
+            Contact_Log_ID: 1,
+            Contact_Date: '2026-05-17 00:00:00',
+          }),
+        ],
+        { $userId: 500 },
+      );
+    });
+
+    it('omits $userId param when SessionContextService resolves to null (anonymous update)', async () => {
+      mockGetActingUserIdForWrite.mockResolvedValueOnce(null);
+      mockUpdateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.updateContactLog(1, { Notes: 'Anon update' });
+
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        expect.any(Array),
+        undefined,
+      );
     });
 
     it('regression: round-tripping the same edit does not shift the date', async () => {
@@ -298,6 +370,7 @@ describe('ContactLogService', () => {
 
       for (const call of mockUpdateTableRecords.mock.calls) {
         expect(call[1][0].Contact_Date).toBe('2026-05-17 00:00:00');
+        expect(call[2]).toEqual({ $userId: 500 });
       }
     });
 
@@ -318,7 +391,29 @@ describe('ContactLogService', () => {
       const service = await ContactLogService.getInstance();
       await service.deleteContactLog(42);
 
-      expect(mockDeleteTableRecords).toHaveBeenCalledWith('Contact_Log', [42]);
+      expect(mockDeleteTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [42],
+        { $userId: 500 },
+      );
+      expect(mockGetActingUserIdForWrite).toHaveBeenCalledWith({
+        table: 'Contact_Log',
+        operation: 'delete',
+      });
+    });
+
+    it('omits $userId param when SessionContextService resolves to null (anonymous delete)', async () => {
+      mockGetActingUserIdForWrite.mockResolvedValueOnce(null);
+      mockDeleteTableRecords.mockResolvedValueOnce(undefined);
+
+      const service = await ContactLogService.getInstance();
+      await service.deleteContactLog(42);
+
+      expect(mockDeleteTableRecords).toHaveBeenCalledWith(
+        'Contact_Log',
+        [42],
+        undefined,
+      );
     });
 
     it('should propagate delete errors', async () => {

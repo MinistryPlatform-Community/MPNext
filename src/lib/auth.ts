@@ -2,8 +2,39 @@ import { betterAuth, BetterAuthOptions } from "better-auth";
 import { genericOAuth } from "better-auth/plugins";
 import { customSession } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { MPHelper } from "@/lib/providers/ministry-platform";
+import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 
 const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+
+// Process-wide cache of User_GUID → MP User_ID. customSession runs on every
+// getSession() call, so without a cache each request would do a dp_Users
+// lookup. Mapping is stable per user, so an unbounded Map is fine in practice.
+const userIdCache = new Map<string, number>();
+
+async function resolveMpUserId(userGuid: string): Promise<number | null> {
+  const cached = userIdCache.get(userGuid);
+  if (cached !== undefined) return cached;
+  try {
+    const mp = new MPHelper();
+    const [record] = await mp.getTableRecords<{ User_ID: number }>({
+      table: "dp_Users",
+      filter: `User_GUID = '${sanitizeGuid(userGuid)}'`,
+      select: "User_ID",
+      top: 1,
+    });
+    if (record?.User_ID) {
+      userIdCache.set(userGuid, record.User_ID);
+      return record.User_ID;
+    }
+    return null;
+  } catch (err) {
+    // Never block session creation on this — the NonUser Write warning at
+    // write time will surface the missing attribution.
+    console.error("[customSession] resolveMpUserId failed", { userGuid, err });
+    return null;
+  }
+}
 
 const options = {
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
@@ -96,14 +127,20 @@ export const auth = betterAuth({
     ...(options.plugins ?? []),
     customSession(
       async ({ user, session }) => {
-        // No API calls here — profile loading is handled by UserProvider
-        // on the client side via getCurrentUserProfile(). This keeps
-        // getSession() fast and avoids hitting the MP API on every request.
+        // Profile loading still happens client-side via UserProvider /
+        // getCurrentUserProfile(). The only server-side lookup we do here is
+        // User_ID, cached in-memory after the first resolution per process,
+        // so it costs at most one MP call per (user × container).
+        const userGuid = (user as { userGuid?: string | null }).userGuid;
+        const userId: number | null = userGuid
+          ? await resolveMpUserId(userGuid)
+          : null;
         return {
           user: {
             ...user,
             firstName: user.name?.split(" ")[0] || "",
             lastName: user.name?.split(" ").slice(1).join(" ") || "",
+            userId,
           },
           session,
         };

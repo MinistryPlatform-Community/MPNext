@@ -3,6 +3,7 @@ import { ContactLogTypes } from "@/lib/providers/ministry-platform/models/Contac
 import { ContactLogSchema, ContactLogInput } from "@/lib/providers/ministry-platform/models/ContactLogSchema";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { DomainTimezoneService } from "@/services/domainTimezoneService";
+import { SessionContextService } from "@/services/sessionContextService";
 
 /**
  * ContactLogService - Singleton service for managing contact log operations
@@ -146,9 +147,15 @@ export class ContactLogService {
     const mpDate = await tz.toMpSqlDatetime(Contact_Date);
     console.log('ContactLogService.createContactLog - MP-TZ SQL date:', mpDate);
 
+    const $userId = await SessionContextService.getInstance().getActingUserIdForWrite({
+      table: "Contact_Log",
+      operation: "create",
+    });
+
     const result = await this.mp!.createTableRecords(
       "Contact_Log",
-      [{ ...validatedRest, Contact_Date: mpDate }]
+      [{ ...validatedRest, Contact_Date: mpDate }],
+      $userId !== null ? { $userId } : undefined
     );
 
     if (!result || result.length === 0) {
@@ -191,9 +198,15 @@ export class ContactLogService {
       ...(mpDate !== undefined ? { Contact_Date: mpDate } : {}),
     };
 
+    const $userId = await SessionContextService.getInstance().getActingUserIdForWrite({
+      table: "Contact_Log",
+      operation: "update",
+    });
+
     const result = await this.mp!.updateTableRecords(
       "Contact_Log",
-      [updateData]
+      [updateData],
+      $userId !== null ? { $userId } : undefined
     );
 
     if (!result || result.length === 0) {
@@ -211,10 +224,16 @@ export class ContactLogService {
    */
   public async deleteContactLog(contactLogId: number): Promise<void> {
     console.log('ContactLogService.deleteContactLog - Deleting log:', contactLogId);
-    
+
+    const $userId = await SessionContextService.getInstance().getActingUserIdForWrite({
+      table: "Contact_Log",
+      operation: "delete",
+    });
+
     await this.mp!.deleteTableRecords(
       "Contact_Log",
-      [contactLogId]
+      [contactLogId],
+      $userId !== null ? { $userId } : undefined
     );
     
     console.log('ContactLogService.deleteContactLog - Successfully deleted');
