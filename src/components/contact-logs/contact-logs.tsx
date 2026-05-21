@@ -44,7 +44,7 @@ const ContactLogFormSchema = z.object({
     .min(1, "Notes are required")
     .max(2000, "Notes must be less than 2000 characters"),
   contactLogType: z.string().optional(),
-  contactDate: z.string().min(1, "Contact date is required"),
+  contactDate: z.string().min(1, "Contact date and time is required"),
   contactId: z.number().min(1, "Contact ID is required"),
 });
 
@@ -55,26 +55,83 @@ interface ContactLogsProps {
   contactId: number;
   contactNickname?: string;
   contactLastName?: string;
+  mpTimezone: string;
   onRefresh?: () => void;
 }
 
-function formatDateTime(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
+function formatDateTime(dateString: string, timeZone: string): string {
+  // MP returns wall-clock datetimes in its domain time zone (no zone marker).
+  // `new Date(...)` would parse those as browser-local — wrong for users in
+  // a different zone. Treat the string as MP-TZ wall-clock and format with
+  // Intl so the displayed value matches MP's database.
+  const normalized = dateString.replace("T", " ").split(".")[0];
+  const match = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?(?:Z)?$/
+  );
+  let instant: Date;
+  if (match) {
+    const [, y, mo, d, h = "00", mi = "00", s = "00"] = match;
+    // Build the matching UTC instant by treating the wall-clock as MP-TZ.
+    const utcGuess = Date.UTC(+y, +mo - 1, +d, +h, +mi, +s);
+    const projectedParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(utcGuess));
+    const get = (t: string) => Number(projectedParts.find((p) => p.type === t)!.value);
+    const projectedHour = get("hour") === 24 ? 0 : get("hour");
+    const projectedUtc = Date.UTC(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      projectedHour,
+      get("minute"),
+      get("second")
+    );
+    instant = new Date(utcGuess + (utcGuess - projectedUtc));
+  } else {
+    instant = new Date(dateString);
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(instant);
 }
 
-function getTodayLocalDate(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function getNowInMpTz(timeZone: string): string {
+  // datetime-local input format: "YYYY-MM-DDTHH:MM" — render "now" as MP-TZ
+  // wall-clock so what the user sees matches what we'll store.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
+function toDatetimeLocalValue(mpDate: string): string {
+  // MP returns "YYYY-MM-DDTHH:MM:SS" or "YYYY-MM-DD HH:MM:SS" — trim seconds
+  // and any trailing fractional/Z portion to fit the datetime-local format.
+  const normalized = mpDate.replace(" ", "T");
+  if (normalized.length >= 16) {
+    return normalized.slice(0, 16);
+  }
+  return `${normalized.slice(0, 10)}T00:00`;
 }
 
 export function ContactLogs({
@@ -82,6 +139,7 @@ export function ContactLogs({
   contactId,
   contactNickname,
   contactLastName,
+  mpTimezone,
   onRefresh,
 }: ContactLogsProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -108,10 +166,19 @@ export function ContactLogs({
   } = useForm<ContactLogFormData>({
     resolver: zodResolver(ContactLogFormSchema),
     defaultValues: {
-      contactDate: getTodayLocalDate(),
+      contactDate: getNowInMpTz(mpTimezone),
       contactId: contactId,
     },
   });
+
+  const resetCreateForm = () => {
+    reset({
+      contactDate: getNowInMpTz(mpTimezone),
+      contactId: contactId,
+      notes: "",
+      contactLogType: undefined,
+    });
+  };
 
   const contactLogTypeValue = useWatch({ control, name: "contactLogType" });
 
@@ -123,7 +190,7 @@ export function ContactLogs({
       
       const contactLogData = {
         Contact_ID: data.contactId,
-        Contact_Date: `${data.contactDate}T00:00:00.000Z`,
+        Contact_Date: data.contactDate,
         Notes: data.notes,
         Contact_Log_Type_ID: selectedLogType?.Contact_Log_Type_ID || null,
         Planned_Contact_ID: null,
@@ -135,14 +202,14 @@ export function ContactLogs({
       console.log("Creating contact log with data:", contactLogData);
       
       await createContactLog(contactLogData);
-      
+
       setIsCreateModalOpen(false);
-      reset();
-      
+      resetCreateForm();
+
       if (onRefresh) {
         onRefresh();
       }
-      
+
     } catch (err) {
       console.error("Error creating contact log:", err);
       const errorMessage = err instanceof Error ? err.message : "Failed to create contact log";
@@ -161,7 +228,7 @@ export function ContactLogs({
       const selectedLogType = logTypes.find(type => type.Contact_Log_Type === data.contactLogType);
       
       const contactLogData = {
-        Contact_Date: `${data.contactDate}T00:00:00.000Z`,
+        Contact_Date: data.contactDate,
         Notes: data.notes,
         Contact_Log_Type_ID: selectedLogType?.Contact_Log_Type_ID || null,
       };
@@ -192,7 +259,7 @@ export function ContactLogs({
     setValue("contactLogType", log.Contact_Log_Type || "");
     setValue(
       "contactDate",
-      log.Contact_Date ? log.Contact_Date.split("T")[0] : ""
+      log.Contact_Date ? toDatetimeLocalValue(log.Contact_Date) : ""
     );
     setIsEditModalOpen(true);
   };
@@ -273,10 +340,10 @@ export function ContactLogs({
       />
 
       <div className="space-y-2">
-        <Label htmlFor={isEdit ? "editContactDate" : "createContactDate"}>Contact Date</Label>
+        <Label htmlFor={isEdit ? "editContactDate" : "createContactDate"}>Contact Date &amp; Time</Label>
         <Input
           id={isEdit ? "editContactDate" : "createContactDate"}
-          type="date"
+          type="datetime-local"
           {...register("contactDate")}
         />
         {errors.contactDate && (
@@ -341,10 +408,11 @@ export function ContactLogs({
             if (isEdit) {
               setIsEditModalOpen(false);
               setEditingLog(null);
+              reset();
             } else {
               setIsCreateModalOpen(false);
+              resetCreateForm();
             }
-            reset();
           }}
         >
           Cancel
@@ -433,7 +501,7 @@ export function ContactLogs({
               size="sm"
               className="flex items-center gap-2"
               variant="outline"
-              onClick={() => reset()}
+              onClick={() => resetCreateForm()}
             >
               <Plus className="h-4 w-4" />
               Add Log
@@ -487,7 +555,7 @@ export function ContactLogs({
                   {getDisplayLogType(log.Contact_Log_Type)}
                 </span>
                 <span className="text-sm text-muted-foreground">
-                  {formatDateTime(log.Contact_Date)}
+                  {formatDateTime(log.Contact_Date, mpTimezone)}
                 </span>
               </div>
               <div className="flex gap-2">

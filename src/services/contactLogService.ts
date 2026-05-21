@@ -2,6 +2,7 @@ import { ContactLog } from "@/lib/providers/ministry-platform/models/ContactLog"
 import { ContactLogTypes } from "@/lib/providers/ministry-platform/models/ContactLogTypes";
 import { ContactLogSchema, ContactLogInput } from "@/lib/providers/ministry-platform/models/ContactLogSchema";
 import { MPHelper } from "@/lib/providers/ministry-platform";
+import { DomainTimezoneService } from "@/services/domainTimezoneService";
 
 /**
  * ContactLogService - Singleton service for managing contact log operations
@@ -132,35 +133,28 @@ export class ContactLogService {
     contactLogData: Omit<ContactLogInput, 'Contact_Log_ID'>,
   ): Promise<ContactLog> {
     console.log('ContactLogService.createContactLog - Creating with data:', JSON.stringify(contactLogData, null, 2));
-    
-    // Convert ISO date to SQL Server format (YYYY-MM-DD HH:MM:SS)
-    // Ministry Platform expects SQL datetime format, not ISO format
-    if (contactLogData.Contact_Date) {
-      const date = new Date(contactLogData.Contact_Date);
-      // Format as SQL Server datetime
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      const seconds = String(date.getSeconds()).padStart(2, '0');
-      contactLogData.Contact_Date = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-      console.log('ContactLogService.createContactLog - Converted date to SQL format:', contactLogData.Contact_Date);
-    }
-    
-    // Validate the input data (update schema to accept SQL datetime string)
-    const validatedData = ContactLogSchema.omit({ Contact_Log_ID: true }).parse(contactLogData);
-    console.log('ContactLogService.createContactLog - Validation successful');
-    
+
+    // Validate non-date fields with the generated schema; Contact_Date is
+    // handled separately by DomainTimezoneService since the generated schema
+    // expects ISO and MP needs SQL wall-clock in the domain time zone.
+    const { Contact_Date, ...rest } = contactLogData;
+    const validatedRest = ContactLogSchema
+      .omit({ Contact_Log_ID: true, Contact_Date: true })
+      .parse(rest);
+
+    const tz = DomainTimezoneService.getInstance();
+    const mpDate = await tz.toMpSqlDatetime(Contact_Date);
+    console.log('ContactLogService.createContactLog - MP-TZ SQL date:', mpDate);
+
     const result = await this.mp!.createTableRecords(
       "Contact_Log",
-      [validatedData]
+      [{ ...validatedRest, Contact_Date: mpDate }]
     );
-    
+
     if (!result || result.length === 0) {
       throw new Error('Failed to create contact log record');
     }
-    
+
     return result[0] as ContactLog;
   }
 
@@ -177,35 +171,35 @@ export class ContactLogService {
   ): Promise<ContactLog> {
     console.log('ContactLogService.updateContactLog - Updating log:', contactLogId);
     console.log('ContactLogService.updateContactLog - Update data:', JSON.stringify(contactLogData, null, 2));
-    
-    // Convert ISO date to SQL Server format if provided
-    if (contactLogData.Contact_Date) {
-      const date = new Date(contactLogData.Contact_Date);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      const seconds = String(date.getSeconds()).padStart(2, '0');
-      contactLogData.Contact_Date = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-      console.log('ContactLogService.updateContactLog - Converted date to SQL format:', contactLogData.Contact_Date);
+
+    const { Contact_Date, ...rest } = contactLogData;
+    const validatedRest = ContactLogSchema
+      .omit({ Contact_Log_ID: true, Contact_Date: true })
+      .partial()
+      .parse(rest);
+
+    let mpDate: string | undefined;
+    if (Contact_Date !== undefined && Contact_Date !== null) {
+      const tz = DomainTimezoneService.getInstance();
+      mpDate = await tz.toMpSqlDatetime(Contact_Date);
+      console.log('ContactLogService.updateContactLog - MP-TZ SQL date:', mpDate);
     }
-    
-    // Validate the input data
-    const validatedData = ContactLogSchema.omit({ Contact_Log_ID: true }).partial().parse(contactLogData);
-    
-    // Add the ID to the data for the update
-    const updateData = { Contact_Log_ID: contactLogId, ...validatedData };
-    
+
+    const updateData = {
+      Contact_Log_ID: contactLogId,
+      ...validatedRest,
+      ...(mpDate !== undefined ? { Contact_Date: mpDate } : {}),
+    };
+
     const result = await this.mp!.updateTableRecords(
       "Contact_Log",
       [updateData]
     );
-    
+
     if (!result || result.length === 0) {
       throw new Error('Failed to update contact log record');
     }
-    
+
     return result[0] as ContactLog;
   }
 
