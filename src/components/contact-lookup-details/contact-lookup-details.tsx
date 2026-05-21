@@ -12,11 +12,13 @@ import { ContactLogs } from "@/components/contact-logs";
 interface ContactLookupDetailsProps {
   contactPromise: Promise<ContactLookupDetailsType>;
   contactLogsPromise: Promise<ContactLogDisplay[]>;
+  mpTimezone: string;
 }
 
 export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
   contactPromise,
   contactLogsPromise,
+  mpTimezone,
 }) => {
   const contact = use(contactPromise);
   const contactLogs = use(contactLogsPromise);
@@ -166,6 +168,7 @@ export const ContactLookupDetails: React.FC<ContactLookupDetailsProps> = ({
         contactId={contact.Contact_ID}
         contactNickname={contact.Nickname}
         contactLastName={contact.Last_Name}
+        mpTimezone={mpTimezone}
         onRefresh={() => router.refresh()}
       />
     </>

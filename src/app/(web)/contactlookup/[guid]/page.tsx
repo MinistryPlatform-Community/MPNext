@@ -4,6 +4,7 @@ import {
   getContactDetails,
   getContactLogsByContactId,
 } from "@/components/contact-lookup-details/actions";
+import { getMpTimezone } from "@/components/shared-actions/domain";
 
 interface ContactLookupDetailPageProps {
   params: Promise<{
@@ -20,6 +21,7 @@ export default async function ContactLookupDetailPage({
   const contactLogsPromise = contactPromise.then((c) =>
     c.Contact_ID ? getContactLogsByContactId(c.Contact_ID) : []
   );
+  const mpTimezone = await getMpTimezone();
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -36,6 +38,7 @@ export default async function ContactLookupDetailPage({
         <ContactLookupDetails
           contactPromise={contactPromise}
           contactLogsPromise={contactLogsPromise}
+          mpTimezone={mpTimezone}
         />
       </Suspense>
     </div>
