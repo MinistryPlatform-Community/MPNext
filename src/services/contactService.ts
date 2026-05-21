@@ -1,6 +1,7 @@
 import { ContactSearch } from "@/lib/dto";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeLikeValue, sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
+import { SessionContextService } from "@/services/sessionContextService";
 
 /**
  * ContactService - Singleton service for managing contact-related operations
@@ -98,9 +99,15 @@ export class ContactService {
   ): Promise<void> {
     const record = { Contact_ID: contactId, ...fields };
 
+    const $userId = await SessionContextService.getInstance().getActingUserIdForWrite({
+      table: "Contacts",
+      operation: "update",
+    });
+
     await this.mp!.updateTableRecords(
       "Contacts",
-      [record]
+      [record],
+      $userId !== null ? { $userId } : undefined
     );
   }
 }

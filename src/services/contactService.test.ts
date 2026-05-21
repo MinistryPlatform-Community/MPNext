@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ContactService } from '@/services/contactService';
 
-const mockGetTableRecords = vi.fn();
-const mockUpdateTableRecords = vi.fn();
+const {
+  mockGetTableRecords,
+  mockUpdateTableRecords,
+  mockGetActingUserIdForWrite,
+} = vi.hoisted(() => ({
+  mockGetTableRecords: vi.fn(),
+  mockUpdateTableRecords: vi.fn(),
+  mockGetActingUserIdForWrite: vi.fn(),
+}));
 
 vi.mock('@/lib/providers/ministry-platform', () => {
   return {
@@ -13,9 +19,20 @@ vi.mock('@/lib/providers/ministry-platform', () => {
   };
 });
 
+vi.mock('@/services/sessionContextService', () => ({
+  SessionContextService: {
+    getInstance: () => ({
+      getActingUserIdForWrite: mockGetActingUserIdForWrite,
+    }),
+  },
+}));
+
+import { ContactService } from '@/services/contactService';
+
 describe('ContactService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetActingUserIdForWrite.mockResolvedValue(500);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (ContactService as any).instance = undefined;
   });
@@ -118,15 +135,21 @@ describe('ContactService', () => {
   });
 
   describe('updateContact', () => {
-    it('should update contact with correct record', async () => {
+    it('should update contact with correct record and $userId from session', async () => {
       mockUpdateTableRecords.mockResolvedValueOnce([]);
 
       const service = await ContactService.getInstance();
       await service.updateContact(42, { Email_Address: 'new@example.com' });
 
-      expect(mockUpdateTableRecords).toHaveBeenCalledWith('Contacts', [
-        { Contact_ID: 42, Email_Address: 'new@example.com' },
-      ]);
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contacts',
+        [{ Contact_ID: 42, Email_Address: 'new@example.com' }],
+        { $userId: 500 },
+      );
+      expect(mockGetActingUserIdForWrite).toHaveBeenCalledWith({
+        table: 'Contacts',
+        operation: 'update',
+      });
     });
 
     it('should update multiple fields', async () => {
@@ -138,9 +161,25 @@ describe('ContactService', () => {
         Mobile_Phone: '555-9999',
       });
 
-      expect(mockUpdateTableRecords).toHaveBeenCalledWith('Contacts', [
-        { Contact_ID: 42, Email_Address: 'new@example.com', Mobile_Phone: '555-9999' },
-      ]);
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contacts',
+        [{ Contact_ID: 42, Email_Address: 'new@example.com', Mobile_Phone: '555-9999' }],
+        { $userId: 500 },
+      );
+    });
+
+    it('omits $userId param when SessionContextService resolves to null (anonymous update)', async () => {
+      mockGetActingUserIdForWrite.mockResolvedValueOnce(null);
+      mockUpdateTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.updateContact(42, { Email_Address: 'anon@example.com' });
+
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contacts',
+        [{ Contact_ID: 42, Email_Address: 'anon@example.com' }],
+        undefined,
+      );
     });
 
     it('should propagate errors from MPHelper', async () => {
