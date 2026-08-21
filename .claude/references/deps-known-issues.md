@@ -24,13 +24,25 @@ Last audit: **2026-08-21** — report at `.claude/reports/deps-audit-2026-08-21.
 
 | Package | Target | Blocker | Verified | Re-check when |
 |---|---|---|---|---|
-| `typescript` | 7.x | `typescript-eslint@8.67.0` (latest) caps its peer at `typescript: >=4.8.4 <6.1.0`. Staying on TypeScript 6. | 2026-08-21 | `typescript-eslint` widens its `typescript` peer range past `<6.1.0` |
+| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. | 2026-08-21 | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
 | `eslint` | 10.x | **Verified by attempt, not by inference.** `eslint-config-next@16.3.1` *vendors* `eslint-plugin-react`, `eslint-plugin-import`, and `eslint-plugin-jsx-a11y` under its own `node_modules`, and all three cap `eslint` at `^9`. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. | 2026-08-21 | `eslint-config-next` ships a release whose bundled `eslint-plugin-react` / `-import` / `-jsx-a11y` accept ESLint 10 |
 | `@types/node` | 26.x | The `@types/node` major tracks the Node major; local runtime is Node **24.18.0**. Resolved this audit by realigning **down** to `^24.13.3` (see Held). Going to 26 would put types two majors ahead of the runtime. | 2026-08-21 | Local/CI/production Node moves to 26 |
 
 > **Do not check only the top-level peer of `eslint-config-next`.** Its declared peer is
 > `eslint: >=9.0.0`, which is misleading — the binding constraint lives in the plugins it bundles
 > under `node_modules/eslint-config-next/node_modules/`. Check those before proposing an ESLint major.
+
+> **The inherited claim that TS 7 "breaks the Next.js 16 build worker" is wrong** — it was carried in
+> from an undated earlier run and is disproven as of `next@16.3.1` + `typescript@7.0.2`. The build not
+> only succeeds, it is markedly faster: the TypeScript check drops from ~2.8s to **933ms** on the
+> native compiler. Next.js declares no `typescript` peer at all. The blocker is lint, and lint alone.
+>
+> **Partial workaround, if the faster `tsc` ever becomes worth the complexity:** TypeScript documents
+> running 6 and 7 side by side via npm aliases — `"typescript": "npm:@typescript/typescript6@^6.0.2"`
+> (real package, exists) plus an arbitrarily-named alias such as
+> `"@typescript/native": "npm:typescript@^7.0.2"`. Anything doing `require('typescript')` then gets the
+> 6.0 API — which includes Next.js's own build-time type check, so the build would go *back* to TS 6
+> speed. The win would be limited to a standalone `tsc` invocation. Not worth it for this repo today.
 
 > **`@types/node` version numbers do not track Node patch versions.** There is no `@types/node@24.18.0`
 > (the highest 24.x is `24.13.3`). Writing an unsatisfiable range does not fail fast — it sends the npm
