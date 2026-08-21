@@ -114,7 +114,7 @@ describe('contact-lookup-details actions', () => {
         { Contact_Log_Type_ID: 2, Contact_Log_Type: 'Phone' },
       ];
       mockGetContactLogsByContactId.mockResolvedValueOnce(mockLogs);
-      mockGetContactLogTypes.mockResolvedValue(mockTypes);
+      mockGetContactLogTypes.mockResolvedValueOnce(mockTypes);
 
       const result = await getContactLogsByContactId(42);
 
@@ -131,6 +131,76 @@ describe('contact-lookup-details actions', () => {
       mockGetContactLogsByContactId.mockResolvedValueOnce(mockLogs);
       mockGetContactLogTypes.mockResolvedValueOnce([
         { Contact_Log_Type_ID: 1, Contact_Log_Type: 'Email' },
+      ]);
+
+      const result = await getContactLogsByContactId(42);
+
+      expect(result[0].Contact_Log_Type).toBeNull();
+    });
+  });
+
+  // Regression guard for `.claude/TODO/n-plus-1-contact-log-types-lookup.md`.
+  // `getContactLogTypes()` used to be called inside the `logs.map()` callback, so
+  // the same small lookup table was refetched once per typed log. The call-count
+  // assertions below are the whole point — the pre-existing tests mocked the call
+  // and never counted it, which is exactly why the N+1 was invisible to the suite.
+  describe('contact log type lookup is fetched once', () => {
+    it('fetches the lookup table exactly once for many typed logs', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockResolvedValueOnce([
+        { Contact_Log_ID: 1, Contact_ID: 42, Contact_Log_Type_ID: 1, Notes: 'a' },
+        { Contact_Log_ID: 2, Contact_ID: 42, Contact_Log_Type_ID: 2, Notes: 'b' },
+        { Contact_Log_ID: 3, Contact_ID: 42, Contact_Log_Type_ID: 1, Notes: 'c' },
+        { Contact_Log_ID: 4, Contact_ID: 42, Contact_Log_Type_ID: null, Notes: 'd' },
+        { Contact_Log_ID: 5, Contact_ID: 42, Contact_Log_Type_ID: 2, Notes: 'e' },
+      ]);
+      mockGetContactLogTypes.mockResolvedValueOnce([
+        { Contact_Log_Type_ID: 1, Contact_Log_Type: 'Email' },
+        { Contact_Log_Type_ID: 2, Contact_Log_Type: 'Phone' },
+      ]);
+
+      const result = await getContactLogsByContactId(42);
+
+      expect(mockGetContactLogTypes).toHaveBeenCalledTimes(1);
+      expect(result.map(log => log.Contact_Log_Type)).toEqual([
+        'Email',
+        'Phone',
+        'Email',
+        null,
+        'Phone',
+      ]);
+    });
+
+    it('does not fetch the lookup table when no log has a type', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockResolvedValueOnce([
+        { Contact_Log_ID: 1, Contact_ID: 42, Contact_Log_Type_ID: null, Notes: 'a' },
+        { Contact_Log_ID: 2, Contact_ID: 42, Contact_Log_Type_ID: 0, Notes: 'b' },
+      ]);
+
+      const result = await getContactLogsByContactId(42);
+
+      expect(mockGetContactLogTypes).not.toHaveBeenCalled();
+      expect(result.map(log => log.Contact_Log_Type)).toEqual([null, null]);
+    });
+
+    it('does not fetch the lookup table when the contact has no logs', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockResolvedValueOnce([]);
+
+      const result = await getContactLogsByContactId(42);
+
+      expect(result).toEqual([]);
+      expect(mockGetContactLogTypes).not.toHaveBeenCalled();
+    });
+
+    it('maps a type with an empty name to null rather than the empty string', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockResolvedValueOnce([
+        { Contact_Log_ID: 1, Contact_ID: 42, Contact_Log_Type_ID: 1, Notes: 'a' },
+      ]);
+      mockGetContactLogTypes.mockResolvedValueOnce([
+        { Contact_Log_Type_ID: 1, Contact_Log_Type: '' },
       ]);
 
       const result = await getContactLogsByContactId(42);

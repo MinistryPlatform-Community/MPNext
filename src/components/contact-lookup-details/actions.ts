@@ -44,25 +44,26 @@ export async function getContactLogsByContactId(contactId: number): Promise<Cont
     const contactLogService = await ContactLogService.getInstance();
     const logs = await contactLogService.getContactLogsByContactId(id);
 
-    // Transform to ContactLogDisplay with type information
-    const logsWithTypes = await Promise.all(
-      logs.map(async (log) => {
-        let contactLogType: string | null = null;
+    // Transform to ContactLogDisplay with type information.
+    //
+    // The lookup table is fetched once and indexed, not once per log. The
+    // `some` guard keeps the previous behavior of making no request at all when
+    // nothing needs mapping — without it, a contact whose logs are all untyped
+    // would newly fail here if the lookup fetch failed.
+    const typeById = new Map<number, string | null>();
+    if (logs.some(log => log.Contact_Log_Type_ID)) {
+      const types = await contactLogService.getContactLogTypes();
+      for (const type of types) {
+        typeById.set(type.Contact_Log_Type_ID, type.Contact_Log_Type || null);
+      }
+    }
 
-        if (log.Contact_Log_Type_ID) {
-          const types = await contactLogService.getContactLogTypes();
-          const type = types.find(t => t.Contact_Log_Type_ID === log.Contact_Log_Type_ID);
-          contactLogType = type?.Contact_Log_Type || null;
-        }
-
-        return {
-          ...log,
-          Contact_Log_Type: contactLogType,
-        } as ContactLogDisplay;
-      })
-    );
-
-    return logsWithTypes;
+    return logs.map(log => ({
+      ...log,
+      Contact_Log_Type: log.Contact_Log_Type_ID
+        ? typeById.get(log.Contact_Log_Type_ID) ?? null
+        : null,
+    })) as ContactLogDisplay[];
   } catch (error) {
     console.error('Error fetching contact logs:', error);
     throw error instanceof Error ? error : new Error('Failed to fetch contact logs');

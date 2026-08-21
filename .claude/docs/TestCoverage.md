@@ -29,7 +29,7 @@ Three things matter more than the headline number:
 |---|---|
 | **Measurement was inflated ~2.2×.** With no explicit `coverage.include`, every file no test imported dropped out of the denominator. | **Fixed.** `vitest.config.ts` now sets an explicit `include`, plus per-glob `thresholds` that fail the run on regression. |
 | **`testing.md` claimed 95.39% coverage** — not reproducible under any configuration. | **Fixed.** Rewritten against measured numbers, with the new mock patterns documented. |
-| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** §5.1 (filter injection), §5.2/§5.3 (missing auth) and §5.4/§5.5 (missing authz, duplicated User_ID lookup) are closed. §5.6 and §5.7 remain open in `.claude/TODO/`. |
+| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** §5.1 (filter injection), §5.2/§5.3 (missing auth) and §5.4/§5.5 (missing authz, duplicated User_ID lookup) are closed. §5.6 (N+1 lookup) is closed. §5.7 remains open in `.claude/TODO/`. |
 
 The shape of the original problem is worth restating, because the new number does not make it go
 away: **high coverage is not evidence of correctness.** The filter-injection path in §5.1 lived in a
@@ -236,13 +236,27 @@ That column records who made the *contact*; since any role-holder may edit anyon
 editor rewrote the pastoral record's authorship. MP's audit trail still captures the editor via
 `$userId` in `ContactLogService`.
 
-### 5.6 N+1 query in `getContactLogsByContactId` 🟡
+### 5.6 Resolved: N+1 query in `getContactLogsByContactId` ✅
 
-→ `.claude/TODO/n-plus-1-contact-log-types-lookup.md`
+Resolved 2026-08-21. `getContactLogTypes()` was called inside `logs.map()`, so 50 logs with a type
+set meant 50 identical fetches of the same lookup table. It is now fetched once, indexed into a
+`Map`, and the map is synchronous, so `Promise.all` is gone.
 
-`getContactLogTypes()` is called inside `logs.map()`. 50 logs with a type set means 50 identical
-fetches of the same lookup table. The file is at 100%/100%; the test mocks the call and never asserts
-a count.
+The naive hoist would not have been behavior-neutral: the old code fetched the lookup table *only*
+when at least one log had a type, so a contact with no logs — or only untyped ones — made no request
+and could not fail on one. A `logs.some(...)` guard preserves that exactly.
+
+Why the old suite missed it: the file was at 100%/100% the entire time. The test mocked
+`getContactLogTypes` and never asserted a call count, so the loop was invisible. The guard is now
+`toHaveBeenCalledTimes(1)` against a five-log fixture, plus `not.toHaveBeenCalled()` for the
+no-typed-logs and empty-logs paths. Verified by mutation: restoring the call inside the `map` fails
+the count assertion and nothing else — the other four tests in that block pin behavior, not
+efficiency, which is the correct split.
+
+Service-level memoization of `getContactLogTypes()` was considered and deliberately skipped. The
+remaining callers are one per page load and one per `contact-logs.tsx` mount; caching on a
+process-wide singleton would hide a newly added contact log type until restart, for a single-digit
+request saving.
 
 ### 5.7 `client.ts` token lifetime ignores `expires_in` 🟡
 
