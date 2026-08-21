@@ -66,4 +66,28 @@ describe('handleSignOut', () => {
 
     await expect(handleSignOut()).rejects.toThrow('MINISTRY_PLATFORM_BASE_URL is not configured');
   });
+
+  it('should fall back to NEXTAUTH_URL when BETTER_AUTH_URL is unset', async () => {
+    delete process.env.BETTER_AUTH_URL;
+    process.env.NEXTAUTH_URL = 'https://legacy.example.com';
+    mockSignOut.mockResolvedValueOnce(undefined);
+
+    await handleSignOut();
+
+    expect(mockRedirect).toHaveBeenCalledWith(
+      expect.stringContaining('post_logout_redirect_uri=https%3A%2F%2Flegacy.example.com')
+    );
+  });
+
+  it('should fall back to localhost when neither auth URL is configured', async () => {
+    delete process.env.BETTER_AUTH_URL;
+    delete process.env.NEXTAUTH_URL;
+    mockSignOut.mockResolvedValueOnce(undefined);
+
+    await handleSignOut();
+
+    expect(mockRedirect).toHaveBeenCalledWith(
+      expect.stringContaining('post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A3000')
+    );
+  });
 });

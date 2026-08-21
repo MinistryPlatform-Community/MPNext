@@ -154,6 +154,121 @@ mockUseSession.mockReturnValue({
 });
 ```
 
+### Mocking the MP sub-service harness (`client` + `HttpClient`)
+
+The six MP sub-services (`TableService`, `FileService`, `CommunicationService`,
+`ProcedureService`, `MetadataService`, `DomainService`) all take a
+`MinistryPlatformClient` and call `ensureValidToken()` then `getHttpClient()`.
+Build both as plain objects - no `vi.mock()` needed, since the service takes the
+client as a constructor argument:
+
+```typescript
+let mockHttpClient: HttpClient;
+let mockClient: MinistryPlatformClient;
+
+beforeEach(() => {
+  mockHttpClient = {
+    get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(),
+    buildUrl: vi.fn(), postFormData: vi.fn(), putFormData: vi.fn(),
+  } as unknown as HttpClient;
+
+  mockClient = {
+    ensureValidToken: vi.fn().mockResolvedValue(undefined),
+    getHttpClient: vi.fn().mockReturnValue(mockHttpClient),
+  } as unknown as MinistryPlatformClient;
+
+  service = new FileService(mockClient);
+});
+```
+
+Always assert the token-failure path calls nothing:
+
+```typescript
+it('should not call the API when the token refresh fails', async () => {
+  (mockClient.ensureValidToken as ReturnType<typeof vi.fn>)
+    .mockRejectedValueOnce(new Error('Token refresh failed'));
+
+  await expect(service.getFileMetadata(1)).rejects.toThrow('Token refresh failed');
+  expect(mockHttpClient.get).not.toHaveBeenCalled();
+});
+```
+
+### Stubbing global `fetch`
+
+Two places bypass `HttpClient` and call `fetch` directly:
+`getClientCredentialsToken()` and `FileService.getFileContentByUniqueId()` (a
+deliberately unauthenticated endpoint). Use `vi.stubGlobal` and always undo it:
+
+```typescript
+let fetchMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+it('should throw on a non-OK response', async () => {
+  fetchMock.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
+  await expect(subject()).rejects.toThrow('404 Not Found');
+});
+```
+
+Mock the response as a plain object with only the fields the code touches
+(`ok`, `status`, `statusText`, `json`, `blob`) - not a real `Response`.
+
+### Asserting multipart `FormData` payloads
+
+File uploads and communications with attachments go through `postFormData` /
+`putFormData`. Read the captured `FormData` off the mock rather than trying to
+match it with `toHaveBeenCalledWith`:
+
+```typescript
+const [endpoint, formData, queryParams] = (
+  mockHttpClient.postFormData as ReturnType<typeof vi.fn>
+).mock.calls[0];
+
+expect(endpoint).toBe('/files/Contacts/42');
+expect((formData.get('file-0') as File).name).toBe('photo.jpg');
+expect(JSON.parse(formData.get('communication') as string)).toEqual(payload);
+expect(queryParams).toEqual({ $default: 'true' });
+```
+
+`formData.get()` returns `null` for an absent key - useful for asserting that a
+falsy optional param was dropped rather than sent as `"0"`.
+
+### Do not assert against a re-implementation of the subject
+
+The single worst pattern to reintroduce. An earlier version of `auth.test.ts`
+looked like this:
+
+```typescript
+// WRONG - this tests String.prototype.split, not our code.
+const enriched = {
+  ...user,
+  firstName: user.name?.split(' ')[0] || '',
+};
+expect(enriched.firstName).toBe('John');
+```
+
+Those five tests passed at 100% line coverage while `lib/auth.ts` sat at 18.5%,
+and they would have kept passing if the `customSession` callback were deleted
+outright. Import the real export and call it:
+
+```typescript
+// CORRECT
+import { enrichSessionUser } from '@/lib/auth';
+const result = await enrichSessionUser({ id: 'ba', name: 'John Doe' }, session);
+expect(result.user.firstName).toBe('John');
+```
+
+If a function is unreachable because it is closed over by a library (as the
+`customSession` callback was), extract it to a named export rather than
+simulating it in the test.
+
 ## Singleton Reset Pattern
 
 Service classes use static singleton instances. Reset between tests to avoid state leakage:
@@ -193,46 +308,140 @@ it('should load profile', async () => {
 
 ## Coverage
 
-Coverage uses the **v8** provider. Auto-generated model files are excluded.
+Coverage uses the **v8** provider.
 
 ```bash
-# Run with coverage (also reports on failure)
-npx vitest run --coverage --coverage.reportOnFailure
+npm run test:coverage            # text + json + html reporters
+npx vitest run --coverage --coverage.reportOnFailure   # also report when tests fail
 ```
 
-### Current Coverage (228 tests, 19 files)
+> Use `--reporter=default` or `--reporter=dot`. The `basic` reporter was removed
+> in Vitest 4 and `--reporter=basic` now fails with
+> `Failed to load custom Reporter from basic`.
 
-| Layer | Stmts | Branch | Lines |
-|-------|-------|--------|-------|
-| Services | 97.29% | 86.48% | 97.27% |
-| Server Actions | ~99% | ~90% | ~99% |
-| Proxy | 100% | 100% | 100% |
-| Contexts | 91.42% | 85.71% | 91.42% |
-| MP Provider | 87.37% | 86.66% | 88.23% |
-| **All files** | **95.39%** | **88.02%** | **95.74%** |
+### The `include` glob is load-bearing
+
+`vitest.config.ts` sets `coverage.include: ['src/**/*.{ts,tsx}']`. Without an
+explicit `include`, v8 reports only on files that some test imported, so every
+untested file drops out of the denominator - the repo once reported 71.6% while
+true statement coverage was 32.7%. Do not remove it.
+
+(Vitest 3's `coverage.all` flag no longer exists in Vitest 4 and is not in the
+`CoverageOptions` type; `include` replaces it.)
+
+### Excluded from the denominator
+
+| Path | Why |
+|---|---|
+| `src/lib/providers/ministry-platform/models/` | Auto-generated from the MP API |
+| `src/lib/providers/ministry-platform/scripts/` | Dev-only codegen, run manually; failures are immediately visible |
+| `src/components/ui/` | Thin shadcn/Radix wrappers - testing them asserts that Radix works |
+
+Feature components (`*.tsx`) and app routes are **not** excluded. They stay
+visible in the report at their real (mostly 0%) numbers; they are simply not
+gated by a threshold.
+
+### Thresholds
+
+`coverage.thresholds` gates non-UI functional code per glob - services, the MP
+provider, server actions, contexts, and auth/proxy plumbing. A breach fails the
+run with `ERROR: Coverage for statements (X%) does not meet "<glob>" threshold (Y%)`
+and a non-zero exit code.
+
+| Glob | Stmts | Branch | Funcs | Lines |
+|---|---|---|---|---|
+| `src/services/**` | 95 | 90 | 95 | 95 |
+| `src/lib/**/*.ts` | 95 | 85 | 90 | 95 |
+| `src/components/**/actions.ts` | 95 | 85 | 95 | 95 |
+| `src/contexts/**` | 95 | 85 | 95 | 95 |
+| `src/proxy.ts` | 100 | 100 | 100 | 100 |
+
+### Current coverage (419 tests, 30 files)
+
+Non-UI functional code - every `src/**/*.ts` plus `src/contexts/*.tsx`, excluding
+generated models, codegen scripts, and test files (760 statements):
+
+| Metric | Value |
+|---|---|
+| Statements | **99.47%** (756/760) |
+| Branches | **95.49%** (297/311) |
+| Functions | **98.20%** (164/167) |
+| Lines | **99.72%** (738/740) |
+
+Whole-app figure as `npm run test:coverage` prints it (1058 statements, including
+untested feature components and app pages): **71.45%** statements. Both numbers
+are honest; they differ only in denominator. Quote the one whose scope you mean.
+
+Known remaining gaps in non-UI code, all deliberate:
+
+Only four statements remain uncovered:
+
+- `app/api/auth/[...all]/route.ts` - a one-line `toNextJsHandler(auth)` re-export
+- `lib/auth.ts:198` - the one-line arrow delegating to `enrichSessionUser`
+- `client.ts` - the token-getter closure passed into `HttpClient`
+- `http-client.ts:31` - one arm of the GET error-message builder
+
+Plus two branch gaps that are unreachable without a fake schema:
+`helper.ts:189,273`, the `String(validationError)` arm of a validation-error
+message - Zod always throws an `Error`.
 
 ## Test File Inventory
 
 | Test File | Tests | What It Covers |
 |-----------|-------|----------------|
-| `services/contactService.test.ts` | 10 | Contact search, getByGuid, updateContact |
-| `services/contactLogService.test.ts` | 16 | Contact log CRUD, date conversion, Zod validation |
-| `services/userService.test.ts` | 4 | User profile lookup |
-| `components/contact-lookup/actions.test.ts` | 5 | Search contacts action |
-| `components/contact-logs/actions.test.ts` | 19 | Contact log CRUD actions with auth |
-| `components/contact-lookup-details/actions.test.ts` | 10 | Contact details + log type mapping |
-| `components/user-menu/actions.test.ts` | 3 | Sign-out + OAuth end session redirect |
-| `components/shared-actions/user.test.ts` | 2 | getCurrentUserProfile delegation |
-| `proxy.test.ts` | 8 | Route protection (public paths, session, errors) |
-| `lib/providers/ministry-platform/provider.test.ts` | 9 | Provider delegation to services |
-| `contexts/user-context.test.tsx` | 6 | UserProvider + useUser hook lifecycle |
-| `contexts/session-context.test.tsx` | 2 | useAppSession wrapper |
-| `auth.test.ts` | 11 | Name splitting, session structure |
 | `lib/providers/ministry-platform/helper.test.ts` | 54 | MPHelper CRUD, validation, procedures, files |
+| `lib/providers/ministry-platform/services/file.service.test.ts` | 35 | All 8 file endpoints, multipart bodies, unauthenticated blob fetch |
+| `lib/providers/ministry-platform/utils/http-client.test.ts` | 28 | HTTP verbs, URL building, form data, error handling |
+| `auth.test.ts` | 25 | `enrichSessionUser`, cached User_ID resolution, OAuth config guards |
+| `components/contact-logs/actions.test.ts` | 24 | Contact log CRUD actions, auth and argument guards |
+| `lib/providers/ministry-platform/provider.test.ts` | 24 | Provider delegation to all six sub-services |
+| `lib/providers/ministry-platform/services/table.service.test.ts` | 21 | TableService CRUD |
+| `services/contactLogService.test.ts` | 21 | Contact log CRUD, date conversion, Zod validation |
+| `lib/providers/ministry-platform/utils/filter-sanitize.test.ts` | 20 | Quote doubling, LIKE escaping, GUID rejection |
+| `services/domainTimezoneService.test.ts` | 18 | Windows-to-IANA mapping, DST, round-tripping, cache |
+| `lib/providers/ministry-platform/services/procedure.service.test.ts` | 16 | Procedure listing and execution, name encoding |
+| `lib/providers/ministry-platform/services/communication.service.test.ts` | 13 | Email/SMS JSON vs multipart paths |
 | `lib/providers/ministry-platform/client.test.ts` | 12 | OAuth token management |
-| `lib/providers/ministry-platform/services/table.service.test.ts` | 20 | TableService CRUD |
-| `lib/providers/ministry-platform/utils/http-client.test.ts` | 26 | HTTP methods, URL building, error handling |
+| `services/contactService.test.ts` | 12 | Contact search, getByGuid, updateContact |
+| `components/contact-lookup-details/actions.test.ts` | 11 | Contact details + log type mapping |
+| `services/sessionContextService.test.ts` | 10 | Acting-user resolution, `mp.write.non_user` warning |
+| `contexts/user-context.test.tsx` | 8 | UserProvider + useUser lifecycle |
+| `lib/providers/ministry-platform/services/domain.service.test.ts` | 8 | Domain info and global filters |
+| `lib/providers/ministry-platform/services/metadata.service.test.ts` | 8 | Metadata refresh, table listing |
+| `proxy.test.ts` | 8 | Route protection (public paths, session, errors) |
+| `lib/utils.test.ts` | 7 | `cn()` Tailwind class merging |
+| `services/userService.test.ts` | 6 | User profile lookup |
+| `components/contact-lookup/actions.test.ts` | 5 | Search contacts action |
+| `components/user-menu/actions.test.ts` | 5 | Sign-out + OAuth end session redirect |
+| `lib/providers/ministry-platform/auth/client-credentials.test.ts` | 5 | Client-credentials token grant |
+| `components/layout/auth-wrapper.test.tsx` | 4 | Auth gating wrapper |
+| `lib/auth-client.test.ts` | 4 | Client plugin wiring (`customSessionClient`, `signIn.social`) |
+| `components/shared-actions/domain.test.ts` | 3 | `getMpTimezone` delegation |
+| `components/shared-actions/user.test.ts` | 2 | `getCurrentUserProfile` delegation |
+| `contexts/session-context.test.tsx` | 2 | `useAppSession` wrapper |
+| **Total** | **419** | |
 
-## Known Issues
+## Ministry Platform Safety in Tests
 
-- **ContactLogService date conversion bug**: `createContactLog` and `updateContactLog` convert ISO dates to SQL Server format (`YYYY-MM-DD HH:MM:SS`) _before_ Zod validation, but `ContactLogSchema` uses `z.string().datetime()` which only accepts ISO format. The validation rejects the converted date. Tests document this behavior.
+Per CLAUDE.md, no test may reach a real MP instance. Every suite mocks at a
+boundary above the network:
+
+- `HttpClient` is mocked for all sub-service tests
+- `MPHelper` is mocked as a class for all service and action tests
+- Direct `fetch` callers are covered by `vi.stubGlobal('fetch', ...)`
+
+This matters most for `communication.service.test.ts` (sends real email/SMS in
+production), `procedure.service.test.ts` (stored procedures can mutate data), and
+`file.service.test.ts` / `table.service.test.ts` (writes and deletes).
+
+## Deferred Issues
+
+Defects and refactors found while testing are documented one-per-file in
+`.claude/TODO/`, not fixed silently. Several are cases where a fully covered file
+is still wrong - most notably numeric IDs interpolated into MP filters without
+sanitization, and two `'use server'` actions with no session check at all. See
+`.claude/TODO/` and `.claude/docs/TestCoverage.md`.
+
+Tests that pin behavior a TODO proposes changing carry a comment naming the TODO
+file, so the next person knows the assertion is a snapshot of today's behavior
+rather than a specification.

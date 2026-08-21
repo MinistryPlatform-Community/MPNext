@@ -355,6 +355,39 @@ describe('HttpClient', () => {
       );
       expect(result).toEqual({ FileId: 1, FileName: 'updated.txt' });
     });
+
+    it('should throw on a non-OK PUT FormData response', async () => {
+      const formData = new FormData();
+      formData.append('file', new Blob(['updated']), 'updated.txt');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 413,
+        statusText: 'Payload Too Large',
+        json: () => Promise.resolve({}),
+      });
+
+      await expect(httpClient.putFormData('/files/1', formData)).rejects.toThrow(
+        'PUT /files/1 failed: 413 Payload Too Large'
+      );
+    });
+
+    it('should append query params to a PUT FormData request', async () => {
+      const formData = new FormData();
+      formData.append('file', new Blob(['updated']), 'updated.txt');
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ FileId: 1 }),
+      });
+
+      await httpClient.putFormData('/files/1', formData, { $userId: 7 });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.ministryplatform.com/files/1?$userId=7',
+        expect.objectContaining({ method: 'PUT' })
+      );
+    });
   });
 
   describe('DELETE Requests', () => {

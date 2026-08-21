@@ -184,4 +184,35 @@ describe('UserContext', () => {
       expect(mockGetCurrentUserProfile).toHaveBeenCalledTimes(2);
     });
   });
+
+    it('should not fetch while the session is still pending', async () => {
+      // Fetching during isPending would fire with a userGuid that may still change,
+      // then race the real value.
+      mockUseSession.mockReturnValue({
+        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
+        isPending: true,
+      });
+
+      await renderWithProvider(<ProfileProbe />);
+
+      expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
+      expect(screen.getByTestId('name')).toHaveTextContent('none');
+    });
+
+    it('should normalize an undefined profile to null', async () => {
+      // getCurrentUserProfile returns MPUserProfile | undefined; the context
+      // coerces undefined to null so consumers only handle one empty value.
+      mockUseSession.mockReturnValue({
+        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
+        isPending: false,
+      });
+      mockGetCurrentUserProfile.mockResolvedValueOnce(undefined);
+
+      await renderWithProvider(<ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith('guid-123');
+    });
 });
