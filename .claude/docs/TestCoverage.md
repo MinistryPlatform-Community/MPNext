@@ -165,21 +165,33 @@ searchContactLogs("5; DROP")   →  filter: "Contact_ID = 5; DROP"
 `contactLogService.ts` is at **100% statements and 100% branches**. No test passes a non-numeric value,
 which is exactly why full coverage did not catch it.
 
-### 5.2 `searchContacts` — no authentication 🔴
+### 5.2 `searchContacts` — no authentication ✅ FIXED
 
-→ `.claude/TODO/server-action-search-contacts-unauthenticated.md`
+Was: a `'use server'` action with zero `getSession` calls, returning up to 20 contacts including
+email and mobile phone. `proxy.ts:8` allows all `/api` paths without a session, and every sibling
+action file did check. 100% statements, 100% branches, 5 passing tests, none of which asked the
+authorization question — because nothing in the code answered it.
 
-A `'use server'` action with zero `getSession` calls, returning up to 20 contacts including email and
-mobile phone. `proxy.ts:8` allows all `/api` paths without a session, and every sibling action file
-does check. 100% statements, 100% branches, 5 passing tests, none of which asks the authorization
-question — because nothing in the code answers it.
+Now: `searchContacts` calls `auth.api.getSession` and throws `Authentication required` before any
+other work. The check sits **before** the try/catch, so the auth failure surfaces as itself rather
+than being masked as `Failed to search contacts`, and the empty-search-term early return cannot
+become an unauthenticated success path. Three tests cover it: null session, session with no
+`user.id`, and rejection of an empty term while unauthenticated.
 
-### 5.3 `getCurrentUserProfile` — no authentication, no ownership check 🔴
+### 5.3 `getCurrentUserProfile` — no authentication, no ownership check ✅ FIXED
 
-→ `.claude/TODO/server-action-user-profile-unauthenticated.md`
+Was: took an arbitrary `User_GUID` and returned that user's profile **plus their roles and user
+groups** — disclosing the authorization model for any user whose GUID was known. 100% covered; both
+tests asserted pass-through.
 
-Takes an arbitrary `User_GUID` and returns that user's profile **plus their roles and user groups**.
-100% covered. Both tests assert pass-through.
+Now: the parameter is **gone**. The action reads `userGuid` from the session, which makes the
+ownership question unaskable rather than merely answered — there is no longer an argument for a
+caller to tamper with. It throws `Authentication required` with no session and `User GUID not found
+in session` when an authenticated session carries no GUID. `UserProvider` calls it with no argument
+and keeps `userGuid` only as an effect dependency so switching users still re-fetches.
+
+If a feature ever needs to read another user's profile, that is a separate, explicitly role-gated
+function — not a widening of this one.
 
 ### 5.4 Contact-log actions authenticate but never authorize 🟠
 
