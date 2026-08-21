@@ -188,15 +188,21 @@ Add these authorized redirect URIs where users will be sent after authentication
 
 **Development:**
 ```
-http://localhost:3000/api/auth/oauth2/callback/ministry-platform
+http://localhost:3000/api/auth/callback/ministry-platform
 ```
 
 **Production:**
 ```
-https://yourdomain.com/api/auth/oauth2/callback/ministry-platform
+https://yourdomain.com/api/auth/callback/ministry-platform
 ```
 
-> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs. The callback path uses Better Auth's genericOAuth plugin convention: `/api/auth/oauth2/callback/{providerId}`.
+> **Important**: The redirect URI must match exactly (including protocol, domain, port, and path). Ministry Platform will reject any OAuth requests with mismatched redirect URIs. The callback path follows Better Auth's social-provider convention: `/api/auth/callback/{providerId}`.
+
+> **Upgrading from a pre-1.7 Better Auth setup?** The callback path changed in
+> Better Auth 1.7, from `/api/auth/oauth2/callback/ministry-platform` to
+> `/api/auth/callback/ministry-platform`. Add the new URI to the Ministry
+> Platform OAuth client before deploying; keep the old one until every
+> environment is upgraded, then remove it.
 
 ##### Post-Logout Redirect URIs (Required)
 Add these URIs where users will be redirected after signing out:
@@ -298,7 +304,7 @@ npm run dev
 When deploying to production:
 
 1. Update `BETTER_AUTH_URL` to your production domain
-2. Add production redirect URI (`https://yourdomain.com/api/auth/oauth2/callback/ministry-platform`) to Ministry Platform OAuth client
+2. Add production redirect URI (`https://yourdomain.com/api/auth/callback/ministry-platform`) to Ministry Platform OAuth client
 3. Add production post-logout redirect URIs
 4. Ensure environment variables are set in your hosting provider
 5. Enable HTTPS/SSL certificates

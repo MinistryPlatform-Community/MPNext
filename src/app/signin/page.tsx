@@ -22,8 +22,10 @@ function SignInContent() {
         // User is not signed in, initiate sign in
         console.log("Redirecting to SignIn API");
         setIsRedirecting(true);
-        authClient.signIn.oauth2({
-          providerId: "ministry-platform",
+        // better-auth 1.7 routes generic OAuth providers through the standard
+        // social sign-in path; `signIn.oauth2()` was removed.
+        authClient.signIn.social({
+          provider: "ministry-platform",
           callbackURL: callbackUrl,
         });
       }

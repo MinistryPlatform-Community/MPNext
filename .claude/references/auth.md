@@ -69,12 +69,59 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| `providerId` | `"ministry-platform"` | Used in OAuth URLs and `signIn.oauth2()` |
+| `providerId` | `"ministry-platform"` | Used in OAuth URLs and `signIn.social({ provider })` |
 | `discoveryUrl` | `${MP_BASE_URL}/oauth/.well-known/openid-configuration` | OIDC auto-discovery |
+| `accountIssuer` | `${MP_BASE_URL}/oauth` | Pins the account-identity namespace (see 1.7 notes below) |
 | `scopes` | `openid`, `offline_access`, `dataplatform/scopes/all` | Full MP API access |
-| `pkce` | `false` | MP doesn't support PKCE |
-| `getUserInfo` | Custom callback | Fetches OIDC userinfo, returns `id: profile.sub` |
-| `mapProfileToUser` | Custom callback | Stores `profile.id` (sub) as `userGuid` |
+| `pkce` | `false` | Explicitly disabled — 1.7 defaults this to `true` (see 1.7 notes below) |
+| `getUserInfo` | Custom callback | Fetches OIDC userinfo, returns `sub: profile.sub` |
+| `mapProfileToUser` | Custom callback | Stores `profile.sub` as `userGuid` |
+
+### Better Auth 1.7 migration notes
+
+Better Auth 1.7 rewrote the generic OAuth plugin as a first-class social
+provider. What changed here, and why each line in `src/lib/auth.ts` looks the
+way it does:
+
+| Change | What we do |
+|--------|-----------|
+| `signIn.oauth2()` removed | `src/app/signin/page.tsx` calls `authClient.signIn.social({ provider: "ministry-platform" })` |
+| `genericOAuthClient()` dropped | Removed from `src/lib/auth-client.ts`; only `customSessionClient` remains |
+| **Callback path moved** | `/api/auth/oauth2/callback/ministry-platform` → **`/api/auth/callback/ministry-platform`**. This URL must be registered as a redirect URI on the MP OAuth client (`OIDC_CLIENT_ID`) for every environment. |
+| Account identity keyed on `(issuer, accountId)` | `accountIssuer` is set explicitly (see below) |
+| Account subject no longer falls back to `id` | `getUserInfo` returns `sub` (see below) |
+| `pkce` defaults to `true` | Kept explicitly `false`; MP discovery *does* advertise `S256`, so this is a candidate follow-up |
+| ID tokens verified against provider JWKS | Automatic — MP publishes `jwks_uri`; also enables `nonce` binding |
+
+> ⚠️ **`getUserInfo` must return `sub`, not `id`.** MP's discovery document
+> advertises `id_token_signing_alg_values_supported`, so Better Auth treats the
+> provider as OIDC and its default `accountSubject` resolver reads
+> **`profile.sub`** off the raw profile. Pre-1.7 the resolver fell back to
+> `profile.id`; that fallback is gone. Returning only `id` resolves the account
+> subject to `""` and breaks account identity for every user. `src/auth.test.ts`
+> guards this by calling the real configured `getUserInfo`.
+
+> ⚠️ **`accountIssuer` must stay set.** 1.7 refuses to initialize a discovery
+> provider whose issuer it cannot pin down — a failed discovery fetch **throws
+> out of `betterAuth()`** instead of degrading silently as it did in 1.6.
+> Declaring the issuer keeps the account namespace stable across a transient MP
+> outage and keeps `src/lib/auth.ts` importable without network access (tests,
+> CI). Discovery still supplies the endpoints and the JWKS used to verify ID
+> tokens.
+
+> ℹ️ **`nonce` binding is now on.** Because MP publishes a `jwks_uri`, Better
+> Auth sends a server-generated `nonce` and rejects a callback whose `id_token`
+> does not echo it (OIDC Core §3.1.3.7). If MP ever stops returning the `nonce`
+> claim, sign-in fails with an `id_token failed verification` error; the escape
+> hatch is `disableIdTokenNonceBinding: true`, which removes `id_token` replay
+> protection.
+
+> ℹ️ **RP-initiated logout is available but unused.** MP's discovery document
+> exposes `end_session_endpoint`, so 1.7 can build the provider logout URL
+> itself (including `id_token_hint`, which our hand-rolled URL omits).
+> `handleSignOut()` still constructs the URL manually and ignores the `url` that
+> `auth.api.signOut()` now returns — a possible simplification, deliberately
+> left out of the 1.7 migration.
 
 ### User Additional Fields
 
@@ -100,6 +147,7 @@ user: {
 > menu, `userId: null`). This regressed once during the 1.4→1.6 upgrade.
 > `src/auth.test.ts` guards it by running the real better-auth parse function
 > against the real field config. Do not "tighten" this back to `input: false`.
+> Still true as of better-auth 1.7.
 
 ### customSession Callback
 
@@ -122,12 +170,13 @@ customSession(async ({ user, session }) => ({
 
 ```typescript
 import { createAuthClient } from "better-auth/react";
-import { genericOAuthClient, customSessionClient } from "better-auth/client/plugins";
+import { customSessionClient } from "better-auth/client/plugins";
 import type { auth } from "./auth";
 
+// `genericOAuthClient()` was dropped in better-auth 1.7 — generic OAuth
+// providers are reached through the standard social sign-in API.
 export const authClient = createAuthClient({
   plugins: [
-    genericOAuthClient(),
     customSessionClient<typeof auth>(),
   ],
 });
@@ -139,23 +188,27 @@ export const authClient = createAuthClient({
 |--------|---------|
 | `authClient.useSession()` | React hook — returns `{ data: session, isPending }` |
 | `authClient.getSession()` | Async — returns `{ data: session }` |
-| `authClient.signIn.oauth2({ providerId, callbackURL })` | Initiates OAuth flow |
+| `authClient.signIn.social({ provider, callbackURL })` | Initiates OAuth flow (was `signIn.oauth2({ providerId })` before 1.7) |
 | `authClient.signOut()` | Clears local session (use `handleSignOut` for full OIDC logout) |
 
 ## OAuth Flow
 
 ```
 1. User visits app → proxy checks session cookie → no cookie → redirect to /signin
-2. /signin page → authClient.signIn.oauth2({ providerId: "ministry-platform" })
+2. /signin page → authClient.signIn.social({ provider: "ministry-platform" })
 3. Redirect to MP OAuth → user authenticates → redirect to callback
-4. Callback URL: /api/auth/oauth2/callback/ministry-platform
+4. Callback URL: /api/auth/callback/ministry-platform
+   (moved from /api/auth/oauth2/callback/... in better-auth 1.7 — must be
+   registered as a redirect URI on the MP OAuth client)
 5. Better Auth:
    a. Exchanges code for tokens
-   b. Calls getUserInfo(tokens) → fetches OIDC profile → returns { id: sub, ... }
-   c. Calls mapProfileToUser(profile) → returns { userGuid: profile.id }
-   d. Creates user record (id=generated, userGuid=sub, email, name)
-   e. Creates account record (accountId=sub, tokens)
-   f. Creates session → sets JWT cookie
+   b. Verifies the id_token against MP's JWKS and the expected nonce
+   c. Calls getUserInfo(tokens) → fetches OIDC profile → returns { sub, ... }
+   d. Calls mapProfileToUser(profile) → returns { userGuid: profile.sub }
+   e. Resolves the account subject from profile.sub (OIDC default)
+   f. Creates user record (id=generated, userGuid=sub, email, name)
+   g. Creates account record (issuer=MP issuer, accountId=sub, tokens)
+   h. Creates session → sets JWT cookie
 6. Redirect to callbackURL → app loads with session
 7. UserProvider calls getCurrentUserProfile(userGuid) → loads MP profile
 ```
@@ -281,7 +334,8 @@ function MyComponent() {
 
 The following URLs must be configured in the Ministry Platform OAuth client:
 
-- **OAuth2 Callback URL**: `{APP_URL}/api/auth/oauth2/callback/ministry-platform`
+- **OAuth2 Callback URL**: `{APP_URL}/api/auth/callback/ministry-platform`
+  (was `{APP_URL}/api/auth/oauth2/callback/ministry-platform` before better-auth 1.7)
 - **Post-Logout Redirect URI**: `{APP_URL}` (or `{APP_URL}/signin`)
 
 ## Better Auth Upgrade Checklist
@@ -293,25 +347,43 @@ the `better-auth` version, do this before merging:
 
 1. **Read the changelog** between the old and new version, focusing on:
    `genericOAuth`, `customSession`, `additionalFields`, cookie cache / session
-   serialization, and `mapProfileToUser`.
-2. **Run the auth tests**: `npm run test:run src/auth.test.ts` — the
-   `better-auth 1.6 guard` test verifies `userGuid` still survives provider-profile
-   parsing against the real library.
-3. **Manual smoke test (required — nothing else catches this):**
+   serialization, `mapProfileToUser`, and account identity (`accountSubject` /
+   `accountIssuer`).
+2. **Check whether the callback path moved.** It changed once already (1.7:
+   `/api/auth/oauth2/callback/:id` → `/api/auth/callback/:id`). A moved callback
+   needs the new redirect URI registered on the MP OAuth client in **every**
+   environment before deploy — nothing in CI catches this.
+3. **Run the auth tests**: `npm run test:run src/auth.test.ts`. Three tests are
+   real library guards, not simulations:
+   - `better-auth 1.6 guard` — `userGuid` still survives provider-profile parsing.
+   - `better-auth 1.7 guard` (getUserInfo) — the profile still carries `sub`, which
+     the OIDC `accountSubject` resolver reads.
+   - `better-auth 1.7 guard` (accountIssuer) — the issuer is still pinned, so a
+     discovery failure can't throw out of `betterAuth()` or re-key accounts.
+4. **Manual smoke test (required — nothing else catches this):**
    - `npm run dev`, sign in through Ministry Platform.
    - Open `/api/auth/get-session` and confirm the session `user` object contains
      **`userGuid`** (non-null) and **`userId`** (non-null).
    - Confirm the header avatar renders and the user menu opens.
+   - Sign out and confirm the MP end-session redirect completes.
    - Existing sessions predate the new user-record shape, so **sign out and log in
      fresh** — don't test against a stale session.
-4. If `userGuid` is missing, check `parseAdditionalUserInputFromProviderProfile`
+5. **If sign-in fails at the callback**, check the dev-server log for the
+   provider-level errors better-auth emits at init and callback time:
+   - `id_token failed verification against the discovery JWKS or expected nonce`
+     → MP isn't echoing the `nonce`, or JWKS/audience changed. Escape hatch:
+     `disableIdTokenNonceBinding: true` (costs `id_token` replay protection).
+   - `discovery returned no valid data` → MP discovery is unreachable; the pinned
+     `accountIssuer` keeps init from throwing, but sign-in still needs discovery
+     for the endpoints.
+6. If `userGuid` is missing, check `parseAdditionalUserInputFromProviderProfile`
    in `node_modules/better-auth/dist/db/schema.mjs` — the library may have changed
    how additional fields flow from the OAuth profile into the user record.
 
 ## Known Limitations
 
 1. **No database (top refactor priority)**: With no `database` in the config, Better Auth uses an in-memory adapter. Sessions live only in the in-memory store + cookies, so they are lost whenever the process restarts. On serverless/Vercel this is severe: **every cold start or new function instance has an empty session store**, so once the 1-hour JWT cookie cache expires, a request that lands on a fresh instance returns `null` and the user appears logged out (blank avatar / redirect to `/signin`) intermittently. This also makes auth bugs hard to reproduce. **Recommendation:** configure a persistent database adapter (e.g. a Vercel Marketplace Postgres/Neon, or SQLite for local dev) before relying on this in production.
-2. **mapProfileToUser type narrowness**: The genericOAuth TypeScript type for `mapProfileToUser` doesn't include `additionalFields`. The return must be cast to `Record<string, unknown>` for extra fields. The runtime code does pass them through correctly.
+2. ~~**mapProfileToUser type narrowness**~~ *(resolved in better-auth 1.7)*: `mapProfileToUser` now returns `OAuthMappedUser`, which permits arbitrary extra keys, so the old `as Record<string, unknown>` cast is gone. The type does forbid returning `id` — provider identity is owned by `accountSubject`.
 3. **userGuid type cast**: `session.user.userGuid` requires a type cast because `customSessionClient` doesn't infer `additionalFields` from `genericOAuth`. This is a Better Auth type limitation.
 4. **Token refresh**: Not explicitly implemented. The `storeAccountCookie` stores refresh tokens, but automatic refresh behavior in stateless mode is unverified.
 5. **Cookie cache staleness**: The 1-hour JWT cookie cache means `customSession` changes won't take effect until the cache expires or the user re-authenticates.

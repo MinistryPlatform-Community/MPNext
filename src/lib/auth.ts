@@ -79,6 +79,15 @@ const options = {
         {
           providerId: "ministry-platform",
           discoveryUrl: `${mpBaseUrl}/oauth/.well-known/openid-configuration`,
+          // better-auth 1.7 keys accounts on (issuer, accountId) and REFUSES to
+          // initialize a discovery provider whose issuer it cannot pin down —
+          // a failed discovery fetch throws out of `betterAuth()` rather than
+          // degrading silently as it did in 1.6. Declaring the issuer keeps
+          // the account namespace stable (and the module importable without
+          // network access, e.g. in tests/CI). MP's discovery document reports
+          // exactly this value; discovery still supplies the endpoints and the
+          // JWKS used to verify ID tokens.
+          accountIssuer: `${mpBaseUrl}/oauth`,
           clientId: process.env.OIDC_CLIENT_ID!,
           clientSecret: process.env.OIDC_CLIENT_SECRET!,
           scopes: [
@@ -86,6 +95,10 @@ const options = {
             "offline_access",
             "http://www.thinkministry.com/dataplatform/scopes/all",
           ],
+          // OAuth 2.1 makes PKCE the 1.7 default. MP's discovery document does
+          // advertise `code_challenge_methods_supported: ["plain", "S256"]`,
+          // so this can likely be flipped to `true` — but that is a separate,
+          // separately-testable change from the 1.7 migration itself.
           pkce: false,
           authorizationUrlParams: {
             realm: "realm",
@@ -111,8 +124,15 @@ const options = {
 
             const profile = await response.json();
 
+            // `sub` (not `id`) is what better-auth 1.7 reads for the account
+            // subject. MP's discovery document advertises
+            // `id_token_signing_alg_values_supported`, so the provider is
+            // treated as OIDC and the default `accountSubject` resolver reads
+            // `profile.sub` from this raw profile. Returning only `id` (the
+            // pre-1.7 shape) resolves the subject to "" and breaks account
+            // identity. `src/auth.test.ts` guards this.
             return {
-              id: profile.sub,
+              sub: profile.sub,
               email: profile.email,
               name: `${profile.given_name} ${profile.family_name}`,
               image: undefined,
@@ -122,12 +142,14 @@ const options = {
           // Map the OAuth sub claim (User_GUID) to our custom userGuid field.
           // Better Auth generates its own internal user.id, so we need a
           // separate field to store the MP User_GUID for API lookups.
-          // The cast is needed because genericOAuth's type doesn't include additionalFields,
-          // but the runtime code does pass extra fields through to createOAuthUser.
+          // As of 1.7 `mapProfileToUser` receives the raw profile returned by
+          // `getUserInfo` above and may not return `id` — provider identity is
+          // owned by `accountSubject`. The return type allows arbitrary extra
+          // keys, so no cast is needed.
           mapProfileToUser: (profile) => {
             return {
-              userGuid: profile.id,
-            } as Record<string, unknown>;
+              userGuid: String(profile.sub ?? ""),
+            };
           },
         },
       ],
