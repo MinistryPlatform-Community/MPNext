@@ -98,7 +98,7 @@ describe('UserContext', () => {
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('John');
       });
-      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith('guid-123');
+      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith();
     });
 
     it('should resolve to null profile when no session', async () => {
@@ -213,6 +213,6 @@ describe('UserContext', () => {
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
-      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith('guid-123');
+      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith();
     });
 });

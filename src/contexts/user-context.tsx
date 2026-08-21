@@ -49,7 +49,9 @@ export function UserProvider({ children }: UserProviderProps) {
       setUserProfilePromise(RESOLVED_NULL);
       return;
     }
-    setUserProfilePromise(getCurrentUserProfile(userGuid).then((p) => p ?? null));
+    // No argument: the action reads the User_GUID from the session server-side.
+    // userGuid stays a dependency so switching users re-fetches.
+    setUserProfilePromise(getCurrentUserProfile().then((p) => p ?? null));
   }, [userGuid, isPending, refreshKey]);
 
   const refreshUserProfile = useCallback(() => {
