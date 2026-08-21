@@ -1,8 +1,17 @@
 import { getClientCredentialsToken } from "./auth/client-credentials";
 import { HttpClient } from "./utils/http-client";
 
-// Token refresh interval - refresh 5 minutes before actual expiration for safety
-const TOKEN_LIFE = 5 * 60 * 1000; // 5 minutes
+// Refresh this far ahead of the token's real expiration, so a request that is
+// already in flight never races the expiry boundary.
+const TOKEN_SAFETY_MARGIN = 5 * 60 * 1000; // 5 minutes
+
+// Used when the token response omits expires_in. MP client-credentials tokens
+// are issued with a 1 hour lifetime.
+const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600;
+
+// Floor on usable token life, so a pathologically short expires_in cannot drive
+// a refresh storm (or, after subtracting the margin, go negative).
+const MIN_TOKEN_LIFETIME = 30 * 1000; // 30 seconds
 
 /**
  * MinistryPlatformClient - Core HTTP client with automatic authentication management
@@ -48,8 +57,16 @@ export class MinistryPlatformClient {
                 const creds = await getClientCredentialsToken();
                 this.token = creds.access_token;
                 
-                // Set expiration time with safety buffer (TOKEN_LIFE before actual expiration)
-                this.expiresAt = new Date(Date.now() + TOKEN_LIFE);
+                // Expire the token TOKEN_SAFETY_MARGIN before the lifetime the
+                // server reported, never sooner than MIN_TOKEN_LIFETIME from now.
+                const seconds = Number(creds.expires_in);
+                const lifetimeMs =
+                    (Number.isFinite(seconds) && seconds > 0
+                        ? seconds
+                        : DEFAULT_TOKEN_LIFETIME_SECONDS) * 1000;
+                this.expiresAt = new Date(
+                    Date.now() + Math.max(lifetimeMs - TOKEN_SAFETY_MARGIN, MIN_TOKEN_LIFETIME)
+                );
                 
                 console.log("Token refreshed. Expires at: ", this.expiresAt);
             } catch (error) {

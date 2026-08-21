@@ -258,12 +258,23 @@ remaining callers are one per page load and one per `contact-logs.tsx` mount; ca
 process-wide singleton would hide a newly added contact log type until restart, for a single-digit
 request saving.
 
-### 5.7 `client.ts` token lifetime ignores `expires_in` 🟡
+### 5.7 `client.ts` token lifetime ignores `expires_in` ✅ FIXED
 
-→ `.claude/TODO/mp-client-token-lifetime-ignores-expires-in.md`
+Was: the comment said "refresh 5 minutes *before* actual expiration"; the code set
+`expiresAt = now + 5min` for every token, discarding the `expires_in` the OAuth endpoint returned.
+Since `MinistryPlatformProvider` is a singleton and `ensureValidToken()` runs before every service
+call, a 1-hour MP token was thrown away after 5 minutes — roughly 12× more token requests than
+necessary. Two tests in `client.test.ts` pinned the wrong behavior by advancing timers past the
+5-minute mark and asserting a refresh, so the cap looked deliberate.
 
-The comment says "refresh 5 minutes *before* actual expiration"; the code caps every token at 5
-minutes total, discarding `expires_in`. Roughly 12× more token requests than necessary.
+Now: the lifetime comes from `expires_in`, minus a `TOKEN_SAFETY_MARGIN` of 5 minutes, floored at 30
+seconds so a pathologically short or negative value cannot drive a refresh storm. A missing or
+non-numeric `expires_in` falls back to `DEFAULT_TOKEN_LIFETIME_SECONDS` (3600).
+`getClientCredentialsToken()` now declares a `ClientCredentialsToken` return type instead of leaking
+`any` out of `response.json()`. The two misleading tests were rewritten against the real boundary and
+four cases added (3600s → 55min, `expires_in` absent, `expires_in: 60` → 30s floor, non-numeric
+→ default). Verified by mutation: restoring the flat 5-minute cap fails all four, and dropping just
+the `Math.max` floor fails the clamp test.
 
 ### 5.8 Resolved: `auth.test.ts` asserted against a copy of the logic ✅
 
