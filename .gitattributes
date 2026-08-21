@@ -1,0 +1,5 @@
+# Git hooks must keep LF endings. This repo is developed on Windows with
+# core.autocrlf=true, which would otherwise check the hook out with CRLF — and a
+# shell script with CRLF line endings fails to execute on macOS and Linux
+# (`/bin/sh^M: bad interpreter`).
+.githooks/** text eol=lf

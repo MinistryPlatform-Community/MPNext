@@ -7,6 +7,25 @@ on:
     branches: [main]
 
 jobs:
+  # Fails fast and legibly when package-lock.json drifts from what Linux
+  # resolution produces. The `test` job's `npm ci` would also die on this, but
+  # with npm's cryptic "Missing: … from lock file" and no remediation. Drift
+  # generated on Windows is invisible to `npm ci --dry-run` there, so this is the
+  # authoritative check — see scripts/check-lockfile.mjs.
+  lockfile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check package-lock.json for platform drift
+        run: node scripts/check-lockfile.mjs
+
   test:
     runs-on: ubuntu-latest
 
