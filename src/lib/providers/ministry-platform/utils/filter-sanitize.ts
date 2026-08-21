@@ -44,3 +44,35 @@ export function sanitizeGuid(guid: string): string {
   }
   return guid;
 }
+
+/**
+ * Validates a numeric primary-key ID for safe interpolation into a filter string.
+ * Accepts a `number`, or a string of digits only (e.g. a route param or an
+ * un-coerced form field); everything else throws. The digits-only rule admits no
+ * character that could alter the surrounding filter, and the safe-integer bound
+ * keeps large values from stringifying into exponent notation (`1e+21`).
+ *
+ * Use for numeric comparisons: `Column = ${sanitizeNumericId(value, 'Contact ID')}`.
+ * TypeScript's `number` annotation is erased at runtime, and server actions compile
+ * to POST endpoints whose payload shape the caller controls, so a `number`-typed
+ * parameter must still be validated here.
+ *
+ * @param value - The candidate ID, from any source
+ * @param field - Field name used in the error message (never the offending value)
+ * @returns The validated ID as a positive safe integer
+ * @throws Error if the value is not a positive integer ID
+ */
+export function sanitizeNumericId(value: unknown, field = 'ID'): number {
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^[0-9]+$/.test(value)
+        ? Number(value)
+        : NaN;
+
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new Error(`Invalid ${field}`);
+  }
+
+  return n;
+}

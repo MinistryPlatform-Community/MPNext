@@ -306,6 +306,55 @@ it('should load profile', async () => {
 });
 ```
 
+## Radix Component Tests Under jsdom
+
+jsdom does not implement the browser APIs Radix primitives probe on mount. Without
+these polyfills, `Dialog` / `AlertDialog` / `Select` **throw during render** rather
+than failing an assertion, which makes the component look broken when only the
+harness is. `components/contact-logs/contact-logs.test.tsx` carries the pattern:
+
+```typescript
+function installJsdomPolyfills() {
+  if (!globalThis.ResizeObserver) {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+  }
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  proto.hasPointerCapture ??= () => false;
+  proto.setPointerCapture ??= () => {};
+  proto.releasePointerCapture ??= () => {};
+  proto.scrollIntoView ??= () => {};
+}
+```
+
+Call it in `beforeEach`. Notes on the rest of the harness:
+
+- `fireEvent` is sufficient for Radix triggers and buttons — `@testing-library/user-event`
+  is **not** installed, so do not import it.
+- Icon-only buttons (the trash icon on a log row) have no accessible name. Find them by
+  filtering `getAllByRole('button')` rather than adding a test-only label to the component.
+- Scope assertions to the open dialog with `within(await screen.findByRole('dialog'))`;
+  `AlertDialog` uses role `alertdialog`, not `dialog`.
+- Components that report errors with `window.alert()` need `vi.spyOn(window, 'alert')` —
+  jsdom's default implementation emits "not implemented" noise.
+- react-hook-form + `zodResolver` validate asynchronously. Assert the error message with
+  `await screen.findByText(...)` before asserting the action was not called.
+
+### Verify a gate test actually gates
+
+A test that asserts "the action was called with 42" passes under any policy. For a
+confirmation gate, mutate the component to bypass it and confirm the tests fail:
+
+```
+handleDeleteClick = (logId) => { deleteContactLog(logId); setDeleteLogId(logId); }
+```
+
+All four delete-gate tests fail on that mutation. The suite that preceded them failed
+none of it.
+
 ## Coverage
 
 Coverage uses the **v8** provider.
@@ -356,7 +405,7 @@ and a non-zero exit code.
 | `src/contexts/**` | 95 | 85 | 95 | 95 |
 | `src/proxy.ts` | 100 | 100 | 100 | 100 |
 
-### Current coverage (419 tests, 30 files)
+### Current coverage (575 tests, 32 files)
 
 Non-UI functional code - every `src/**/*.ts` plus `src/contexts/*.tsx`, excluding
 generated models, codegen scripts, and test files (760 statements):
@@ -393,24 +442,26 @@ message - Zod always throws an `Error`.
 | `lib/providers/ministry-platform/services/file.service.test.ts` | 35 | All 8 file endpoints, multipart bodies, unauthenticated blob fetch |
 | `lib/providers/ministry-platform/utils/http-client.test.ts` | 28 | HTTP verbs, URL building, form data, error handling |
 | `auth.test.ts` | 25 | `enrichSessionUser`, cached User_ID resolution, OAuth config guards |
-| `components/contact-logs/actions.test.ts` | 24 | Contact log CRUD actions, auth and argument guards |
+| `components/contact-logs/actions.test.ts` | 67 | Contact log CRUD actions, auth/argument guards, security-role write gate, ownership policy, numeric-ID injection rejection |
 | `lib/providers/ministry-platform/provider.test.ts` | 24 | Provider delegation to all six sub-services |
 | `lib/providers/ministry-platform/services/table.service.test.ts` | 21 | TableService CRUD |
-| `services/contactLogService.test.ts` | 21 | Contact log CRUD, date conversion, Zod validation |
-| `lib/providers/ministry-platform/utils/filter-sanitize.test.ts` | 20 | Quote doubling, LIKE escaping, GUID rejection |
+| `services/contactLogService.test.ts` | 54 | Contact log CRUD, date conversion, Zod validation, filter-injection regression guard |
+| `lib/providers/ministry-platform/utils/filter-sanitize.test.ts` | 49 | Quote doubling, LIKE escaping, GUID rejection, numeric-ID validation |
 | `services/domainTimezoneService.test.ts` | 18 | Windows-to-IANA mapping, DST, round-tripping, cache |
 | `lib/providers/ministry-platform/services/procedure.service.test.ts` | 16 | Procedure listing and execution, name encoding |
 | `lib/providers/ministry-platform/services/communication.service.test.ts` | 13 | Email/SMS JSON vs multipart paths |
 | `lib/providers/ministry-platform/client.test.ts` | 12 | OAuth token management |
 | `services/contactService.test.ts` | 12 | Contact search, getByGuid, updateContact |
-| `components/contact-lookup-details/actions.test.ts` | 11 | Contact details + log type mapping |
+| `components/contact-lookup-details/actions.test.ts` | 18 | Contact details + log type mapping, numeric-ID injection rejection |
 | `services/sessionContextService.test.ts` | 10 | Acting-user resolution, `mp.write.non_user` warning |
+| `services/authorizationService.test.ts` | 21 | MP security-role write gate, `MP_WRITE_SECURITY_ROLES`, `mp.write.unauthorized` denials |
+| `components/contact-logs/contact-logs.test.tsx` | 13 | Delete-confirmation gate, form validation, error surfacing (MP write path) |
 | `contexts/user-context.test.tsx` | 8 | UserProvider + useUser lifecycle |
 | `lib/providers/ministry-platform/services/domain.service.test.ts` | 8 | Domain info and global filters |
 | `lib/providers/ministry-platform/services/metadata.service.test.ts` | 8 | Metadata refresh, table listing |
 | `proxy.test.ts` | 8 | Route protection (public paths, session, errors) |
 | `lib/utils.test.ts` | 7 | `cn()` Tailwind class merging |
-| `services/userService.test.ts` | 6 | User profile lookup |
+| `services/userService.test.ts` | 8 | User profile lookup, GUID + User_ID validation |
 | `components/contact-lookup/actions.test.ts` | 5 | Search contacts action |
 | `components/user-menu/actions.test.ts` | 5 | Sign-out + OAuth end session redirect |
 | `lib/providers/ministry-platform/auth/client-credentials.test.ts` | 5 | Client-credentials token grant |
@@ -419,7 +470,7 @@ message - Zod always throws an `Error`.
 | `components/shared-actions/domain.test.ts` | 3 | `getMpTimezone` delegation |
 | `components/shared-actions/user.test.ts` | 2 | `getCurrentUserProfile` delegation |
 | `contexts/session-context.test.tsx` | 2 | `useAppSession` wrapper |
-| **Total** | **419** | |
+| **Total** | **474** | |
 
 ## Ministry Platform Safety in Tests
 
@@ -445,3 +496,10 @@ sanitization, and two `'use server'` actions with no session check at all. See
 Tests that pin behavior a TODO proposes changing carry a comment naming the TODO
 file, so the next person knows the assertion is a snapshot of today's behavior
 rather than a specification.
+
+The three contact-log TODOs are now resolved (see `.claude/docs/TestCoverage.md`
+§5.4, §5.5, §6): the security-role write gate, the `SessionContextService`
+refactor, and the component write-path tests. Their assertions are now
+specifications rather than snapshots — `should NOT delete when the caller holds no
+security role` and `should permit editing a log made by a different user` would
+each fail under a different policy, which is the point.

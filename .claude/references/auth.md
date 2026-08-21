@@ -291,6 +291,17 @@ export async function myAction() {
 }
 ```
 
+For an action that **writes** to MP, the session check above is only the first gate. Add
+the authorization gate and take the acting `User_ID` from its return value rather than
+looking it up again — see [Authorization](#authorization-distinct-from-authentication):
+
+```typescript
+const userId = await AuthorizationService.getInstance().requireSecurityRoleForWrite({
+  table: "Contact_Log",
+  operation: "update",
+});
+```
+
 ### Client Components
 
 ```typescript
@@ -318,6 +329,77 @@ function MyComponent() {
 4. Returns `MPUserProfile` (First_Name, Last_Name, Email, Image_GUID, etc.)
 5. Profile available via `useUser()` hook in any client component
 
+## Authorization (distinct from authentication)
+
+**Authentication** answers "is there a valid session?" — `auth.api.getSession()`.
+**Authorization** answers "may this session do this?" — `AuthorizationService`
+(`src/services/authorizationService.ts`). They are separate gates; a valid session is
+necessary but not sufficient for a write.
+
+### Decided policy — contact-log writes (2026-08-21)
+
+> **Any authenticated user who holds a Ministry Platform security role may create, edit,
+> and delete any contact log — including a log another user created.**
+
+This was chosen deliberately, not left implicit. Prior to this decision the contact-log
+actions authenticated but never authorized, so *any* authenticated session could delete
+*any* contact log in the domain by ID.
+
+**Why role membership and not ownership:**
+
+- MP security roles (`dp_User_Roles` → `dp_Roles`) are the domain's own authorization
+  mechanism. This app defers to them rather than inventing a parallel permission model
+  that could drift out of sync with MP.
+- Ownership (`Made_By`) is deliberately **not** a factor. Contact logs are shared
+  pastoral records; staff need to correct and remove each other's entries. Gating on
+  ownership would mean a supervisor could not fix a bad log through this app.
+- Authentication alone is *not* sufficient. A session for an MP user with no security
+  role cannot write, and neither can a session whose MP `User_ID` never resolved — the
+  gate fails closed.
+
+**Reads** (`getContactLogTypes`, `getContactLogsByContactId`, `getContactLogById`) require
+authentication only. Every authenticated user of this app is MP staff who can already see
+this data in MP itself, so the gate's purpose is write safety, not read confidentiality.
+
+### Using the gate
+
+```typescript
+import { AuthorizationService } from "@/services/authorizationService";
+
+// Throws UnauthorizedError when the caller may not write.
+// Returns the acting user's MP User_ID, so no dp_Users round-trip is needed.
+const userId = await AuthorizationService.getInstance().requireSecurityRoleForWrite({
+  table: "Contact_Log",
+  operation: "create", // "create" | "update" | "delete"
+});
+```
+
+The acting user comes from `SessionContextService`, which reads the `userId` that
+`customSession` already baked into the session (cached process-wide by `resolveMpUserId`).
+Server actions must **not** re-implement the `dp_Users` lookup inline — that costs an
+uncached MP round-trip on every write.
+
+Denials are logged as a structured `mp.write.unauthorized` event (with `table`,
+`operation`, `userId`, and a `reason` of `no_mp_user` / `no_security_role` /
+`role_not_permitted`) so refused writes are greppable in production logs. An unattributed
+write still emits `mp.write.non_user` from `SessionContextService` before the gate rejects
+it, so the attempt remains visible.
+
+**No caching.** Roles are re-read from MP on every gated write — one extra read per write.
+Writes are rare (a staff member saving a form) and a cached authorization decision means a
+revoked role keeps working. That trade is not worth making against a shared production
+database.
+
+### Tightening the gate
+
+Set `MP_WRITE_SECURITY_ROLES` to a comma-separated list of MP role names to require one of
+those specific roles instead of "any role". Comparison is case- and whitespace-insensitive.
+Unset or blank means any security role is sufficient (the default policy above).
+
+```
+MP_WRITE_SECURITY_ROLES="Administrators,Pastoral Staff"
+```
+
 ## Environment Variables
 
 | Variable | Required | Purpose |
@@ -327,6 +409,7 @@ function MyComponent() {
 | `BETTER_AUTH_SECRET` | Yes* | Session signing secret. Fallback: `NEXTAUTH_SECRET` |
 | `OIDC_CLIENT_ID` | Yes | OAuth client ID registered in MP |
 | `OIDC_CLIENT_SECRET` | Yes | OAuth client secret |
+| `MP_WRITE_SECURITY_ROLES` | No | Comma-separated MP role names permitted to perform gated writes. Unset = any security role. See [Authorization](#authorization-distinct-from-authentication). |
 
 *Fallback variables allow gradual migration from NextAuth.
 

@@ -3,6 +3,7 @@
 import { ContactLookupDetails, ContactLogDisplay } from '@/lib/dto';
 import { ContactService } from '@/services/contactService';
 import { ContactLogService } from '@/services/contactLogService';
+import { sanitizeNumericId } from '@/lib/providers/ministry-platform/utils/filter-sanitize';
 import { auth } from '@/lib/auth';
 import { headers } from 'next/headers';
 
@@ -38,12 +39,10 @@ export async function getContactLogsByContactId(contactId: number): Promise<Cont
       throw new Error('Authentication required');
     }
 
-    if (!contactId || contactId <= 0) {
-      throw new Error('Valid contact ID is required');
-    }
+    const id = sanitizeNumericId(contactId, 'Contact ID');
 
     const contactLogService = await ContactLogService.getInstance();
-    const logs = await contactLogService.getContactLogsByContactId(contactId);
+    const logs = await contactLogService.getContactLogsByContactId(id);
 
     // Transform to ContactLogDisplay with type information
     const logsWithTypes = await Promise.all(

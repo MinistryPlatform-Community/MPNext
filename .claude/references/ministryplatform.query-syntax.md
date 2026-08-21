@@ -178,6 +178,28 @@ Notice in Query B that bare `End_Date` is qualified as `Group_Participants.End_D
 | Subquery rejected | Used `SELECT` inside `$filter` | Rewrite using `_TABLE` traversal; if not expressible, run two queries and merge in code |
 | `BETWEEN` rejected | Used SQL BETWEEN in `$filter` | Rewrite as two comparisons (`>= 'start' AND < 'end'`) |
 
+## Sanitizing interpolated values — MANDATORY
+
+`$filter` becomes a SQL `WHERE` clause, so **every** value interpolated into a filter string must pass
+through a sanitizer from `src/lib/providers/ministry-platform/utils/filter-sanitize.ts` first:
+
+| Value | Helper | Pattern |
+|---|---|---|
+| String (equality) | `sanitizeFilterValue` | `Column = '${sanitizeFilterValue(v)}'` |
+| String (LIKE) | `sanitizeLikeValue` | `Column LIKE '%${sanitizeLikeValue(v)}%' ESCAPE ''` |
+| GUID | `sanitizeGuid` | `Column = '${sanitizeGuid(v)}'` — throws on non-GUID |
+| Numeric ID | `sanitizeNumericId` | `Column = ${sanitizeNumericId(v, 'Contact ID')}` — throws on anything but a positive integer or digits-only string |
+
+A `number` parameter is not exempt. TypeScript annotations are erased at runtime, and server actions
+compile to POST endpoints whose payload *shape* the caller controls — so a string does arrive where
+the signature says `number`. `getContactLogById('1 OR 1=1')` used to build
+`Contact_Log_ID = 1 OR 1=1`, widening a single-record read into a full-table read; see
+`.claude/docs/TestCoverage.md` §5.1. Guards of the form `if (!id || id <= 0)` do **not** catch this:
+a non-empty string is truthy and `'1 OR 1=1' <= 0` is false.
+
+Sanitize at the interpolation site (the service), and validate again at the action boundary so bad
+input fails before the authorization gate and the network call.
+
 ## See also
 
 - `src/lib/providers/ministry-platform/helper.ts` — `MPHelper.getTableRecords` signature.
