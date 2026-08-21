@@ -2,6 +2,7 @@ import { ContactLog } from "@/lib/providers/ministry-platform/models/ContactLog"
 import { ContactLogTypes } from "@/lib/providers/ministry-platform/models/ContactLogTypes";
 import { ContactLogSchema, ContactLogInput } from "@/lib/providers/ministry-platform/models/ContactLogSchema";
 import { MPHelper } from "@/lib/providers/ministry-platform";
+import { sanitizeNumericId } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 import { DomainTimezoneService } from "@/services/domainTimezoneService";
 import { SessionContextService } from "@/services/sessionContextService";
 
@@ -67,15 +68,16 @@ export class ContactLogService {
   /**
    * Searches for contact log records based on contact ID
    * 
-   * @param contactId - The contact ID to search for logs
+   * @param contactId - The contact ID to search for logs; omit for an unfiltered read
    * @param limit - Maximum number of records to return (default: 50)
    * @returns Promise<ContactLog[]> - Array of matching contact log records
+   * @throws Error if contactId is supplied but is not a positive integer ID
    */
   public async searchContactLogs(contactId?: number, limit: number = 50): Promise<ContactLog[]> {
     let filter = "";
-    
-    if (contactId) {
-      filter = `Contact_ID = ${contactId}`;
+
+    if (contactId !== undefined && contactId !== null) {
+      filter = `Contact_ID = ${sanitizeNumericId(contactId, "Contact ID")}`;
     }
 
     const records = await this.mp!.getTableRecords<ContactLog>({
@@ -94,11 +96,12 @@ export class ContactLogService {
    * 
    * @param contactLogId - The unique ID of the contact log record
    * @returns Promise<ContactLog | null> - The matching contact log record or null if not found
+   * @throws Error if contactLogId is not a positive integer ID
    */
   public async getContactLogById(contactLogId: number): Promise<ContactLog | null> {
     const records = await this.mp!.getTableRecords<ContactLog>({
       table: "Contact_Log",
-      filter: `Contact_Log_ID = ${contactLogId}`,
+      filter: `Contact_Log_ID = ${sanitizeNumericId(contactLogId, "Contact Log ID")}`,
       select: "Contact_Log_ID,Contact_ID,Contact_Date,Made_By,Notes,Contact_Log_Type_ID,Planned_Contact_ID,Contact_Successful,Original_Contact_Log_Entry,Feedback_Entry_ID",
       top: 1
     });
@@ -111,11 +114,12 @@ export class ContactLogService {
    * 
    * @param contactId - The contact ID to get logs for
    * @returns Promise<ContactLog[]> - Array of contact log records for the contact
+   * @throws Error if contactId is not a positive integer ID
    */
   public async getContactLogsByContactId(contactId: number): Promise<ContactLog[]> {
     const records = await this.mp!.getTableRecords<ContactLog>({
       table: "Contact_Log",
-      filter: `Contact_ID = ${contactId}`,
+      filter: `Contact_ID = ${sanitizeNumericId(contactId, "Contact ID")}`,
       select: "Contact_Log_ID,Contact_ID,Contact_Date,Made_By,Notes,Contact_Log_Type_ID,Planned_Contact_ID,Contact_Successful,Original_Contact_Log_Entry,Feedback_Entry_ID",
       orderBy: "Contact_Date DESC"
     });

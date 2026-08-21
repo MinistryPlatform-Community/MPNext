@@ -123,5 +123,26 @@ describe('UserService', () => {
       const service = await UserService.getInstance();
       await expect(service.getUserProfile('not-a-guid')).rejects.toThrow('Invalid GUID format');
     });
+
+    // The User_ID here comes back from MP rather than from a caller, so this is
+    // belt-and-braces: it keeps the "no filter string is built from an
+    // unvalidated value" rule true for this file.
+    it('should throw rather than filter on a malformed User_ID from MP', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([
+        { User_ID: '1 OR 1=1', User_GUID: validGuid },
+      ]);
+
+      const service = await UserService.getInstance();
+      await expect(service.getUserProfile(validGuid)).rejects.toThrow('Invalid User ID');
+      // Only the dp_Users lookup ran; neither role query was issued.
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw when the MP row has no User_ID', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([{ User_GUID: validGuid }]);
+
+      const service = await UserService.getInstance();
+      await expect(service.getUserProfile(validGuid)).rejects.toThrow('Invalid User ID');
+    });
   });
 });

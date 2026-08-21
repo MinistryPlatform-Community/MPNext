@@ -423,4 +423,87 @@ describe('ContactLogService', () => {
       await expect(service.deleteContactLog(999)).rejects.toThrow('Record not found');
     });
   });
+
+  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`.
+  //
+  // Every method here declares `number`, but that annotation is erased at
+  // runtime and server actions compile to POST endpoints whose payload shape the
+  // caller controls — so a string does reach these methods. Before the fix,
+  // `getContactLogById('1 OR 1=1')` built the filter `Contact_Log_ID = 1 OR 1=1`
+  // and widened a single-record read into a full-table read. Asserting the filter
+  // string and that no request is issued is what statement coverage could not see:
+  // this file was at 100% while the defect was live.
+  describe('filter injection via numeric IDs', () => {
+    const injectionPayloads = [
+      '1 OR 1=1',
+      '5; DROP',
+      "1' OR '1'='1",
+      '1 UNION SELECT Password FROM dp_Users',
+      '1 --',
+      '1.5',
+      '-1',
+      '  7  ',
+      '',
+      'abc',
+    ];
+
+    it.each(injectionPayloads)('getContactLogById rejects %j without calling MP', async (payload) => {
+      const service = await ContactLogService.getInstance();
+
+      await expect(
+        service.getContactLogById(payload as unknown as number)
+      ).rejects.toThrow('Invalid Contact Log ID');
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it.each(injectionPayloads)('getContactLogsByContactId rejects %j without calling MP', async (payload) => {
+      const service = await ContactLogService.getInstance();
+
+      await expect(
+        service.getContactLogsByContactId(payload as unknown as number)
+      ).rejects.toThrow('Invalid Contact ID');
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it.each(injectionPayloads)('searchContactLogs rejects %j without calling MP', async (payload) => {
+      const service = await ContactLogService.getInstance();
+
+      await expect(
+        service.searchContactLogs(payload as unknown as number)
+      ).rejects.toThrow('Invalid Contact ID');
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('interpolates a digits-only string as a bare number', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactLogService.getInstance();
+      await service.getContactLogById('42' as unknown as number);
+
+      expect(mockGetTableRecords).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: 'Contact_Log_ID = 42' })
+      );
+    });
+
+    it('searchContactLogs still reads unfiltered when the ID is omitted or null', async () => {
+      mockGetTableRecords.mockResolvedValue([]);
+
+      const service = await ContactLogService.getInstance();
+      await service.searchContactLogs();
+      await service.searchContactLogs(null as unknown as number);
+
+      expect(mockGetTableRecords).toHaveBeenNthCalledWith(1, expect.objectContaining({ filter: '' }));
+      expect(mockGetTableRecords).toHaveBeenNthCalledWith(2, expect.objectContaining({ filter: '' }));
+    });
+
+    it('searchContactLogs now rejects 0 instead of silently reading the whole table', async () => {
+      // Behavior change: the old `if (contactId)` truthiness check treated 0 as
+      // "no filter" and returned an unfiltered page. An explicit 0 is a caller
+      // bug, so it is now an error.
+      const service = await ContactLogService.getInstance();
+
+      await expect(service.searchContactLogs(0)).rejects.toThrow('Invalid Contact ID');
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+  });
 });

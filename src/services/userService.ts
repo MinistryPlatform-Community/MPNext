@@ -1,6 +1,6 @@
 import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 import { MPHelper } from "@/lib/providers/ministry-platform";
-import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
+import { sanitizeGuid, sanitizeNumericId } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 
 /**
  * UserService - Singleton service for managing user-related operations
@@ -69,15 +69,19 @@ export class UserService {
     const profile = records[0];
     if (!profile) return undefined;
 
+    // Sanitized even though the value originates from MP, so that no filter string
+    // in this file is built from an unvalidated value.
+    const userId = sanitizeNumericId(profile.User_ID, "User ID");
+
     const [roleRecords, groupRecords] = await Promise.all([
       this.mp!.getTableRecords<{ Role_Name: string }>({
         table: "dp_User_Roles",
-        filter: `User_ID = ${profile.User_ID}`,
+        filter: `User_ID = ${userId}`,
         select: "Role_ID_TABLE.Role_Name",
       }),
       this.mp!.getTableRecords<{ User_Group_Name: string }>({
         table: "dp_User_User_Groups",
-        filter: `User_ID = ${profile.User_ID}`,
+        filter: `User_ID = ${userId}`,
         select: "User_Group_ID_TABLE.User_Group_Name",
       }),
     ]);

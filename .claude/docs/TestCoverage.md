@@ -4,6 +4,9 @@
 **Reviewed commit:** `64f18f0` (branch `main`), plus the coverage work described in §2
 **Scope:** whole application — `src/**` excluding generated MP models
 **Supersedes:** the 2026-08-20 review of `bb2cd19`, whose gap analysis has now been acted on
+**Updated 2026-08-21:** §5.4, §5.5 and §6 (the three contact-log findings) are now fixed — see those
+sections. §5.1 (filter injection via numeric IDs) is now fixed too. The suite is at **575 tests in 32
+files**; `contact-logs.tsx` went from 0% to 87.6% statements.
 
 ---
 
@@ -26,11 +29,11 @@ Three things matter more than the headline number:
 |---|---|
 | **Measurement was inflated ~2.2×.** With no explicit `coverage.include`, every file no test imported dropped out of the denominator. | **Fixed.** `vitest.config.ts` now sets an explicit `include`, plus per-glob `thresholds` that fail the run on regression. |
 | **`testing.md` claimed 95.39% coverage** — not reproducible under any configuration. | **Fixed.** Rewritten against measured numbers, with the new mock patterns documented. |
-| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, not fixed** — see §5. Each defect now has a file in `.claude/TODO/`. |
+| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** §5.1 (filter injection), §5.2/§5.3 (missing auth) and §5.4/§5.5 (missing authz, duplicated User_ID lookup) are closed. §5.6 and §5.7 remain open in `.claude/TODO/`. |
 
 The shape of the original problem is worth restating, because the new number does not make it go
-away: **high coverage is not evidence of correctness.** The confirmed filter-injection path in §5.1
-lives in a file at 100% statement coverage, and it still does.
+away: **high coverage is not evidence of correctness.** The filter-injection path in §5.1 lived in a
+file at 100% statement coverage for as long as no test passed it a value of the wrong type.
 
 ---
 
@@ -84,7 +87,7 @@ pass when satisfied.
 ## 3. Reproducing these numbers
 
 ```bash
-npm run test:run       # 419 passed (30 files), ~3s
+npm run test:run       # 575 passed (32 files), ~4s
 npm run test:coverage   # whole-app figure, and the threshold gate
 npx tsc --noEmit        # clean
 npx eslint .            # clean
@@ -140,30 +143,39 @@ contrivance.
 
 ## 5. Where coverage is still actively misleading
 
-**This is the most important section.** Each item below is fully covered by passing tests and is still
-wrong. Per the scope of this work, these were **documented, not fixed** — one file per issue in
-`.claude/TODO/`. New tests pin today's behavior, and any test asserting behavior a TODO proposes
-changing carries a comment naming the TODO file.
+**This is the most important section.** Each item below was fully covered by passing tests and was
+still wrong. The original coverage work **documented rather than fixed** them — one file per issue in
+`.claude/TODO/` — and the fixed items have since been closed out by follow-up work; each carries a
+regression test that would have caught the defect.
 
-### 5.1 Confirmed: numeric IDs are interpolated into MP filters unsanitized 🔴
+### 5.1 Numeric IDs are interpolated into MP filters unsanitized ✅ FIXED
 
-→ `.claude/TODO/mp-filter-injection-numeric-ids.md`
+Fixed 2026-08-21: `sanitizeNumericId` was added to `filter-sanitize.ts` and applied at all five
+interpolation sites plus the five action-level boundaries (`contact-logs/actions.ts` ×4,
+`contact-lookup-details/actions.ts` ×1 — the second entry point, which the TODO had missed). It
+accepts a `number` or a digits-only string and throws otherwise, so `'1 OR 1=1'` now fails before any
+HTTP call. The probe tests were **kept** this time: `contactLogService.test.ts` asserts the built
+filter string and that `getTableRecords` is never called for each payload — the assertion the old
+100% coverage lacked. Behavior change: `searchContactLogs(0)` now throws instead of silently reading
+the whole table (the old `if (contactId)` truthiness check treated 0 as "no filter").
 
-`contactLogService.ts:101,118,83` and `userService.ts:75,80` interpolate IDs directly. The codebase
-has `sanitizeFilterValue`, `sanitizeLikeValue`, and `sanitizeGuid`, applies them faithfully to every
-**string** parameter, and has no equivalent for numeric IDs — while the TypeScript `number` annotation
+Was:
+
+`contactLogService.ts:101,118,83` and `userService.ts:75,80` interpolated IDs directly. The codebase
+had `sanitizeFilterValue`, `sanitizeLikeValue`, and `sanitizeGuid`, applied them faithfully to every
+**string** parameter, and had no equivalent for numeric IDs — while the TypeScript `number` annotation
 is erased at runtime.
 
-The action-level guard does not help. For `contactLogId = "1 OR 1=1"`, `!id` is false (non-empty
-string is truthy) and `id <= 0` is false, so the guard passes. Verified empirically:
+The action-level guard did not help. For `contactLogId = "1 OR 1=1"`, `!id` is false (non-empty
+string is truthy) and `id <= 0` is false, so the guard passed. Verified empirically:
 
 ```
 getContactLogById("1 OR 1=1")  →  filter: "Contact_Log_ID = 1 OR 1=1"
 searchContactLogs("5; DROP")   →  filter: "Contact_ID = 5; DROP"
 ```
 
-`contactLogService.ts` is at **100% statements and 100% branches**. No test passes a non-numeric value,
-which is exactly why full coverage did not catch it.
+`contactLogService.ts` was at **100% statements and 100% branches**. No test passed a non-numeric
+value, which is exactly why full coverage did not catch it.
 
 ### 5.2 `searchContacts` — no authentication ✅ FIXED
 
@@ -193,23 +205,36 @@ and keeps `userGuid` only as an effect dependency so switching users still re-fe
 If a feature ever needs to read another user's profile, that is a separate, explicitly role-gated
 function — not a widening of this one.
 
-### 5.4 Contact-log actions authenticate but never authorize 🟠
+### 5.4 Contact-log actions authenticate but never authorize ✅ FIXED
 
-→ `.claude/TODO/contact-log-actions-authenticate-but-not-authorize.md`
+Resolved 2026-08-21. The policy decision was made: **any authenticated user holding an MP security
+role may create, edit, and delete any contact log**, ownership not a factor. It is enforced by
+`AuthorizationService.requireSecurityRoleForWrite()`, documented in `.claude/references/auth.md`, and
+encoded in tests that would fail under a different policy (`should NOT delete when the caller holds
+no security role`, `should permit editing a log made by a different user`).
 
-`deleteContactLog` is the sharpest edge: any authenticated session can delete any contact log in the
-domain by ID. This needs a policy decision, not just code — "any authenticated staff user may delete
-any log" may well be correct, but it should be chosen and documented rather than left implicit.
+Authentication alone is no longer sufficient for a write: a session with no resolvable MP `User_ID`,
+or an MP user holding no security role, fails closed with `UnauthorizedError` and a structured
+`mp.write.unauthorized` log line. `MP_WRITE_SECURITY_ROLES` narrows the gate to named roles without a
+code change.
 
-### 5.5 Contact-log actions bypass `SessionContextService` 🟠
+### 5.5 Contact-log actions bypass `SessionContextService` ✅ FIXED
 
-→ `.claude/TODO/contact-log-actions-bypass-session-context-service.md`
+Resolved 2026-08-21. Both inline `dp_Users` lookups are gone. The acting `User_ID` now comes from
+`AuthorizationService` → `SessionContextService` → the session-baked `userId` that `customSession`
+resolved and `resolveMpUserId` cached — so a write costs no `dp_Users` round-trip at all, and the
+`getUserGuid` helper plus the `MPHelper`/`sanitizeGuid` imports were deleted from the actions.
 
-Found while writing tests. `createContactLog` and `updateContactLog` each re-implement the `dp_Users`
-User_ID lookup inline — work `resolveMpUserId` already does and caches, and which
-`SessionContextService.getActingUserIdForWrite()` exists specifically to serve. Worse, they **throw**
-when the User_ID cannot be resolved, contradicting the policy that service was built around: log
-`mp.write.non_user` and proceed rather than blocking the write.
+`mp.write.non_user` is still emitted for an unresolved acting user, so the attempt stays visible in
+logs. Whether the write then *proceeds* is now the authorization gate's decision rather than an
+accident of a failed lookup — and under §5.4's policy it does not, because a user with no `User_ID`
+has no roles. `should not resolve the acting user itself — SessionContextService owns that` guards
+against the inline lookup returning.
+
+One behavior change worth calling out: `updateContactLog` no longer stamps `Made_By` with the editor.
+That column records who made the *contact*; since any role-holder may edit anyone's log, stamping the
+editor rewrote the pastoral record's authorship. MP's audit trail still captures the editor via
+`$userId` in `ContactLogService`.
 
 ### 5.6 N+1 query in `getContactLogsByContactId` 🟡
 
@@ -239,15 +264,29 @@ Now rewritten to call the real `enrichSessionUser`. Verified by mutation: changi
 
 ## 6. Remaining gaps
 
-### `contact-logs.tsx` — 602 lines, 0% 🔴
+### `contact-logs.tsx` — was 602 lines at 0% ✅ ADDRESSED
 
-→ `.claude/TODO/contact-logs-component-untested.md`
+Resolved 2026-08-21. `contact-logs.test.tsx` adds 13 targeted tests covering the three places where a
+regression would silently corrupt or delete member data:
 
-The largest untested file in the app, and the component that drives contact-log create / update /
-delete. Out of scope for a non-UI coverage target, but it is the highest-value test gap left in the
-repo: the server actions beneath it are at 100%, and the actions are the easy half. The form logic,
-the delete-confirmation gate, and the error handling are where a regression silently corrupts or
-deletes member data. Three targeted tests would beat zero by a wide margin.
+1. **The delete-confirmation gate** — clicking the trash icon opens the confirmation and calls
+   nothing; cancelling calls nothing; only accepting calls `deleteContactLog(501)`.
+2. **Client-side validation** — an empty `Notes` or a cleared `Contact_Date` surfaces the field error
+   and never reaches `createContactLog`.
+3. **Error surfacing** — a rejected create/update/delete alerts the user, leaves the dialog open, and
+   does not call `onRefresh` as if it had succeeded; the log row stays on screen.
+
+Verified by mutation: making `handleDeleteClick` call `deleteContactLog(logId)` directly — the exact
+"delete fires before the confirmation resolves" regression the TODO named — fails all four gate
+tests. The previous suite would have caught none of it.
+
+Radix needs `ResizeObserver`, `hasPointerCapture`/`setPointerCapture`/`releasePointerCapture`, and
+`scrollIntoView` polyfilled under jsdom; without them the primitives throw on mount rather than
+failing an assertion. `installJsdomPolyfills()` in that test file is the pattern to copy for the
+remaining component gaps below.
+
+Full render coverage was not chased — deliberately. These are the write-path tests, not a coverage
+exercise, and the component stays ungated in `vitest.config.ts` thresholds.
 
 ### Other component gaps 🟡
 
@@ -303,12 +342,12 @@ deletes member data. Three targeted tests would beat zero by a wide margin.
 | 100% | 100% | 1/1 | `lib/auth-client.ts` |
 | 100% | 100% | 1/1 | `lib/utils.ts` |
 
-The full test inventory (419 tests across 30 files, with per-file counts) lives in
+The full test inventory (575 tests across 32 files, with per-file counts) lives in
 `.claude/references/testing.md`.
 
 ---
 
-*All findings verified against the working tree. §5.1 was reproduced with a temporary probe test
-(since removed) against the real `ContactLogService` with a mocked `MPHelper`. §5.8 was verified by
-mutation. No Ministry Platform data was read or written during this review or by any test in the
+*All findings verified against the working tree. §5.1 was reproduced with a probe test against the
+real `ContactLogService` with a mocked `MPHelper`; that probe now ships as the regression guard in
+`contactLogService.test.ts`. §5.8 was verified by mutation. No Ministry Platform data was read or written during this review or by any test in the
 suite — every test mocks at a boundary above the network.*

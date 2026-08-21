@@ -100,7 +100,7 @@ describe('contact-lookup-details actions', () => {
 
     it('should throw for invalid contact ID', async () => {
       mockGetSession.mockResolvedValueOnce(mockAuthSession);
-      await expect(getContactLogsByContactId(0)).rejects.toThrow('Valid contact ID is required');
+      await expect(getContactLogsByContactId(0)).rejects.toThrow('Invalid Contact ID');
     });
 
     it('should return logs with type names mapped', async () => {
@@ -158,6 +158,33 @@ describe('contact-lookup-details actions', () => {
       mockGetContactLogsByContactId.mockRejectedValueOnce({ status: 500 });
 
       await expect(getContactLogsByContactId(42)).rejects.toThrow('Failed to fetch contact logs');
+    });
+  });
+
+  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`. This
+  // is the second reachable entry point into
+  // `ContactLogService.getContactLogsByContactId` and carried the same
+  // ineffective `!contactId || contactId <= 0` guard.
+  describe('numeric ID validation at the action boundary', () => {
+    it.each(['1 OR 1=1', '5; DROP', "1' OR '1'='1", '', 'abc', '  7  '])(
+      'rejects %j before reaching the service',
+      async (payload) => {
+        mockGetSession.mockResolvedValueOnce(mockAuthSession);
+
+        await expect(
+          getContactLogsByContactId(payload as unknown as number)
+        ).rejects.toThrow('Invalid Contact ID');
+        expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
+      }
+    );
+
+    it('passes a digits-only ID through to the service as a number', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockResolvedValueOnce([]);
+
+      await getContactLogsByContactId('42' as unknown as number);
+
+      expect(mockGetContactLogsByContactId).toHaveBeenCalledWith(42);
     });
   });
 });
