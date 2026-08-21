@@ -72,7 +72,7 @@ describe('MinistryPlatformClient', () => {
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
 
-      // Advance time by 1 minute (still within 5-minute validity window)
+      // Advance time by 1 minute (well inside the token's validity window)
       vi.advanceTimersByTime(60 * 1000);
 
       // Second call - should NOT fetch new token
@@ -99,8 +99,8 @@ describe('MinistryPlatformClient', () => {
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
 
-      // Advance time by 6 minutes (past the 5-minute token life)
-      vi.advanceTimersByTime(6 * 60 * 1000);
+      // Advance time past the token's usable life (3600s - 5min safety margin)
+      vi.advanceTimersByTime(56 * 60 * 1000);
 
       // Second call - should fetch new token
       await client.ensureValidToken();
@@ -148,7 +148,8 @@ describe('MinistryPlatformClient', () => {
   });
 
   describe('Token Lifecycle', () => {
-    it('should use 5-minute safety buffer for token expiration', async () => {
+    it('should refresh 5 minutes before the reported expiration', async () => {
+      // expires_in: 3600 minus the 5-minute safety margin => 55 minutes usable
       mockGetClientCredentialsToken
         .mockResolvedValueOnce({
           access_token: 'token-1',
@@ -167,19 +168,93 @@ describe('MinistryPlatformClient', () => {
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
 
-      // Advance time by 4 minutes 59 seconds (just under 5-minute buffer)
-      vi.advanceTimersByTime(4 * 60 * 1000 + 59 * 1000);
+      // Advance to 54:59 - just inside the 55-minute window
+      vi.advanceTimersByTime(54 * 60 * 1000 + 59 * 1000);
 
       // Should still be valid
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
 
-      // Advance time by 2 more seconds (past 5-minute buffer)
+      // Advance 2 more seconds, past 55:00
       vi.advanceTimersByTime(2000);
 
       // Should refresh now
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should fall back to a 1-hour lifetime when expires_in is missing', async () => {
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({
+          access_token: 'no-expiry-token',
+          token_type: 'Bearer',
+        })
+        .mockResolvedValueOnce({
+          access_token: 'refreshed-token',
+          token_type: 'Bearer',
+        });
+
+      const client = new MinistryPlatformClient();
+
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      // Same 55-minute boundary as an explicit expires_in: 3600
+      vi.advanceTimersByTime(54 * 60 * 1000 + 59 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(2000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should clamp a short expires_in to the 30-second floor', async () => {
+      // 60s - 5min margin is negative, so the floor applies instead
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({
+          access_token: 'short-lived-token',
+          expires_in: 60,
+          token_type: 'Bearer',
+        })
+        .mockResolvedValueOnce({
+          access_token: 'refreshed-token',
+          expires_in: 60,
+          token_type: 'Bearer',
+        });
+
+      const client = new MinistryPlatformClient();
+
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      // Just inside the 30-second floor
+      vi.advanceTimersByTime(29 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      // Just past it
+      vi.advanceTimersByTime(2000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should ignore a non-numeric expires_in and use the default lifetime', async () => {
+      mockGetClientCredentialsToken.mockResolvedValueOnce({
+        access_token: 'bogus-expiry-token',
+        expires_in: 'not-a-number',
+        token_type: 'Bearer',
+      });
+
+      const client = new MinistryPlatformClient();
+
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      // Would have refreshed immediately if NaN had reached expiresAt
+      vi.advanceTimersByTime(54 * 60 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
     });
   });
 
