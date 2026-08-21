@@ -44,6 +44,8 @@ describe("resolveIanaTimezone", () => {
   it("throws for unknown identifiers rather than silently falling back", () => {
     expect(() => resolveIanaTimezone("Atlantis Standard Time")).toThrow(/Unknown time zone/);
     expect(() => resolveIanaTimezone("")).toThrow();
+    // Whitespace-only trims to empty and takes the same required-identifier path.
+    expect(() => resolveIanaTimezone("   ")).toThrow(/Time zone identifier is required/);
   });
 });
 
@@ -167,4 +169,32 @@ describe("DomainTimezoneService", () => {
       expect(instant.toISOString()).toBe("2026-05-17T03:33:00.000Z");
     });
   });
+
+    it("throws for a value that has a zone marker but is not a real date", async () => {
+      const svc = freshService();
+      // Has an offset marker, so it skips the wall-clock path and goes straight to
+      // `new Date(value)` — which yields Invalid Date rather than throwing on its own.
+      await expect(svc.parseMpDatetime("not-a-date+05:00")).rejects.toThrow(
+        /unable to parse/
+      );
+      expect(mockGetDomainInfo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("clearCache", () => {
+    it("forces the next call to refetch the domain time zone", async () => {
+      mockGetDomainInfo
+        .mockResolvedValueOnce({ TimeZoneName: "America/New_York" })
+        .mockResolvedValueOnce({ TimeZoneName: "America/Chicago" });
+      const svc = freshService();
+
+      expect(await svc.getMpTimezone()).toBe("America/New_York");
+      expect(await svc.getMpTimezone()).toBe("America/New_York");
+      expect(mockGetDomainInfo).toHaveBeenCalledTimes(1);
+
+      svc.clearCache();
+
+      expect(await svc.getMpTimezone()).toBe("America/Chicago");
+      expect(mockGetDomainInfo).toHaveBeenCalledTimes(2);
+    });
 });

@@ -56,6 +56,39 @@ async function resolveMpUserId(userGuid: string): Promise<number | null> {
   }
 }
 
+/**
+ * Builds the enriched session payload returned by `customSession` below.
+ *
+ * Extracted from the `customSession` callback so it can be unit tested: the
+ * better-auth plugin closes over its callback and never exposes it, so the only
+ * other way to exercise this logic would be to drive a full `getSession()`
+ * request through the whole auth stack. Behavior is identical to the inline
+ * version it replaced.
+ *
+ * Profile loading still happens client-side via UserProvider /
+ * getCurrentUserProfile(). The only server-side lookup here is User_ID, cached
+ * in-memory after the first resolution per process, so it costs at most one MP
+ * call per (user × container).
+ */
+export async function enrichSessionUser<
+  U extends { name?: string | null },
+  S,
+>(user: U, session: S) {
+  const userGuid = (user as { userGuid?: string | null }).userGuid;
+  const userId: number | null = userGuid
+    ? await resolveMpUserId(userGuid)
+    : null;
+  return {
+    user: {
+      ...user,
+      firstName: user.name?.split(" ")[0] || "",
+      lastName: user.name?.split(" ").slice(1).join(" ") || "",
+      userId,
+    },
+    session,
+  };
+}
+
 const options = {
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET || process.env.NEXTAUTH_SECRET,
@@ -162,25 +195,7 @@ export const auth = betterAuth({
   plugins: [
     ...(options.plugins ?? []),
     customSession(
-      async ({ user, session }) => {
-        // Profile loading still happens client-side via UserProvider /
-        // getCurrentUserProfile(). The only server-side lookup we do here is
-        // User_ID, cached in-memory after the first resolution per process,
-        // so it costs at most one MP call per (user × container).
-        const userGuid = (user as { userGuid?: string | null }).userGuid;
-        const userId: number | null = userGuid
-          ? await resolveMpUserId(userGuid)
-          : null;
-        return {
-          user: {
-            ...user,
-            firstName: user.name?.split(" ")[0] || "",
-            lastName: user.name?.split(" ").slice(1).join(" ") || "",
-            userId,
-          },
-          session,
-        };
-      },
+      async ({ user, session }) => enrichSessionUser(user, session),
       options,
     ),
     nextCookies(),

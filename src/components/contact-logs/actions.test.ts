@@ -268,4 +268,67 @@ describe('contact-logs actions', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('Session and argument guards', () => {
+    it('should reject createContactLog when the session carries no userGuid', async () => {
+      // getUserGuid throws before any MP call is attempted — a Better Auth session
+      // without userGuid means mapProfileToUser did not run (see auth.test.ts).
+      mockGetSession.mockResolvedValueOnce({ user: { id: 'ba-internal-id' } });
+
+      await expect(
+        createContactLog({ Contact_ID: 1, Contact_Date: '2026-08-21', Notes: 'x' } as never)
+      ).rejects.toThrow('User GUID not found in session');
+
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+      expect(mockCreateContactLog).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateContactLog when the session carries no userGuid', async () => {
+      mockGetSession.mockResolvedValueOnce({ user: { id: 'ba-internal-id' } });
+
+      await expect(updateContactLog(1, { Notes: 'x' })).rejects.toThrow(
+        'User GUID not found in session'
+      );
+
+      expect(mockUpdateContactLog).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateContactLog when the acting User_ID cannot be resolved', async () => {
+      // NOTE: this action throws rather than proceeding with a null Made_By. That
+      // contradicts the policy SessionContextService was built around (log
+      // mp.write.non_user, do not block the write). Tracked in
+      // .claude/TODO/contact-log-actions-bypass-session-context-service.md — this
+      // test pins today's behavior so the refactor is a deliberate change.
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      await expect(updateContactLog(1, { Notes: 'x' })).rejects.toThrow(
+        'Unable to determine user User_ID'
+      );
+
+      expect(mockUpdateContactLog).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateContactLog for a non-positive contact log ID', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetTableRecords.mockResolvedValueOnce([{ User_ID: 4242 }]);
+
+      await expect(updateContactLog(0, { Notes: 'x' })).rejects.toThrow(
+        'Valid Contact Log ID is required'
+      );
+
+      expect(mockUpdateContactLog).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateContactLog for a negative contact log ID', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetTableRecords.mockResolvedValueOnce([{ User_ID: 4242 }]);
+
+      await expect(updateContactLog(-5, { Notes: 'x' })).rejects.toThrow(
+        'Valid Contact Log ID is required'
+      );
+
+      expect(mockUpdateContactLog).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -5,134 +5,271 @@ import type {
   GenericOAuthOptions,
 } from 'better-auth/plugins';
 import type { OAuth2Tokens } from '@better-auth/core/oauth2';
-import { auth, userAdditionalFields } from '@/lib/auth';
+
+const { mockGetTableRecords } = vi.hoisted(() => ({
+  mockGetTableRecords: vi.fn(),
+}));
+
+// MPHelper is mocked as a class (not vi.fn().mockImplementation) so `new MPHelper()`
+// inside resolveMpUserId picks up the stubbed method — see .claude/references/testing.md.
+vi.mock('@/lib/providers/ministry-platform', () => ({
+  MPHelper: class {
+    getTableRecords = mockGetTableRecords;
+  },
+}));
+
+import { auth, userAdditionalFields, enrichSessionUser } from '@/lib/auth';
 
 /**
  * Auth Tests
  *
  * Tests for the Better Auth configuration in src/lib/auth.ts.
- * - customSession: lightweight name splitting only (no API calls)
+ * - enrichSessionUser: the customSession callback body — name splitting plus the
+ *   cached dp_Users User_ID lookup that backs MP write attribution
  * - getUserInfo: fetches the OIDC profile and returns `sub` (better-auth 1.7
  *   resolves the account subject from it for OIDC discovery providers)
  * - mapProfileToUser: stores the OAuth sub claim as userGuid (additionalField)
  * - User profile loading is handled client-side by UserProvider
  */
+/**
+ * These tests invoke the REAL `enrichSessionUser` exported from src/lib/auth.ts,
+ * which is the body of the `customSession` callback. An earlier version of this
+ * block re-implemented the name-splitting inside the test and asserted against
+ * its own copy, so it passed even if the callback were deleted outright. Do not
+ * reintroduce that pattern: assert against the imported function.
+ *
+ * `userIdCache` in auth.ts is module-level and persists for the lifetime of this
+ * test file, so each test that cares about lookup counts uses its own GUID.
+ */
+describe('Auth - enrichSessionUser', () => {
+  const session = { id: 'session-123', token: 'tok', userId: 'ba-internal-id' };
 
-describe('Auth - Custom Session Enrichment Logic', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetTableRecords.mockResolvedValue([{ User_ID: 4242 }]);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  describe('Name Splitting', () => {
-    it('should split full name into firstName and lastName', () => {
-      const user = { id: 'ba-internal-id', name: 'John Doe', email: 'john@example.com', userGuid: 'user-guid-123' };
+  describe('Name splitting', () => {
+    it('should split a full name into firstName and lastName', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501001' },
+        session,
+      );
 
-      const enrichedUser = {
-        ...user,
-        firstName: user.name?.split(' ')[0] || '',
-        lastName: user.name?.split(' ').slice(1).join(' ') || '',
-      };
-
-      expect(enrichedUser.firstName).toBe('John');
-      expect(enrichedUser.lastName).toBe('Doe');
+      expect(result.user.firstName).toBe('John');
+      expect(result.user.lastName).toBe('Doe');
     });
 
-    it('should handle multi-part last names', () => {
-      const user = { id: 'ba-internal-id', name: 'Mary Jane Watson', email: 'mary@example.com' };
+    it('should keep multi-part last names intact', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: 'Mary Jane Van Der Berg', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501002' },
+        session,
+      );
 
-      const enrichedUser = {
-        ...user,
-        firstName: user.name?.split(' ')[0] || '',
-        lastName: user.name?.split(' ').slice(1).join(' ') || '',
-      };
-
-      expect(enrichedUser.firstName).toBe('Mary');
-      expect(enrichedUser.lastName).toBe('Jane Watson');
+      expect(result.user.firstName).toBe('Mary');
+      expect(result.user.lastName).toBe('Jane Van Der Berg');
     });
 
-    it('should handle single name (no last name)', () => {
-      const user = { id: 'ba-internal-id', name: 'Madonna', email: 'madonna@example.com' };
+    it('should return an empty lastName for a single-word name', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: 'Prince', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501003' },
+        session,
+      );
 
-      const enrichedUser = {
-        ...user,
-        firstName: user.name?.split(' ')[0] || '',
-        lastName: user.name?.split(' ').slice(1).join(' ') || '',
-      };
-
-      expect(enrichedUser.firstName).toBe('Madonna');
-      expect(enrichedUser.lastName).toBe('');
+      expect(result.user.firstName).toBe('Prince');
+      expect(result.user.lastName).toBe('');
     });
 
-    it('should handle undefined name gracefully', () => {
-      const user = { id: 'ba-internal-id', name: undefined as string | undefined, email: 'user@example.com' };
+    it('should handle an undefined name without throwing', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: undefined, userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501004' },
+        session,
+      );
 
-      const enrichedUser = {
-        ...user,
-        firstName: user.name?.split(' ')[0] || '',
-        lastName: user.name?.split(' ').slice(1).join(' ') || '',
-      };
-
-      expect(enrichedUser.firstName).toBe('');
-      expect(enrichedUser.lastName).toBe('');
+      expect(result.user.firstName).toBe('');
+      expect(result.user.lastName).toBe('');
     });
 
-    it('should handle empty string name', () => {
-      const user = { id: 'ba-internal-id', name: '', email: 'user@example.com' };
+    it('should handle an empty-string name', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: '', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501005' },
+        session,
+      );
 
-      const enrichedUser = {
-        ...user,
-        firstName: user.name?.split(' ')[0] || '',
-        lastName: user.name?.split(' ').slice(1).join(' ') || '',
-      };
-
-      expect(enrichedUser.firstName).toBe('');
-      expect(enrichedUser.lastName).toBe('');
+      expect(result.user.firstName).toBe('');
+      expect(result.user.lastName).toBe('');
     });
   });
 
-  describe('Session Structure', () => {
-    it('should return enriched user with userGuid and unchanged session', () => {
-      const user = { id: 'ba-internal-id', name: 'John Doe', email: 'john@example.com', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234567890' };
-      const session = { id: 'session-123', expiresAt: new Date() };
-
-      // Simulate customSession logic (no API calls, just name splitting)
-      const result = {
-        user: {
-          ...user,
-          firstName: user.name?.split(' ')[0] || '',
-          lastName: user.name?.split(' ').slice(1).join(' ') || '',
+  describe('Session structure', () => {
+    it('should preserve user.id and userGuid as distinct values', async () => {
+      const result = await enrichSessionUser(
+        {
+          id: 'ba-internal-id',
+          name: 'John Doe',
+          email: 'john@example.com',
+          userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501006',
         },
         session,
-      };
+      );
 
-      // user.id is Better Auth's internal ID, NOT the MP User_GUID
+      // user.id is Better Auth's internal ID, NOT the MP User_GUID.
       expect(result.user.id).toBe('ba-internal-id');
-      // userGuid is the MP User_GUID stored via additionalFields + mapProfileToUser
-      expect(result.user.userGuid).toBe('ab12cd34-ef56-7890-abcd-ef1234567890');
-      expect(result.user.firstName).toBe('John');
-      expect(result.user.lastName).toBe('Doe');
+      // userGuid is the MP User_GUID, stored via additionalFields + mapProfileToUser.
+      expect(result.user.userGuid).toBe('ab12cd34-ef56-7890-abcd-ef1234501006');
+    });
+
+    it('should pass the session object through by reference, unmodified', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501007' },
+        session,
+      );
+
       expect(result.session).toBe(session);
     });
 
-    it('should not include userProfile in session', () => {
-      const user = { id: 'ba-internal-id', name: 'John Doe', email: 'john@example.com' };
-      const session = { id: 'session-123', expiresAt: new Date() };
-
-      const result = {
-        user: {
-          ...user,
-          firstName: user.name?.split(' ')[0] || '',
-          lastName: user.name?.split(' ').slice(1).join(' ') || '',
-        },
+    it('should not add userProfile to the session', async () => {
+      // The MP profile is loaded client-side by UserProvider, not baked into the
+      // session — a stateless JWT cookie cache cannot carry it cheaply.
+      const result = await enrichSessionUser(
+        { id: 'ba-internal-id', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501008' },
         session,
-      };
+      );
 
-      // userProfile is NOT part of the session — it's loaded client-side by UserProvider
+      expect(result.user).not.toHaveProperty('userProfile');
       expect(result.session).not.toHaveProperty('userProfile');
+    });
+  });
+
+  describe('User_ID resolution', () => {
+    it('should resolve the MP User_ID from dp_Users and expose it as userId', async () => {
+      const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502001';
+      mockGetTableRecords.mockResolvedValueOnce([{ User_ID: 4242 }]);
+
+      const result = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+
+      expect(result.user.userId).toBe(4242);
+      expect(mockGetTableRecords).toHaveBeenCalledWith({
+        table: 'dp_Users',
+        filter: `User_GUID = '${userGuid}'`,
+        select: 'User_ID',
+        top: 1,
+      });
+    });
+
+    it('should cache the lookup so a repeat session costs no MP call', async () => {
+      const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502002';
+      mockGetTableRecords.mockResolvedValue([{ User_ID: 99 }]);
+
+      const first = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+      const second = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+
+      expect(first.user.userId).toBe(99);
+      expect(second.user.userId).toBe(99);
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('should look up each distinct userGuid separately', async () => {
+      mockGetTableRecords
+        .mockResolvedValueOnce([{ User_ID: 1 }])
+        .mockResolvedValueOnce([{ User_ID: 2 }]);
+
+      const a = await enrichSessionUser(
+        { id: 'ba', name: 'A A', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234502003' },
+        session,
+      );
+      const b = await enrichSessionUser(
+        { id: 'ba', name: 'B B', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234502004' },
+        session,
+      );
+
+      expect(a.user.userId).toBe(1);
+      expect(b.user.userId).toBe(2);
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
+    });
+
+    it('should skip the lookup entirely when the user has no userGuid', async () => {
+      const result = await enrichSessionUser({ id: 'ba', name: 'John Doe' }, session);
+
+      expect(result.user.userId).toBeNull();
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('should treat an empty userGuid as no userGuid', async () => {
+      const result = await enrichSessionUser(
+        { id: 'ba', name: 'John Doe', userGuid: '' },
+        session,
+      );
+
+      expect(result.user.userId).toBeNull();
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('should return a null userId when dp_Users has no matching row', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const result = await enrichSessionUser(
+        { id: 'ba', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234502005' },
+        session,
+      );
+
+      expect(result.user.userId).toBeNull();
+    });
+
+    it('should return a null userId when the row has no User_ID', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([{ User_ID: 0 }]);
+
+      const result = await enrichSessionUser(
+        { id: 'ba', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234502006' },
+        session,
+      );
+
+      expect(result.user.userId).toBeNull();
+    });
+
+    it('should not cache a failed resolution', async () => {
+      const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502007';
+      mockGetTableRecords.mockResolvedValueOnce([]).mockResolvedValueOnce([{ User_ID: 77 }]);
+
+      const first = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+      const second = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+
+      expect(first.user.userId).toBeNull();
+      expect(second.user.userId).toBe(77);
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
+    });
+
+    it('should never block session creation when the MP lookup throws', async () => {
+      // A failed User_ID lookup must degrade to null, not reject — otherwise a
+      // transient MP outage logs every user out. The missing attribution surfaces
+      // later as the mp.write.non_user warning at write time.
+      mockGetTableRecords.mockRejectedValueOnce(new Error('MP unreachable'));
+
+      const result = await enrichSessionUser(
+        { id: 'ba', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234502008' },
+        session,
+      );
+
+      expect(result.user.userId).toBeNull();
+      expect(result.user.firstName).toBe('John');
+      expect(console.error).toHaveBeenCalled();
+    });
+
+    it('should reject a malformed userGuid rather than interpolating it into the filter', async () => {
+      // resolveMpUserId runs the GUID through sanitizeGuid, which throws on a
+      // non-canonical value. The throw is caught, so the session still succeeds.
+      const result = await enrichSessionUser(
+        { id: 'ba', name: 'John Doe', userGuid: "' OR 1=1 --" },
+        session,
+      );
+
+      expect(result.user.userId).toBeNull();
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
     });
   });
 });

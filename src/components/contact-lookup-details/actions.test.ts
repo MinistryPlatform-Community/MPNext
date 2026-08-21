@@ -138,4 +138,26 @@ describe('contact-lookup-details actions', () => {
       expect(result[0].Contact_Log_Type).toBeNull();
     });
   });
+
+  describe('Non-Error rejections', () => {
+    // Both actions end in `throw error instanceof Error ? error : new Error(...)`.
+    // A service that rejects with a non-Error (a string from a bare `throw`, or a
+    // rejected promise carrying a plain object) must still surface a real Error,
+    // otherwise the caller gets `undefined` for `error.message`.
+    it('should wrap a non-Error rejection from getContactDetails', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactByGuid.mockRejectedValueOnce('mp connection reset');
+
+      await expect(getContactDetails('ab12cd34-ef56-7890-abcd-ef1234567890')).rejects.toThrow(
+        'Failed to fetch contact details'
+      );
+    });
+
+    it('should wrap a non-Error rejection from getContactLogsByContactId', async () => {
+      mockGetSession.mockResolvedValueOnce(mockAuthSession);
+      mockGetContactLogsByContactId.mockRejectedValueOnce({ status: 500 });
+
+      await expect(getContactLogsByContactId(42)).rejects.toThrow('Failed to fetch contact logs');
+    });
+  });
 });
