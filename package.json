@@ -14,7 +14,10 @@
     "mp:generate:models": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean",
     "mp:generate:storedprocs": "tsx src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts",
     "setup": "tsx scripts/setup.ts",
-    "setup:check": "tsx scripts/setup.ts --check"
+    "setup:check": "tsx scripts/setup.ts --check",
+    "deps:verify": "node scripts/check-lockfile.mjs",
+    "deps:relock": "node scripts/check-lockfile.mjs --fix",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",

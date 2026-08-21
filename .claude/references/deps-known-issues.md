@@ -83,6 +83,77 @@ Last audit: **2026-08-21 (run 2)** — report at `.claude/reports/deps-audit-202
 | `chalk` | `^5.6.2` → `^6.0.0` | `npm run setup:check` renders colored output, all 8 checks run | 2026-08-21 |
 | `@testing-library/jest-dom` | `^6.9.1` → `^7.0.1` | 279/279 tests pass; `@testing-library/dom@^10.4.1` promoted transitive → explicit `devDependency` as v7 requires | 2026-08-21 |
 
+## Lockfile platform drift (Windows -> Linux CI)
+
+**Resolved 2026-08-21 with a guard. Read this before touching `package-lock.json`.**
+
+`package-lock.json` is authored on Windows and installed by CI on Linux. npm resolves
+optional and bundled subtrees per platform, so a lockfile written on Windows can omit
+entries `npm ci` on Linux requires. CI then dies at the install step with a cryptic
+`Missing: … from lock file`, before any test runs.
+
+It happened twice, and both times reached `main` and were found a merge later:
+
+| Date | Trigger | Damage |
+|---|---|---|
+| 2026-05-17 | `npm dedupe` on Windows | `@emnapi/*` subtree under `@tailwindcss/oxide-wasm32-wasi` pruned; fixed by hand |
+| 2026-08-21 | `64f18f0` "Package Update Cleanup" | `ajv` hoisted to top level; `main` red for ~45 min; fixed in PR #72 |
+
+### The rule
+
+```bash
+npm run deps:relock     # the ONLY supported way to regenerate the lockfile
+npm run deps:verify     # check it (runs in CI and in the pre-commit hook)
+```
+
+`deps:relock` is `npm install --package-lock-only --os=linux --cpu=x64`. Verified
+2026-08-21: it restores every missing nested/bundled entry, prunes nothing, and does not
+narrow the lockfile to one platform — platform entry counts were byte-identical before and
+after (win32 76, darwin 75, linux-x64 46, android 40). It is idempotent, and
+`--package-lock-only` never touches `node_modules`, so it is safe to run mid-session.
+
+**Never** regenerate with a bare `npm install` or `npm dedupe` on Windows. Measured against
+the fixed lockfile: a plain `npm install --package-lock-only` is harmless (2 metadata lines),
+but `npm dedupe --package-lock-only` re-breaks it in one command — 114 lines, stripping the
+nested `eslint/node_modules/ajv` subtrees and re-hoisting `ajv@6.15.0`, reproducing the exact
+`64f18f0` failure.
+
+### Why the guard is not `npm ci --dry-run`
+
+Measured 2026-08-21 against a known-broken lockfile:
+
+| Command | Windows | Linux |
+|---|---|---|
+| `npm ci --dry-run` | **exit 0** | exit 1 |
+| `npm ci --dry-run --os=linux --cpu=x64` | **exit 0** | — |
+
+npm's lock/manifest sync check ignores `--os`/`--cpu`, so **the drift is undetectable with
+`npm ci` from a Windows machine**. A hook built on it would pass every time and still break CI.
+
+`scripts/check-lockfile.mjs` instead asserts an invariant that holds on any platform: *the
+lockfile must already be what Linux resolution produces.* It relocks a throwaway copy and
+diffs, reporting the exact `node_modules/...` keys that moved. Against the real broken
+lockfile it names all six entries, from Windows.
+
+### Where it runs
+
+- **pre-commit** — `.githooks/pre-commit`, only when `package-lock.json` is staged.
+  Auto-installed by the `prepare` script (`git config core.hooksPath .githooks`), so a fresh
+  clone gets it on first `npm install`. Bypass with `git commit --no-verify`.
+- **CI** — the `lockfile` job in `.github/workflows/test.yml`, on every push and PR. This is
+  the authoritative check; it runs on Linux and cannot be skipped.
+
+Offline behavior: the check needs the registry. Locally it warns and passes when npm is
+unreachable (so an offline commit is not blocked); in CI (`process.env.CI`) it fails instead.
+
+### Not fixable upstream
+
+`@tailwindcss/oxide-wasm32-wasi` and `@unrs/resolver-binding-wasm32-wasi` are
+`optionalDependencies` of `@tailwindcss/oxide` and `unrs-resolver` respectively, both with
+`cpu: ["wasm32"]`. They are transitive and not ours to remove — the only way to exclude them is
+`--omit=optional`, which would also drop every platform's native binary. The WASM-fallback
+entanglement is inherent to those upstream packages, so the guard is the fix, not removal.
+
 ## Open items awaiting a decision (not blockers)
 
 | Item | Detail | Raised |

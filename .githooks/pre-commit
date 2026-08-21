@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# Blocks commits that would land a lockfile CI cannot install.
+#
+# Only runs when package-lock.json is actually staged, so it costs nothing on a
+# normal commit. See scripts/check-lockfile.mjs for why `npm ci --dry-run` is
+# not sufficient here (it exits 0 on Windows against a lockfile that breaks
+# Linux CI).
+#
+# Installed by the `prepare` script in package.json, which points
+# core.hooksPath at this directory. To bypass once: git commit --no-verify
+
+if git diff --cached --name-only --diff-filter=ACM | grep -q '^package-lock\.json$'; then
+  echo "package-lock.json is staged — checking it against Linux resolution..."
+  if ! node scripts/check-lockfile.mjs; then
+    echo ""
+    echo "Commit blocked. Run 'npm run deps:relock', stage package-lock.json, and retry."
+    echo "To commit anyway: git commit --no-verify"
+    exit 1
+  fi
+fi
+
+exit 0

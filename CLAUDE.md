@@ -35,6 +35,19 @@ Ministry Platform is a shared production database containing real church member 
 - **Generate MP Types**: `npm run mp:generate:models` (generates TypeScript types + Zod schemas from Ministry Platform API, cleans output directory first)
 - **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage)
 - **Setup**: `npm run setup` (interactive project setup wizard), `npm run setup:check` (validate setup without changes)
+- **Dependencies**: `npm run deps:relock` (regenerate `package-lock.json` — the only supported way), `npm run deps:verify` (check it for platform drift)
+
+### Dependency Rule — MANDATORY
+
+**Never regenerate `package-lock.json` with a bare `npm install` or `npm dedupe` on Windows.** Use `npm run deps:relock`.
+
+This repo's lockfile is authored on Windows and installed by CI on Linux. npm resolves optional and bundled subtrees per platform, so a Windows-generated lockfile can omit entries `npm ci` on Linux requires — CI then dies at the install step before any test runs. This broke `main` twice (2026-05-17 `@emnapi/*`, 2026-08-21 `ajv`). One `npm dedupe` on Windows is enough to reproduce it.
+
+Critically, **`npm ci --dry-run` cannot detect this on Windows** — it exits 0 there against a lockfile that fails on Linux, and `--os`/`--cpu` do not change that. So a green local check proves nothing; run `npm run deps:verify`, which asserts the lockfile already matches Linux resolution.
+
+A pre-commit hook (`.githooks/pre-commit`, auto-installed via the `prepare` script) and a `lockfile` CI job both enforce this. Full detail: **[Dependency Known Issues](.claude/references/deps-known-issues.md)** § Lockfile platform drift.
+
+Also: do not run `npm ci` while `next dev` is running — it deletes `node_modules` first, then aborts on a locked native `.node` file, leaving the tree half-installed. Stop the dev server first.
 
 ### Type Generation Notes
 
