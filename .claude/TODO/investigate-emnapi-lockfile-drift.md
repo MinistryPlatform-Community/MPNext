@@ -2,7 +2,30 @@
 
 **Created:** 2026-05-17
 **Severity:** Annoying — CI breaks every time someone bumps a dep on Windows.
+
 **Workaround in place:** Manually re-add the four `@emnapi/*` lockfile entries by hand after every Windows `npm install`. Tracked by commits `dc5e439` and the follow-up patch after `ecaa009`.
+
+> **2026-08-21 update — the regeneration recipe is now verified, the systemic guard is not.**
+>
+> A second incident (`ajv`, introduced by `64f18f0`) broke `npm ci` on `main` for every branch.
+> Fixing it confirmed **option 2 below works and is safe**:
+>
+> ```bash
+> npm install --package-lock-only --os=linux --cpu=x64
+> ```
+>
+> Run from Windows, this restored every missing nested/bundled entry — including the
+> `@tailwindcss/oxide-wasm32-wasi` → `@emnapi/*` subtree this TODO is about — and pruned
+> **nothing**. Platform-specific entry counts were byte-identical before and after
+> (76 win32, 75 darwin, 46 linux-x64, 40 android), so `--os`/`--cpu` steer resolution
+> without narrowing the lockfile to one platform. `--package-lock-only` never touches
+> `node_modules`, so it is safe to run mid-session.
+>
+> Verified by `npm ci` on Linux (exit 0, 587 packages) before pushing.
+>
+> **What is still missing is item 4: the guard.** Both incidents reached `main` and were
+> found one merge later. Until `npm ci --dry-run` runs on a lockfile change, there will be
+> a third incident. That is the remaining work in this TODO — the manual fix is solved.
 
 ## Symptom
 
@@ -25,9 +48,16 @@ The `@emnapi/core` and `@emnapi/runtime` packages are pulled in as **optional, p
 ## Things to try
 
 1. **`npm install --include=optional`** on Windows — does this preserve the Linux-only optional graph? If yes, document it as the required install command and add to CLAUDE.md / contributing guide.
-2. **`npm install --os=linux --cpu=x64`** — force npm to resolve the lockfile as if it were Linux. This was reportedly used in `e6da5c5` (referenced by `dc5e439`'s commit message) and produced a passing main commit.
+2. ~~**`npm install --os=linux --cpu=x64`**~~ — **CONFIRMED WORKING**, see the update at the top.
+   Use `npm install --package-lock-only --os=linux --cpu=x64`; the `--package-lock-only` part
+   matters, since it keeps `node_modules` untouched. This is now the documented fix for this
+   class of drift.
 3. **Move all dep-bump work to a Linux container or WSL** so lockfiles are always generated against the CI platform.
-4. **Pre-commit hook or CI guard** that detects the four missing `@emnapi/*` lockfile entries and fails fast (or auto-restores them) before they reach `main`. Cheap insurance even if we pick option 1 or 2.
+4. **Pre-commit hook or CI guard** — **this is the remaining work.** Rather than detecting the
+   four `@emnapi/*` entries specifically (the `ajv` incident had nothing to do with emnapi), run
+   the generic check: on any commit touching `package-lock.json`, run `npm ci --dry-run` on Linux
+   and fail fast. That catches every variant of this drift at the commit that introduces it
+   instead of one merge later. The `/audit-deps` skill is the natural home.
 5. **Investigate whether `@tailwindcss/oxide-wasm32-wasi` and `@rolldown/binding-wasm32-wasi` are actually needed** — if neither is being used at build/runtime, removing them eliminates the source of the optional/peer entanglement.
 
 ## How to verify a fix
