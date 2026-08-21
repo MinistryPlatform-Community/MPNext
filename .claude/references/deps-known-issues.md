@@ -3,13 +3,14 @@
 State carried between `/audit-deps` runs so each audit starts from prior conclusions
 instead of re-deriving them. Every entry needs a date and a re-check trigger.
 
-Last audit: **2026-08-21** — report at `.claude/reports/deps-audit-2026-08-21.md`.
+Last audit: **2026-08-21 (run 2)** — report at `.claude/reports/deps-audit-2026-08-21-run2.md`
+(run 1: `.claude/reports/deps-audit-2026-08-21.md`).
 
 ## Accepted advisories (triaged as not exploitable)
 
 | Package | Advisory | Reason not exploitable | Verified | Re-check when |
 |---|---|---|---|---|
-| `better-auth` | 2026 CVE cluster: `CVE-2026-53513` (SSRF, CVSS 9.6, `@better-auth/sso`), `CVE-2026-53516` (OAuth auto-link ATO), `CVE-2026-45337` (`deviceAuthorization`), `CVE-2026-67336` (insecure crypto defaults in `oidcProvider`/`mcp`) | Two independent reasons: (a) all fixed in `1.6.11`+, installed is `1.7.1`; (b) the vulnerable plugins are not loaded — `src/lib/auth.ts` registers exactly `genericOAuth`, `customSession`, `nextCookies`. Repo-wide grep for `oidcProvider`, `mcp(`, `ssoPlugin`, `deviceAuthorization`, `apiKey(` matches nothing outside comments. | 2026-08-21 | Any change to the plugin list in `src/lib/auth.ts` |
+| `better-auth` | 2026 CVE cluster: `CVE-2026-53513` (SSRF, CVSS 9.6, `@better-auth/sso`), `CVE-2026-53516` (OAuth auto-link ATO), `CVE-2026-45337` (`deviceAuthorization`), `CVE-2026-67336` (insecure crypto defaults in `oidcProvider`/`mcp`) | Two independent reasons: (a) all fixed in `1.6.11`+, installed is `1.7.1`; (b) the vulnerable plugins are not loaded — `src/lib/auth.ts` registers exactly `genericOAuth`, `customSession`, `nextCookies`. Repo-wide grep for `oidcProvider`, `mcp(`, `ssoPlugin`, `deviceAuthorization`, `apiKey(` matches nothing outside comments. **Re-verified run 2 (2026-08-21):** plugin list unchanged (`genericOAuth` L77, `customSession` L164, `nextCookies` L186); grep still returns no matches; OSV independently returns 0 vulns for `better-auth@1.7.1`. | 2026-08-21 (run 2) | Any change to the plugin list in `src/lib/auth.ts` |
 
 ### Cleared entries
 
@@ -24,13 +25,19 @@ Last audit: **2026-08-21** — report at `.claude/reports/deps-audit-2026-08-21.
 
 | Package | Target | Blocker | Verified | Re-check when |
 |---|---|---|---|---|
-| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. | 2026-08-21 | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
-| `eslint` | 10.x | **Verified by attempt, not by inference.** `eslint-config-next@16.3.1` *vendors* `eslint-plugin-react`, `eslint-plugin-import`, and `eslint-plugin-jsx-a11y` under its own `node_modules`, and all three cap `eslint` at `^9`. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. | 2026-08-21 | `eslint-config-next` ships a release whose bundled `eslint-plugin-react` / `-import` / `-jsx-a11y` accept ESLint 10 |
+| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. **Re-confirmed run 2 (2026-08-21):** `latest` is now 8.67.0 and `canary` 8.67.1-alpha.24 — both still `typescript: >=4.8.4 <6.1.0`, still no 9.x line. | 2026-08-21 (run 2) | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
+| `eslint` | 10.x | **Verified by attempt (run 1), re-confirmed against upstream metadata (run 2).** The three plugins `eslint-config-next` pulls in cap `eslint` at `^9` — and as of run 2 **all three are at their latest published version**, so this is an upstream gap, not a stale pin: `eslint-plugin-react@7.37.5` (`… ‖ ^9.7`), `eslint-plugin-import@2.32.0` (`… ‖ ^9`), `eslint-plugin-jsx-a11y@6.10.2` (`… ‖ ^9`). `eslint-config-next@16.3.2` depends on `^7.37.0` / `^2.32.0` / `^6.10.0` respectively — i.e. it already allows the newest. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. | 2026-08-21 (run 2) | Any of `eslint-plugin-react` / `-import` / `-jsx-a11y` ships ESLint 10 support |
 | `@types/node` | 26.x | The `@types/node` major tracks the Node major; local runtime is Node **24.18.0**. Resolved this audit by realigning **down** to `^24.13.3` (see Held). Going to 26 would put types two majors ahead of the runtime. | 2026-08-21 | Local/CI/production Node moves to 26 |
 
 > **Do not check only the top-level peer of `eslint-config-next`.** Its declared peer is
-> `eslint: >=9.0.0`, which is misleading — the binding constraint lives in the plugins it bundles
-> under `node_modules/eslint-config-next/node_modules/`. Check those before proposing an ESLint major.
+> `eslint: >=9.0.0`, which is misleading — the binding constraint lives in the plugins it depends on.
+> Check `eslint-plugin-react` / `-import` / `-jsx-a11y` before proposing an ESLint major.
+>
+> **Where those plugins resolve varies between installs — check the resolved version, not a fixed
+> path.** Run 1 found them nested under `node_modules/eslint-config-next/node_modules/`; after run 2's
+> `npm update` dedupe they resolve **hoisted at top level** (`node_modules/eslint-plugin-react`). The
+> constraint is identical either way; a path-based check silently reports "not vendored" and can be
+> misread as "no constraint".
 
 > **The inherited claim that TS 7 "breaks the Next.js 16 build worker" is wrong** — it was carried in
 > from an undated earlier run and is disproven as of `next@16.3.1` + `typescript@7.0.2`. The build not
@@ -53,7 +60,7 @@ Last audit: **2026-08-21** — report at `.claude/reports/deps-audit-2026-08-21.
 
 | Package | Item | Detail | Re-check |
 |---|---|---|---|
-| `next` | Pre-announced **critical** vulnerability | Patches `16.3.2` / `15.5.24` scheduled for **2026-08-26**; advisory unpublished as of this audit. Installed `16.3.1` is the latest available — no action possible yet. [Announcement](https://nextjs.org/blog/upcoming-nextjs-security-release-august-2026) (published 2026-08-20). | On/after **2026-08-26** |
+| `next` | Pre-announced **critical** vulnerability | Patches announced as `16.3.2` / `15.5.24`, scheduled **2026-08-26**; advisory still unpublished. **`16.3.2` shipped early (2026-08-21T09:36:39Z) but is NOT the security release** — its release notes say "backporting bug fixes" and list only 6 Turbopack/app-router/Turborepo-OIDC fixes, no CVE. `15.5.24` does not exist (`backport` dist-tag = `15.5.23`). Upgrading to 16.3.2 does **not** address the critical vuln; expect the patch as `16.3.3`/`15.5.24` or an amended advisory. Installed `16.3.2` is already the newest available — no action possible. [Announcement](https://nextjs.org/blog/upcoming-nextjs-security-release-august-2026) (published 2026-08-20). | On/after **2026-08-26** |
 
 ## Held packages (deliberately not upgraded)
 
