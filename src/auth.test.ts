@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseAdditionalUserInputFromProviderProfile } from 'better-auth/db';
-import { userAdditionalFields } from '@/lib/auth';
+import type {
+  GenericOAuthConfig,
+  GenericOAuthOptions,
+} from 'better-auth/plugins';
+import type { OAuth2Tokens } from '@better-auth/core/oauth2';
+import { auth, userAdditionalFields } from '@/lib/auth';
 
 /**
  * Auth Tests
  *
  * Tests for the Better Auth configuration in src/lib/auth.ts.
  * - customSession: lightweight name splitting only (no API calls)
- * - getUserInfo: fetches OIDC profile and returns id=sub (used as accountId)
+ * - getUserInfo: fetches the OIDC profile and returns `sub` (better-auth 1.7
+ *   resolves the account subject from it for OIDC discovery providers)
  * - mapProfileToUser: stores the OAuth sub claim as userGuid (additionalField)
  * - User profile loading is handled client-side by UserProvider
  */
@@ -132,60 +138,131 @@ describe('Auth - Custom Session Enrichment Logic', () => {
 });
 
 describe('Auth - OAuth Configuration', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Reach into the real configured provider rather than re-simulating it, so
+   * these tests break when `src/lib/auth.ts` drifts from the contract
+   * better-auth actually enforces.
+   */
+  function getMpProviderConfig(): GenericOAuthConfig {
+    const plugins =
+      (auth.options as { plugins?: Array<Record<string, unknown>> }).plugins ?? [];
+    const plugin = plugins.find((pl) => pl.id === 'generic-oauth') as
+      | { options?: GenericOAuthOptions }
+      | undefined;
+    const config = plugin?.options?.config?.find(
+      (c) => c.providerId === 'ministry-platform',
+    );
+    if (!config) throw new Error('ministry-platform generic OAuth config not found');
+    return config;
+  }
+
   it('should configure Ministry Platform as generic OAuth provider', () => {
-    const config = {
-      providerId: 'ministry-platform',
-      scopes: ['openid', 'offline_access', 'http://www.thinkministry.com/dataplatform/scopes/all'],
-      pkce: false,
-    };
+    const config = getMpProviderConfig();
 
     expect(config.providerId).toBe('ministry-platform');
     expect(config.scopes).toContain('openid');
     expect(config.scopes).toContain('offline_access');
+    expect(config.scopes).toContain(
+      'http://www.thinkministry.com/dataplatform/scopes/all',
+    );
+    // MP rejects PKCE today; better-auth 1.7 defaults it to true (OAuth 2.1),
+    // so this must stay explicitly false until MP is verified to accept S256.
     expect(config.pkce).toBe(false);
+    expect(config.authorizationUrlParams).toEqual({ realm: 'realm' });
   });
 
-  it('should map getUserInfo profile to user info with sub as id', () => {
-    // Simulate the getUserInfo callback — returns id=sub for the accountId
-    const profile = {
-      sub: 'ab12cd34-ef56-7890-abcd-ef1234567890',
-      given_name: 'John',
-      family_name: 'Doe',
+  /**
+   * Regression guard for the better-auth 1.7 account-identity change.
+   *
+   * 1.7 keys accounts on (issuer, accountId) and refuses to initialize a
+   * discovery provider whose issuer it cannot resolve — a failed discovery
+   * fetch throws straight out of `betterAuth()`. An explicit `accountIssuer`
+   * pins the namespace so a transient MP outage cannot silently re-key existing
+   * accounts, and keeps this module importable without network access.
+   */
+  it('pins the account issuer explicitly (better-auth 1.7 guard)', () => {
+    const config = getMpProviderConfig();
+
+    expect(config.accountIssuer).toBe(
+      `${process.env.MINISTRY_PLATFORM_BASE_URL}/oauth`,
+    );
+  });
+
+  /**
+   * Regression guard for the better-auth 1.7 generic-OAuth rewrite.
+   *
+   * MP's discovery document advertises `id_token_signing_alg_values_supported`,
+   * so better-auth treats this provider as OIDC and its default
+   * `accountSubject` resolver reads `profile.sub` off the raw profile returned
+   * by `getUserInfo`. Before 1.7 the resolver fell back to `profile.id`; that
+   * fallback is gone, so returning only `id` (the pre-1.7 shape) resolves the
+   * account subject to "" and breaks account identity for every user.
+   */
+  it('returns sub (not id) from getUserInfo (better-auth 1.7 guard)', async () => {
+    const config = getMpProviderConfig();
+    const guid = 'ab12cd34-ef56-7890-abcd-ef1234567890';
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          sub: guid,
+          given_name: 'John',
+          family_name: 'Doe',
+          email: 'john@example.com',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const profile = await config.getUserInfo!({
+      accessToken: 'access-token',
+    } as OAuth2Tokens);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${process.env.MINISTRY_PLATFORM_BASE_URL}/oauth/connect/userinfo`,
+      { headers: { Authorization: 'Bearer access-token' } },
+    );
+    // This is the field better-auth resolves the account subject from.
+    expect(profile).toMatchObject({
+      sub: guid,
+      name: 'John Doe',
       email: 'john@example.com',
-    };
-
-    const userInfo = {
-      id: profile.sub,
-      email: profile.email,
-      name: `${profile.given_name} ${profile.family_name}`,
-      image: undefined,
       emailVerified: true,
-    };
-
-    expect(userInfo.id).toBe('ab12cd34-ef56-7890-abcd-ef1234567890');
-    expect(userInfo.name).toBe('John Doe');
-    expect(userInfo.email).toBe('john@example.com');
-    expect(userInfo.image).toBeUndefined();
-    expect(userInfo.emailVerified).toBe(true);
+    });
   });
 
-  it('should map profile to user with userGuid via mapProfileToUser', () => {
-    // Simulate the mapProfileToUser callback
-    // It receives the getUserInfo result and extracts the sub as userGuid
-    const getUserInfoResult = {
-      id: 'ab12cd34-ef56-7890-abcd-ef1234567890',
+  it('returns null from getUserInfo when the userinfo request fails', async () => {
+    const config = getMpProviderConfig();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      config.getUserInfo!({ accessToken: 'bad-token' } as OAuth2Tokens),
+    ).resolves.toBeNull();
+  });
+
+  it('should map profile to user with userGuid via mapProfileToUser', async () => {
+    const config = getMpProviderConfig();
+    const guid = 'ab12cd34-ef56-7890-abcd-ef1234567890';
+
+    // mapProfileToUser receives the raw profile returned by getUserInfo, and
+    // as of 1.7 may not return `id` — provider identity belongs to
+    // accountSubject, so userGuid is our own additional field.
+    const mapped = await config.mapProfileToUser!({
+      sub: guid,
       email: 'john@example.com',
       name: 'John Doe',
-      image: undefined,
       emailVerified: true,
-    };
+    });
 
-    // mapProfileToUser extracts profile.id (the sub) as userGuid
-    const mappedFields = {
-      userGuid: getUserInfoResult.id,
-    };
-
-    expect(mappedFields.userGuid).toBe('ab12cd34-ef56-7890-abcd-ef1234567890');
+    expect(mapped).toEqual({ userGuid: guid });
+    expect(mapped).not.toHaveProperty('id');
   });
 
   /**
