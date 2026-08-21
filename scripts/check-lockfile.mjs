@@ -28,10 +28,20 @@
  *
  *   npm install --package-lock-only --os=linux --cpu=x64
  *
- * on a throwaway copy, then diff. Verified idempotent, so a correct lockfile
- * gives a zero diff, and any drift — this variant or the next one — shows up as
- * added/removed `node_modules/...` keys. `--package-lock-only` never touches
- * node_modules, so this is safe to run at any time, including mid-dev-server.
+ * on a throwaway copy, then compare.
+ *
+ * The comparison is deliberately SEMANTIC, not byte-for-byte. What breaks
+ * `npm ci` is the tree shape: entries that are missing, entries that shouldn't
+ * be there, or a different resolved version. Metadata flags (`dev` vs
+ * `devOptional`, `license`, …) do not break an install, and npm writes them
+ * slightly differently across versions — CI's node 22 ships npm 10.x while
+ * developers here run npm 11.x. A byte comparison therefore reports drift that
+ * cannot break anything, and would train everyone to ignore this check.
+ * Confirmed 2026-08-21: a lockfile differing only in one `devOptional` → `dev`
+ * flag installed cleanly on CI while a byte-diff flagged it.
+ *
+ * `--package-lock-only` never touches node_modules, so this is safe to run at
+ * any time, including mid-dev-server.
  *
  * USAGE
  *
@@ -69,13 +79,19 @@ const isCI = Boolean(process.env.CI);
 /** Normalize line endings so a CRLF checkout does not read as drift. */
 const normalize = (s) => s.replace(/\r\n/g, '\n');
 
-/** Extract the `node_modules/...` keys so we can report what actually moved. */
-function lockfileKeys(text) {
-  try {
-    return new Set(Object.keys(JSON.parse(text).packages ?? {}));
-  } catch {
-    return new Set();
+/**
+ * The install-relevant shape of a lockfile: which packages exist, and at which
+ * version. Everything else is metadata that npm writes inconsistently across
+ * versions and that cannot break `npm ci`.
+ */
+function treeShape(text) {
+  const packages = JSON.parse(text).packages ?? {};
+  const shape = new Map();
+  for (const [key, entry] of Object.entries(packages)) {
+    if (key === '') continue; // the root project entry, not an installed package
+    shape.set(key, entry?.version ?? null);
   }
+  return shape;
 }
 
 let scratch;
@@ -108,8 +124,26 @@ try {
   const committed = normalize(readFileSync(LOCKFILE, 'utf8'));
   const canonical = normalize(readFileSync(join(scratch, 'package-lock.json'), 'utf8'));
 
-  if (committed === canonical) {
-    console.log('✓ package-lock.json matches Linux resolution — no drift.');
+  const before = treeShape(committed);
+  const after = treeShape(canonical);
+
+  const missing = [...after.keys()].filter((k) => !before.has(k));
+  const extra = [...before.keys()].filter((k) => !after.has(k));
+  const changed = [...after.keys()]
+    .filter((k) => before.has(k) && before.get(k) !== after.get(k))
+    .map((k) => `${k}: ${before.get(k)} -> ${after.get(k)}`);
+
+  const drifted = missing.length || extra.length || changed.length;
+
+  if (!drifted) {
+    if (committed !== canonical && !fix) {
+      // Same tree, different metadata. Harmless for npm ci — say so and pass,
+      // rather than crying wolf. `npm run deps:relock` normalizes it if desired.
+      console.log('✓ package-lock.json tree matches Linux resolution — no drift.');
+      console.log('  (Byte differences remain in npm metadata only; harmless for `npm ci`.)');
+    } else {
+      console.log('✓ package-lock.json matches Linux resolution — no drift.');
+    }
     process.exit(0);
   }
 
@@ -122,29 +156,20 @@ try {
     process.exit(0);
   }
 
-  const before = lockfileKeys(committed);
-  const after = lockfileKeys(canonical);
-  const removed = [...after].filter((k) => !before.has(k)); // missing from the committed lock
-  const added = [...before].filter((k) => !after.has(k)); // present but shouldn't be
+  const report = (label, items, sign) => {
+    if (!items.length) return;
+    console.error(`  ${label} (${items.length}):`);
+    for (const k of items.slice(0, 12)) console.error(`    ${sign} ${k}`);
+    if (items.length > 12) console.error(`    … and ${items.length - 12} more`);
+    console.error('');
+  };
 
   console.error('✗ package-lock.json does not match Linux resolution.');
-  console.error('  `npm ci` on CI will likely fail at the install step.\n');
+  console.error('  `npm ci` on CI will fail at the install step.\n');
 
-  if (removed.length) {
-    console.error(`  Missing ${removed.length} entr${removed.length === 1 ? 'y' : 'ies'} that Linux needs:`);
-    for (const k of removed.slice(0, 12)) console.error(`    + ${k}`);
-    if (removed.length > 12) console.error(`    … and ${removed.length - 12} more`);
-    console.error('');
-  }
-  if (added.length) {
-    console.error(`  Has ${added.length} entr${added.length === 1 ? 'y' : 'ies'} Linux resolution does not produce:`);
-    for (const k of added.slice(0, 12)) console.error(`    - ${k}`);
-    if (added.length > 12) console.error(`    … and ${added.length - 12} more`);
-    console.error('');
-  }
-  if (!removed.length && !added.length) {
-    console.error('  Same package set, but metadata differs (e.g. dev vs devOptional flags).\n');
-  }
+  report('Missing entries that Linux needs', missing, '+');
+  report('Entries Linux resolution does not produce', extra, '-');
+  report('Version mismatches', changed, '~');
 
   console.error('  Fix:  npm run deps:relock     (then commit package-lock.json)');
   console.error('  Never fix this with a bare `npm install` or `npm dedupe` on Windows —');

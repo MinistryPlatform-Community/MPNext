@@ -132,8 +132,19 @@ npm's lock/manifest sync check ignores `--os`/`--cpu`, so **the drift is undetec
 
 `scripts/check-lockfile.mjs` instead asserts an invariant that holds on any platform: *the
 lockfile must already be what Linux resolution produces.* It relocks a throwaway copy and
-diffs, reporting the exact `node_modules/...` keys that moved. Against the real broken
-lockfile it names all six entries, from Windows.
+compares. Against the real broken lockfile it names all six drifted entries, from Windows.
+
+The comparison is **semantic, not byte-for-byte** — it compares the tree shape (which
+`node_modules/...` entries exist, and at which version) and ignores npm metadata flags.
+That matters: CI's node 22 ships npm 10.x while developers here run npm 11.x, and the two
+write flags like `dev` vs `devOptional` differently. A byte comparison fails on differences
+that cannot break an install — verified 2026-08-21, when a lockfile differing only in one
+`fast-deep-equal` flag installed cleanly on CI (`test` job green) while a byte-diff rejected
+it. Reporting harmless diffs as failures is how a check gets ignored.
+
+The semantic comparison tracks npm's own validation closely. On the broken lockfile it
+reports `ajv: 6.15.0 -> 8.20.0` and a missing `fast-uri`, which is what `npm ci` itself says
+(`Invalid: lock file's ajv@6.15.0 does not satisfy ajv@8.20.0`, `Missing: fast-uri@3.1.5`).
 
 ### Where it runs
 
