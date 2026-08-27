@@ -3,14 +3,16 @@
 State carried between `/audit-deps` runs so each audit starts from prior conclusions
 instead of re-deriving them. Every entry needs a date and a re-check trigger.
 
-Last audit: **2026-08-21 (run 2)** — report at `.claude/reports/deps-audit-2026-08-21-run2.md`
-(run 1: `.claude/reports/deps-audit-2026-08-21.md`).
+Last audit: **2026-08-27** — report at `.claude/reports/deps-audit-2026-08-27.md`
+(prior: `deps-audit-2026-08-21-run2.md`, `deps-audit-2026-08-21.md`).
 
 ## Accepted advisories (triaged as not exploitable)
 
 | Package | Advisory | Reason not exploitable | Verified | Re-check when |
 |---|---|---|---|---|
 | `better-auth` | 2026 CVE cluster: `CVE-2026-53513` (SSRF, CVSS 9.6, `@better-auth/sso`), `CVE-2026-53516` (OAuth auto-link ATO), `CVE-2026-45337` (`deviceAuthorization`), `CVE-2026-67336` (insecure crypto defaults in `oidcProvider`/`mcp`) | Two independent reasons: (a) all fixed in `1.6.11`+, installed is `1.7.1`; (b) the vulnerable plugins are not loaded — `src/lib/auth.ts` registers exactly `genericOAuth`, `customSession`, `nextCookies`. Repo-wide grep for `oidcProvider`, `mcp(`, `ssoPlugin`, `deviceAuthorization`, `apiKey(` matches nothing outside comments. **Re-verified run 2 (2026-08-21):** plugin list unchanged (`genericOAuth` L77, `customSession` L164, `nextCookies` L186); grep still returns no matches; OSV independently returns 0 vulns for `better-auth@1.7.1`. | 2026-08-21 (run 2) | Any change to the plugin list in `src/lib/auth.ts` |
+| `next` | [GHSA-2xp9-vwfh-vxw4](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4) — **critical** unauthenticated RCE optimizing an attacker-controlled AVIF (`libheif` via `sharp`) | **Patched** (`16.3.3`) *and* unreachable, three independent ways: (a) all three `<Image>` call sites pass `unoptimized` — `contact-lookup-results.tsx:95`, `contact-lookup-details.tsx:78`, `layout/header.tsx:60`; (b) `next.config.ts` declares no `images.remotePatterns`/`domains`, so `/_next/image` rejects every remote URL — an attacker cannot supply a hostile AVIF; (c) the only local file the optimizer can reach is `public/assets/icons/favicon.ico`, repo-committed. Note `/_next/image` is unauthenticated by design (`src/proxy.ts:32` excludes it), so (a)–(c) are the entire defense. | 2026-08-27 | **Either** `images.remotePatterns`/`domains` is added to `next.config.ts`, **or** any `<Image>` drops `unoptimized` |
+| `next` | [CVE-2026-75604](https://www.cve.org/CVERecord?id=CVE-2026-75604) / [GHSA-p293-qw3h-jr36](https://github.com/vercel/next.js/security/advisories/GHSA-p293-qw3h-jr36) — **critical** unauthenticated RCE on Windows-hosted servers | **Patched** (`16.3.3`). Needed **both** preconditions; only one held. Windows filesystem — **met** (dev on Windows 11). Both Pages Router *and* App Router — **not met**: App Router only (`src/app/`), no source `pages/`, no `getServerSideProps`/`getStaticProps`/`next/router` in `src/`. (`./.next/server/pages` is a build artifact for internal error pages, **not** Pages Router adoption — do not misread it.) Narrower margin than the AVIF issue: one `pages/` route would have made it live. | 2026-08-27 | A `pages/` directory is introduced |
 
 ### Cleared entries
 
@@ -25,8 +27,8 @@ Last audit: **2026-08-21 (run 2)** — report at `.claude/reports/deps-audit-202
 
 | Package | Target | Blocker | Verified | Re-check when |
 |---|---|---|---|---|
-| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. **Re-confirmed run 2 (2026-08-21):** `latest` is now 8.67.0 and `canary` 8.67.1-alpha.24 — both still `typescript: >=4.8.4 <6.1.0`, still no 9.x line. | 2026-08-21 (run 2) | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
-| `eslint` | 10.x | **Verified by attempt (run 1), re-confirmed against upstream metadata (run 2).** The three plugins `eslint-config-next` pulls in cap `eslint` at `^9` — and as of run 2 **all three are at their latest published version**, so this is an upstream gap, not a stale pin: `eslint-plugin-react@7.37.5` (`… ‖ ^9.7`), `eslint-plugin-import@2.32.0` (`… ‖ ^9`), `eslint-plugin-jsx-a11y@6.10.2` (`… ‖ ^9`). `eslint-config-next@16.3.2` depends on `^7.37.0` / `^2.32.0` / `^6.10.0` respectively — i.e. it already allows the newest. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. | 2026-08-21 (run 2) | Any of `eslint-plugin-react` / `-import` / `-jsx-a11y` ships ESLint 10 support |
+| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. **Re-confirmed run 2 (2026-08-21):** `latest` 8.67.0, `canary` 8.67.1-alpha.24 — both still `typescript: >=4.8.4 <6.1.0`, no 9.x line. **Re-confirmed 2026-08-27:** `latest` moved to **8.68.0** and `canary` to `8.68.1-alpha.5`; the `typescript` peer is *unchanged* at `>=4.8.4 <6.1.0` and there is still **no 9.x line**. Upstream shipped a minor without touching the TS cap — movement on the package, none on this blocker. | 2026-08-27 | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
+| `eslint` | 10.x | **Verified by attempt (run 1), re-confirmed against upstream metadata (run 2).** The three plugins `eslint-config-next` pulls in cap `eslint` at `^9` — and as of run 2 **all three are at their latest published version**, so this is an upstream gap, not a stale pin: `eslint-plugin-react@7.37.5` (`… ‖ ^9.7`), `eslint-plugin-import@2.32.0` (`… ‖ ^9`), `eslint-plugin-jsx-a11y@6.10.2` (`… ‖ ^9`). `eslint-config-next@16.3.2` depends on `^7.37.0` / `^2.32.0` / `^6.10.0` respectively — i.e. it already allows the newest. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. **Re-confirmed 2026-08-27:** all three plugins remain at the identical latest versions (`7.37.5` / `2.32.0` / `6.10.2`) with identical `^9` caps, and `eslint-config-next@16.3.3` already permits the newest of each — an upstream gap, not a stale pin. **Partial movement:** `typescript-eslint@8.68.0` now declares `eslint: ^8.57.0 \|\| ^9.0.0 \|\| ^10.0.0`, so it is **no longer part of the blockage**; the three plugins are now the sole remaining constraint. | 2026-08-27 | Any of `eslint-plugin-react` / `-import` / `-jsx-a11y` ships ESLint 10 support |
 | `@types/node` | 26.x | The `@types/node` major tracks the Node major; local runtime is Node **24.18.0**. Resolved this audit by realigning **down** to `^24.13.3` (see Held). Going to 26 would put types two majors ahead of the runtime. | 2026-08-21 | Local/CI/production Node moves to 26 |
 
 > **Do not check only the top-level peer of `eslint-config-next`.** Its declared peer is
@@ -58,9 +60,30 @@ Last audit: **2026-08-21 (run 2)** — report at `.claude/reports/deps-audit-202
 
 ## Pending upstream
 
-| Package | Item | Detail | Re-check |
+*(none open)*
+
+### Resolved
+
+| Package | Item | Outcome | Date |
 |---|---|---|---|
-| `next` | Pre-announced **critical** vulnerability | Patches announced as `16.3.2` / `15.5.24`, scheduled **2026-08-26**; advisory still unpublished. **`16.3.2` shipped early (2026-08-21T09:36:39Z) but is NOT the security release** — its release notes say "backporting bug fixes" and list only 6 Turbopack/app-router/Turborepo-OIDC fixes, no CVE. `15.5.24` does not exist (`backport` dist-tag = `15.5.23`). Upgrading to 16.3.2 does **not** address the critical vuln; expect the patch as `16.3.3`/`15.5.24` or an amended advisory. Installed `16.3.2` is already the newest available — no action possible. [Announcement](https://nextjs.org/blog/upcoming-nextjs-security-release-august-2026) (published 2026-08-20). | On/after **2026-08-26** |
+| `next` | Pre-announced **critical** vulnerability (announced 2026-08-20, scheduled 2026-08-26) | **Shipped early, 2026-08-25** as `16.3.3` (Active LTS) and `15.5.24` (Maintenance LTS) — the `backport` dist-tag moved `15.5.23` → `15.5.24`, confirming run 2's prediction. Two critical unauthenticated RCEs, both now in the accepted table above. Repo upgraded `16.3.2` → `16.3.3`; build/lint/582 tests green. [Advisory](https://nextjs.org/blog/august-2026-security-release) | 2026-08-27 |
+
+> **Run 2's read was correct and worth repeating:** `16.3.2` was *not* the security release
+> despite landing during the announcement window. Confirm a security release by its advisory,
+> never by "a newer version exists".
+
+> ### `npm audit` and OSV both missed this — do not trust either alone
+>
+> Measured 2026-08-27, ~2 days after publication, against the vulnerable `next@16.3.2`:
+>
+> | Source | Verdict | |
+> |---|---|---|
+> | `npm audit` | 0 vulnerabilities / 720 packages | missed |
+> | OSV `api.osv.dev` | 0 vulns | missed |
+> | Vendor blog / GHSA | 2 x critical RCE | **caught** |
+>
+> Neither advisory database had ingested the GHSA entries. The vendor-source step is the only
+> reason the highest-severity finding in this repo was found at all. Never drop it.
 
 ## Held packages (deliberately not upgraded)
 
@@ -105,6 +128,29 @@ It happened twice, and both times reached `main` and were found a merge later:
 npm run deps:relock     # the ONLY supported way to regenerate the lockfile
 npm run deps:verify     # check it (runs in CI and in the pre-commit hook)
 ```
+
+### `npm update` is an in-range upgrade AND a dedupe — always relock after it
+
+Learned 2026-08-27, during the `next@16.3.3` security upgrade:
+
+- **`npm install` does not apply in-range updates.** With a satisfying lockfile present it
+  reported `up to date` and changed nothing, even with 8 packages showing a newer `wanted`.
+  An audit step built on `npm install` alone silently applies **no** security patches.
+- **`npm update` is what moves them** — and it dedupes as a side effect, re-breaking the
+  lockfile in the exact `64f18f0` pattern: `ajv` hoisted to top level, the
+  `@tailwindcss/oxide-wasm32-wasi/node_modules/@emnapi/*` subtree pruned (10 entries missing,
+  2 spurious). `deps:verify` caught it; `deps:relock` fixed it.
+
+So the safe upgrade sequence is three commands, not one:
+
+```bash
+npm update              # applies in-range bumps (this is the one that upgrades)
+npm run deps:relock     # undo the dedupe damage before it reaches CI
+npm run deps:verify     # confirm clean
+```
+
+This is the third time this exact drift has occurred, and the first time it was caught before
+reaching `main` — by the guard, from Windows, as designed.
 
 `deps:relock` is `npm install --package-lock-only --os=linux --cpu=x64`. Verified
 2026-08-21: it restores every missing nested/bundled entry, prunes nothing, and does not

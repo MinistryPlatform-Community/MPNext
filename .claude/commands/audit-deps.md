@@ -31,7 +31,10 @@ Know exactly what you may do without asking:
 
 **Allowed without asking**
 - Every read-only command (`npm ls`, `npm audit`, `npm outdated`, `npm view`, `git status`, `git diff`).
-- `npm install` with **no package argument** (syncs the tree to existing `package.json` ranges).
+- `npm install` with **no package argument** (syncs the tree to the lockfile).
+- **`npm update`** with no package argument — applies patch/minor updates inside the existing
+  ranges. This is the phase 6 workhorse; it never edits `package.json`.
+- `npm run deps:relock` / `npm run deps:verify` — required after any `npm update`.
 - `npm audit fix` **without** `--force`.
 - Patch/minor bumps that stay inside the existing `^` range.
 - Writing the report file and updating the known-issues file.
@@ -166,11 +169,24 @@ Skip entirely if `--report-only` or `--majors-only`.
 
 In this exact order:
 
-1. `npm install` — syncs to existing ranges; resolves most in-range advisories.
-2. `npm audit fix` — remaining in-range security patches. **Never `--force`.**
-3. Tier 2 range bumps, if any: edit `package.json`, then `npm install`. Group them into
-   one install, but keep the diff reviewable.
-4. `git diff --stat package.json package-lock.json` — show exactly what moved.
+1. **`npm update`** — this is the step that actually applies in-range (Tier 1) updates.
+   **Do not use `npm install` here.** Against a lockfile that already satisfies
+   `package.json`, `npm install` reports `up to date` and applies *nothing* — verified
+   2026-08-27, when it skipped a critical `next` security patch and 7 other in-range bumps.
+   A phase 6 built on `npm install` silently patches nothing.
+2. **`npm run deps:relock`, then `npm run deps:verify`** — **mandatory after step 1.**
+   `npm update` dedupes as a side effect, which re-breaks the lockfile for Linux CI
+   (`ajv` hoisted, `@emnapi/*` pruned). Confirmed three times now; see
+   [deps-known-issues](../references/deps-known-issues.md) § Lockfile platform drift.
+   Never skip this, and never "fix" the drift with a bare `npm install`/`npm dedupe`.
+3. `npm audit fix` — remaining in-range security patches. **Never `--force`.**
+4. Tier 2 range bumps, if any: edit `package.json`, then `npm install`, then relock+verify
+   again. Group them into one install, but keep the diff reviewable.
+5. `git diff --stat package.json package-lock.json` — show exactly what moved.
+
+If `next build` was run, it rewrites the generated `next-env.d.ts` between its dev and
+production type paths. That is churn, not a dependency change — `git checkout -- next-env.d.ts`
+so the diff stays limited to dependencies.
 
 ## Phase 7 — Verify
 
