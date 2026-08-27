@@ -27,7 +27,7 @@ Last audit: **2026-08-27** — report at `.claude/reports/deps-audit-2026-08-27.
 
 | Package | Target | Blocker | Verified | Re-check when |
 |---|---|---|---|---|
-| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. **Re-confirmed run 2 (2026-08-21):** `latest` 8.67.0, `canary` 8.67.1-alpha.24 — both still `typescript: >=4.8.4 <6.1.0`, no 9.x line. **Re-confirmed 2026-08-27:** `latest` moved to **8.68.0** and `canary` to `8.68.1-alpha.5`; the `typescript` peer is *unchanged* at `>=4.8.4 <6.1.0` and there is still **no 9.x line**. Upstream shipped a minor without touching the TS cap — movement on the package, none on this blocker. | 2026-08-27 | typescript-eslint ships TS >= 7.1 support — track [typescript-eslint#10940](https://github.com/typescript-eslint/typescript-eslint/issues/10940) and the TS 7.1 release |
+| `typescript` | 7.x | **Verified by attempt 2026-08-21 (TS 7.0.2).** Lint only — `build` and `tests` both pass on TS 7. `eslint .` dies before linting anything: `Error: typescript-eslint does not support TS 7.0.` — an explicit runtime guard in `typescript-eslint/dist/index.js:52`, not merely a peer-range mismatch. Root cause: **TypeScript 7.0 ships no compiler API at all**, and typescript-eslint needs one. Both `latest` (8.67.0) and `canary` (8.67.1-alpha.24) still declare `typescript: >=4.8.4 <6.1.0`; there is no typescript-eslint 9.x line. Upstream is explicitly targeting **TS >= 7.1**, which is where the new API lands. **Re-confirmed run 2 (2026-08-21):** `latest` 8.67.0, `canary` 8.67.1-alpha.24 — both still `typescript: >=4.8.4 <6.1.0`, no 9.x line. **Re-confirmed 2026-08-27:** `latest` moved to **8.68.0** and `canary` to `8.68.1-alpha.5`; the `typescript` peer is *unchanged* at `>=4.8.4 <6.1.0` and there is still **no 9.x line**. Upstream shipped a minor without touching the TS cap — movement on the package, none on this blocker. | 2026-08-27 | **TypeScript 7.1 ships** (targeted Autumn 2026) — that is the real signal, not a typescript-eslint issue. [typescript-eslint#12518](https://github.com/typescript-eslint/typescript-eslint/issues/12518) is the current tracking issue and is **closed as *not planned***: TS 7.0 ships no compiler API, so the fix is TypeScript's, not theirs. Watch the TS 7.1 release; `7.1.0-dev.*` builds publish daily. **Decision 2026-08-27: wait** — oxlint was evaluated as an alternative path and declined (see the note under Blocked majors). |
 | `eslint` | 10.x | **Verified by attempt (run 1), re-confirmed against upstream metadata (run 2).** The three plugins `eslint-config-next` pulls in cap `eslint` at `^9` — and as of run 2 **all three are at their latest published version**, so this is an upstream gap, not a stale pin: `eslint-plugin-react@7.37.5` (`… ‖ ^9.7`), `eslint-plugin-import@2.32.0` (`… ‖ ^9`), `eslint-plugin-jsx-a11y@6.10.2` (`… ‖ ^9`). `eslint-config-next@16.3.2` depends on `^7.37.0` / `^2.32.0` / `^6.10.0` respectively — i.e. it already allows the newest. Installing v10 → `ERESOLVE overriding peer dependency` ×3 and `npm error invalid: eslint@10.8.1`; `eslint .` then dies with `TypeError: Error while loading rule 'react/display-name': contextOrFilename.getFilename is not a function` (`eslint-plugin-react` still calls the `context.getFilename()` API v10 removed). Zero files lintable. Reverted. **Re-confirmed 2026-08-27:** all three plugins remain at the identical latest versions (`7.37.5` / `2.32.0` / `6.10.2`) with identical `^9` caps, and `eslint-config-next@16.3.3` already permits the newest of each — an upstream gap, not a stale pin. **Partial movement:** `typescript-eslint@8.68.0` now declares `eslint: ^8.57.0 \|\| ^9.0.0 \|\| ^10.0.0`, so it is **no longer part of the blockage**; the three plugins are now the sole remaining constraint. | 2026-08-27 | Any of `eslint-plugin-react` / `-import` / `-jsx-a11y` ships ESLint 10 support |
 | `@types/node` | 26.x | The `@types/node` major tracks the Node major; local runtime is Node **24.18.0**. Resolved this audit by realigning **down** to `^24.13.3` (see Held). Going to 26 would put types two majors ahead of the runtime. | 2026-08-21 | Local/CI/production Node moves to 26 |
 
@@ -52,6 +52,36 @@ Last audit: **2026-08-27** — report at `.claude/reports/deps-audit-2026-08-27.
 > `"@typescript/native": "npm:typescript@^7.0.2"`. Anything doing `require('typescript')` then gets the
 > 6.0 API — which includes Next.js's own build-time type check, so the build would go *back* to TS 6
 > speed. The win would be limited to a standalone `tsc` invocation. Not worth it for this repo today.
+
+> ### oxlint as a TS 7 path — evaluated 2026-08-27, decision: **wait for TS 7.1**
+>
+> Asked and answered; do not re-research this unless the decision below is revisited.
+>
+> **oxlint would genuinely unblock TS 7 for this repo**, and the reason is specific to our config:
+> `eslint-config-next/typescript` builds on `typescript-eslint.configs.recommended`, **not**
+> `recommendedTypeChecked`. There is no `projectService` and no `parserOptions.project` anywhere,
+> so **we use zero type-aware rules**. typescript-eslint still crashes on TS 7 because its *parser*
+> needs the compiler API, but oxlint parses TypeScript with its own Rust parser and never loads the
+> TS compiler — so under oxlint, lint stops depending on the TypeScript version at all. Not a
+> workaround; the blocker ceases to exist.
+>
+> Coverage is complete for what we actually use — oxlint ships all five plugins `eslint-config-next`
+> pulls in: `nextjs` (~13 rules, effectively all of `@next/eslint-plugin-next`), `react` (including
+> `rules-of-hooks` and `exhaustive-deps`), `jsx-a11y`, `import`, `typescript`. `@oxlint/migrate`
+> converts a flat config automatically. Because we need no type-aware rules, `oxlint-tsgolint` is
+> unnecessary — which also avoids its hard pin to TypeScript 7.0.2 exactly.
+>
+> **Decided against, for now.** TS 7's whole prize here is build-time type checking dropping from
+> ~4.4s (measured 2026-08-27) to under a second — about three seconds a build. That does not justify
+> replacing the linter when [typescript-eslint#12518](https://github.com/typescript-eslint/typescript-eslint/issues/12518)
+> makes it free: closed as *not planned* because the fix is TypeScript's, not theirs. TS 7.0 ships no
+> compiler API; **7.1 does, targeted Autumn 2026**, with `7.1.0-dev.*` builds publishing daily.
+>
+> **Two traps if this is revisited:**
+> - `eslint-plugin-oxlint` side-by-side does **not** unblock TS 7. ESLint still loads typescript-eslint,
+>   which still dies. It is a speed play only.
+> - Judge oxlint as a *linter* decision, not a TypeScript one. The standing reason to consider it is
+>   that it would retire the deprecated `eslint@9` hold below — unblocking TS 7 is a side effect.
 
 > **`@types/node` version numbers do not track Node patch versions.** There is no `@types/node@24.18.0`
 > (the highest 24.x is `24.13.3`). Writing an unsatisfiable range does not fail fast — it sends the npm
