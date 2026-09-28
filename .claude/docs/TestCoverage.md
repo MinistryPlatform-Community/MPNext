@@ -257,6 +257,10 @@ nothing for reads: MP's OIDC endpoint authenticates any `dp_Users` record, and t
 its own client-credentials service account, so MP's per-user record security never applied to what
 came back.
 
+**Changed 2026-09-28: the gate fails closed when unconfigured.** Blank, unset or separator-only
+`MP_SECURITY_ROLES` (with no usable legacy value) now permits nobody (`roles_not_configured`);
+`MP_SECURITY_ROLES=*` is the explicit "any MP security role" setting.
+
 ### 5.5 Contact-log actions bypass `SessionContextService` ✅ FIXED
 
 Resolved 2026-08-21. Both inline `dp_Users` lookups are gone. The acting `User_ID` now comes from

@@ -564,7 +564,7 @@ or unreachable:
 | `client.ts` | funcs 75% | The token-getter closure handed to `HttpClient`. |
 | `app/api/auth/[...all]/route.ts` | 53-57 | The non-`/api/auth` and empty-path arms of `relativeAuthPath`; Next only routes `/api/auth/*` here. |
 | `contact-logs/actions.ts` | 64 | The non-`Error` arm of the `getContactLogTypes` catch wrapper. |
-| `authorizationService.ts` | 258 | The `decision.reason ?? "no_security_role"` fallback; `hasSecurityRole` always sets a reason on a denial. |
+| `authorizationService.ts` | 299 | The `decision.reason ?? "no_security_role"` fallback; `hasSecurityRole` always sets a reason on a denial. |
 
 `http-client.ts:31` is no longer in this list - the GET error-message builder was
 covered when `http-client.test.ts` grew to 32 tests.
@@ -702,7 +702,7 @@ they sum to the 1015 in the coverage summary.
 | `lib/providers/ministry-platform/utils/filter-sanitize.test.ts` | 49 | Quote doubling, LIKE escaping, GUID rejection, numeric-ID validation |
 | `lib/security-headers.test.ts` | 41 | Static header values (framing, sniffing, referrer, permissions, HSTS in production only), `originOf`, nonce generation, every CSP directive, enforce vs report-only |
 | `components/contact-logs/contact-logs.test.tsx` | 40 | Delete-confirmation gate, form validation, error surfacing (MP write path), edit/cancel paths, in-flight double-write guard, log-type colour arms, MP wall-clock date rendering, unparseable-date placeholder (one bad row must not blank the list) |
-| `services/authorizationService.test.ts` | 40 | MP security-role gate for reads and writes, `hasSecurityRole`, `MP_SECURITY_ROLES` + deprecated `MP_WRITE_SECURITY_ROLES` fallback, `mp.read.unauthorized` / `mp.write.unauthorized` denials, no cross-request caching |
+| `services/authorizationService.test.ts` | 53 | MP security-role gate for reads and writes, `hasSecurityRole`, fail-closed default when no role policy is configured (`roles_not_configured`, `mp.authz.config` warn-once), explicit `*` = any role, `","` treated as unset, `MP_SECURITY_ROLES` + deprecated `MP_WRITE_SECURITY_ROLES` fallback, `mp.read.unauthorized` / `mp.write.unauthorized` denials, no cross-request caching |
 | `lib/providers/ministry-platform/services/file.service.test.ts` | 35 | All 8 file endpoints, multipart bodies, unauthenticated blob fetch |
 | `components/sign-in/sign-in.test.tsx` | 34 | `sanitizeCallbackUrl` unit tests: hostile and benign lists, C1/lowercase-encoded cases, raw (not URL-normalized) return, origin/throw backstops |
 | `lib/providers/ministry-platform/utils/http-client.test.ts` | 32 | HTTP verbs, URL building, form data, error handling |
