@@ -23,6 +23,18 @@ vi.mock('@/lib/providers/ministry-platform', () => ({
 import { auth, userAdditionalFields, enrichSessionUser, syntheticEmailForSub } from '@/lib/auth';
 
 /**
+ * An UNSIGNED compact JWT carrying the given payload. `getUserInfo` only reads
+ * `sub` from the id_token as a binding check (genericOAuth's wrapper verifies
+ * the signature before calling it — see `readIdTokenSub` in src/lib/auth.ts),
+ * so calling the configured `getUserInfo` directly needs no real signature.
+ * src/auth.id-token-sign-in.test.ts covers the signed, end-to-end path.
+ */
+function fakeIdToken(payload: Record<string, unknown>): string {
+  const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+  return `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc(payload)}.sig`;
+}
+
+/**
  * Auth Tests
  *
  * Tests for the Better Auth configuration in src/lib/auth.ts.
@@ -374,6 +386,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -417,6 +430,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: false });
@@ -441,6 +455,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: true });
@@ -451,11 +466,18 @@ describe('Auth - OAuth Configuration', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, { status: 401 }),
     );
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(
-      config.getUserInfo!({ accessToken: 'bad-token' } as OAuth2Tokens),
+      config.getUserInfo!({
+        accessToken: 'bad-token',
+        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598003' }),
+      } as OAuth2Tokens),
     ).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      'getUserInfo - Failed to fetch user info:',
+      401,
+    );
   });
 
   it('should map profile to user with userGuid via mapProfileToUser', async () => {
@@ -545,7 +567,7 @@ describe('Auth - OAuth Configuration', () => {
     ['numeric', { sub: 12345 }],
   ])('returns null from getUserInfo when sub is %s (refuses sign-in)', async (_label, subClaim) => {
     const config = getMpProviderConfig();
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -559,8 +581,163 @@ describe('Auth - OAuth Configuration', () => {
     );
 
     await expect(
-      config.getUserInfo!({ accessToken: 'access-token' } as OAuth2Tokens),
+      config.getUserInfo!({
+        accessToken: 'access-token',
+        // A valid id_token, so the refusal is provably the userinfo `sub`
+        // check and not the id_token binding check that runs before it.
+        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598004' }),
+      } as OAuth2Tokens),
     ).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"auth.userinfo.invalid_sub"'),
+    );
+  });
+
+  /**
+   * Token-substitution guard (defence in depth behind `refuseIdTokenSignIn`).
+   * `/sign-in/social`'s id_token mode calls `getUserInfo` with a
+   * CALLER-SUPPLIED access token; the userinfo `sub` it yields must match the
+   * verified id_token's `sub`, or an attacker's id_token plus a victim's access
+   * token signs in as the victim. Every refusal returns null (never throws) and
+   * logs `auth.userinfo.sub_mismatch` with a reason — never the GUIDs or token
+   * contents themselves.
+   */
+  describe('id_token sub binding', () => {
+    const userinfoSub = 'ab12cd34-ef56-7890-abcd-ef1234597001';
+
+    function mockUserinfo(sub: string) {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ sub, given_name: 'Pat', family_name: 'Doe' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+
+    /** The structured (JSON) events written to console.error. */
+    function loggedEvents(calls: unknown[][]) {
+      return calls.flatMap(([line]) => {
+        try {
+          return [JSON.parse(String(line)) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      });
+    }
+
+    it('accepts a profile whose userinfo sub matches the id_token sub', async () => {
+      const config = getMpProviderConfig();
+      mockUserinfo(userinfoSub);
+
+      const profile = await config.getUserInfo!({
+        accessToken: 'access-token',
+        idToken: fakeIdToken({ sub: userinfoSub }),
+      } as OAuth2Tokens);
+
+      expect(profile).toMatchObject({ sub: userinfoSub });
+    });
+
+    it('accepts a case-only difference (GUID case carries no meaning)', async () => {
+      const config = getMpProviderConfig();
+      mockUserinfo(userinfoSub);
+
+      const profile = await config.getUserInfo!({
+        accessToken: 'access-token',
+        idToken: fakeIdToken({ sub: userinfoSub.toUpperCase() }),
+      } as OAuth2Tokens);
+
+      // The userinfo sub is what is returned, unchanged.
+      expect(profile).toMatchObject({ sub: userinfoSub });
+    });
+
+    it('refuses a userinfo sub that differs from the id_token sub (token substitution)', async () => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const attackerSub = 'ab12cd34-ef56-7890-abcd-ef1234597002';
+      mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'victim-access-token',
+          idToken: fakeIdToken({ sub: attackerSub }),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'mismatch' }),
+      );
+      // Identifiers only: neither GUID nor any token content reaches the log.
+      const logged = errorSpy.mock.calls.flat().join(' ');
+      expect(logged).not.toContain(attackerSub);
+      expect(logged).not.toContain(userinfoSub);
+      expect(logged).not.toContain('victim-access-token');
+    });
+
+    it.each([
+      ['missing', {}],
+      ['empty', { sub: '' }],
+      ['non-string', { sub: 12345 }],
+    ])('refuses an id_token whose sub is %s, before calling userinfo', async (_label, payload) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'access-token',
+          idToken: fakeIdToken(payload),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'missing_sub' }),
+      );
+    });
+
+    it.each([
+      ['not three segments', 'only.two'],
+      ['a five-segment JWE', 'a.b.c.d.e'],
+      ['a payload that is not JSON', `x.${Buffer.from('not json').toString('base64url')}.y`],
+      ['a payload that is a JSON array', `x.${Buffer.from('["sub"]').toString('base64url')}.y`],
+      ['a payload that is JSON null', `x.${Buffer.from('null').toString('base64url')}.y`],
+    ])('refuses an undecodable id_token (%s), before calling userinfo', async (_label, idToken) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({ accessToken: 'access-token', idToken } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'undecodable_id_token' }),
+      );
+    });
+
+    /**
+     * Deliberate fail-closed choice (see the comment in `getUserInfo`): every
+     * legitimate caller supplies an id_token (the `openid` code flow and the
+     * id_token mode), so an access token with nothing to bind it to is refused.
+     */
+    it.each([
+      ['absent', undefined],
+      ['empty', ''],
+    ])('refuses when the id_token is %s, before calling userinfo', async (_label, idToken) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({ accessToken: 'access-token', idToken } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'missing_id_token' }),
+      );
+    });
   });
 
   /**
@@ -693,6 +870,7 @@ describe('Auth - disabled account-management endpoints', () => {
       '/set-password',
       '/delete-user',
       '/delete-user/callback',
+      '/link-social',
     ]);
   });
 
@@ -730,6 +908,26 @@ describe('Auth - disabled account-management endpoints', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  /**
+   * `/link-social` carries its own id_token branch (see `disabledAuthPaths`).
+   * Negative control: with it removed from `disabledPaths` this request answers
+   * 401 (mounted, session-gated), not 404.
+   */
+  it('returns 404 for POST /link-social, including its id_token mode', async () => {
+    const response = await auth.handler(
+      new Request(`${authBase}/link-social`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'ministry-platform',
+          idToken: { token: 'x', accessToken: 'y' },
+        }),
       }),
     );
 
