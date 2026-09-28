@@ -52,9 +52,9 @@ The rest — attribution smuggling, PII in logs, missing headers, the open redir
 | **F4** | Medium | Contact-log writes accepted `Made_By` / `Contact_ID` from the caller | `d7adaf8` |
 | **F5** | Medium | Member PII and pastoral notes written to logs at info level | `395e20c`, `04e97aa` |
 | **F9** | Medium | No CSP, no HSTS, no anti-framing, no Referrer-Policy | `cfeecab`, `67e1329` |
-| **F12** | Medium (High if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
+| **F12** | Low (Low–Medium if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
 | **F3** | Medium | Open redirect via `?callbackUrl=` on `/signin` | `ee46343` |
-| **F3b** | Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
+| **F3b** | Low–Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
 | **F7** | Low | ~30 better-auth endpoints publicly mounted; OAuth errors on a third-party page | `91d226f` |
 | **F10** | Low | `ContactService.updateContact` wrote with no authorization at all | `16c3415` |
 | **F11** | Low | `getMpTimezone` had no check of any kind | `16c3415` |
@@ -379,7 +379,7 @@ Two related pieces:
 - **Own the OAuth error page.** `onAPIError: { errorURL: "/auth-error" }` sends callback failures to a page in this repo instead of better-auth's built-in one (which the allowlist no longer exposes). Map known codes (`unable_to_get_user_info`, `account_not_linked`, `invalid_code`, `state_not_found`, …) to plain-English messages, **never render `error_description`**, and always offer a "try again" link with **no auto-redirect** — so a failing OAuth loop lands somewhere stable.
 - **Allowlist `/auth-error` as public in the proxy.** Without it, an unauthenticated visit bounces to `/signin`, which auto-starts OAuth again, looping forever. Same for any error page that sits outside the session gate.
 
-## Phase 6b — F12 (Medium): refuse ID-token sign-in
+## Phase 6b — F12 (Low): refuse ID-token sign-in
 
 Reported privately on 2026-09-25 by Jonathon Huff (The Moody Church). Severity **Medium**; **High** if this repo's MP OIDC client is shared with other applications or allows the implicit/hybrid flows. It is an identity bug — an attacker becomes another user — so do it right after Phase 6, not at the end.
 
@@ -477,7 +477,7 @@ Why all three: (a) is HTTP-only and in-process `auth.api` calls skip it; (b) dep
 - **Test each layer with the other two out of the way** (upstream: `src/auth.id-token-sign-in.test.ts`). Three layers tested only together prove only the strongest one.
 - Delete the hook, replace the `sub` comparison with `true`, drop the comma check — each must turn a test red. If one doesn't, the test is decoration.
 
-## Phase 7 — F3 / F3b (Medium): close the `callbackUrl` open redirect
+## Phase 7 — F3 / F3b (Medium / Low–Medium): close the `callbackUrl` open redirect
 
 `/signin?callbackUrl=https://evil.example` bounced the user off-site from a URL that looks like this app's own login page — a credible phishing hop.
 
@@ -791,7 +791,7 @@ Open the PR, request review, do not self-merge unless that is normal here. Call 
 - The F-UPDATE-USER exposure window from Phase 1, and whether a secret rotation is needed
 - The F2 behavior change (`session.user.email` is now synthetic) and any DB migration implied
 - The F4 behavior change (`Made_By` now reads as last-writer)
-- Whether F12 applied (better-auth version, `discoveryUrl`), and whether this repo's MP OIDC client is shared or allows implicit/hybrid — that moves it from Medium to High
+- Whether F12 applied (better-auth version, `discoveryUrl`), and whether this repo's MP OIDC client is shared or allows implicit/hybrid — that moves it from Low to Low–Medium
 - Anything left open (F8, and anything you deferred)
 
 ## What "done" looks like
@@ -845,7 +845,7 @@ Reference docs in the upstream repo:
 - `.claude/references/auth.md` — the full authorization policy, gate API, and closed-findings table
 - `.claude/references/security-headers.md` — the header set and the deliberate loosenings not to "tighten"
 - `docs/security/2026-09-12-session-identity.md` — the F-UPDATE-USER advisory
-- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 advisory
+- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 security note
 - `SECURITY.md` — how to report a vulnerability privately
 - `.claude/references/testing.md` — the mock patterns and jsdom/Radix/React 19 mechanics this work depended on
 

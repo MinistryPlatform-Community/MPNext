@@ -1,10 +1,3 @@
-<!--
-  EMBARGO NOTE FOR THE MAINTAINER: the F3b and F12 material below (added for the
-  2026-09-25 report) describes an unpatched-in-forks sign-in weakness. Do not push
-  it to a public branch before the coordinated-disclosure date agreed with the
-  reporter. Remove this comment once published.
--->
-
 # Downstream Hardening Playbook
 
 **Source:** MPNext, commits `436466d..5bc505a` (2026-09-12), follow-up `65a3225..cf5a824` (2026-09-25)
@@ -105,9 +98,9 @@ grep -rn "Made_By" src/services/ src/components/*/actions.ts
 | **F4** | Medium | Contact-log writes accepted `Made_By` / `Contact_ID` from the caller | `d7adaf8` |
 | **F5** | Medium | Member PII and pastoral notes written to logs at info level | `395e20c`, `04e97aa` |
 | **F9** | Medium | No CSP, no HSTS, no anti-framing, no Referrer-Policy | `cfeecab`, `67e1329` |
-| **F12** | Medium (High if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
+| **F12** | Low (Low–Medium if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
 | **F3** | Medium | Open redirect via `?callbackUrl=` on `/signin` | `ee46343` |
-| **F3b** | Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
+| **F3b** | Low–Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
 | **F7** | Low | ~30 better-auth endpoints publicly mounted; OAuth errors on a third-party page | `91d226f` |
 | **F10** | Low | `ContactService.updateContact` wrote with no authorization at all | `16c3415` |
 | **F11** | Low | `getMpTimezone` had no check of any kind | `16c3415` |
@@ -660,7 +653,7 @@ Two mechanics that cost time upstream:
 
 ---
 
-## F3 / F3b (Medium) — open redirect via `callbackUrl`
+## F3 / F3b (Medium / Low–Medium) — open redirect via `callbackUrl`
 
 `/signin?callbackUrl=https://evil.example` bounced the user off-site from a URL
 that looks like this app's own login page — a credible phishing hop.
@@ -791,7 +784,7 @@ Two related pieces:
 
 ---
 
-## F12 (Medium) — ID-token sign-in bypassed the code exchange
+## F12 (Low) — ID-token sign-in bypassed the code exchange
 
 Reported privately on 2026-09-25 by Jonathon Huff (The Moody Church).
 Severity **Medium**; **High** if your MP OIDC client is shared with other
@@ -1194,7 +1187,7 @@ Reference docs in the upstream repo:
 - `.claude/references/security-headers.md` — the header set and the deliberate
   loosenings not to "tighten"
 - `docs/security/2026-09-12-session-identity.md` — the F-UPDATE-USER advisory
-- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 advisory
+- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 security note
 - `SECURITY.md` — how to report a vulnerability privately
 - `.claude/references/testing.md` — the mock patterns and jsdom/Radix/React 19
   mechanics this work depended on

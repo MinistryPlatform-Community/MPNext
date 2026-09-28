@@ -910,7 +910,7 @@ server-side; defence in depth).
 | **F4** (Medium) — contact-log writes accepted `Made_By`/`Contact_ID` from the caller | 2026-09-12 | `ContactLogService` stamps `Made_By` from the gate and strips both keys via the schema `.omit()`; `Contact_ID` is never sent on update; see § Attribution is server-authoritative above |
 | **F2** (High) — a shared MP email could merge two people onto one better-auth user | 2026-09-12 | `accountLinking.enabled: false`, a synthetic `email` derived from `sub`, the real address moved to `mpEmail`, and `emailVerified` from the provider's own claim; see § Email is never a key and § Account linking |
 | **F7** (Low) — OAuth failures landed on better-auth's built-in error page | 2026-09-12 | `onAPIError.errorURL: "/auth-error"` plus the route allowlist, which no longer exposes `GET /error`; see § OAuth Flow |
-| **id_token substitution** (High) — `POST /sign-in/social` with an attacker's id_token and a victim's access token minted the victim's session | 2026-09-28 | `refuseIdTokenSignIn` (`hooks.before`), the `getUserInfo` sub binding, and the route's `/sign-in/social` body filter; see § id_token sign-in is disabled |
+| **id_token substitution** (Low) — `POST /sign-in/social` with an attacker's id_token and a victim's access token minted the victim's session | 2026-09-28 | `refuseIdTokenSignIn` (`hooks.before`), the `getUserInfo` sub binding, and the route's `/sign-in/social` body filter; see § id_token sign-in is disabled |
 | **F9** (Medium) — no HTTP security headers, no CSP | 2026-09-12 | Static headers in `next.config.ts`, nonce-based CSP built per request in `src/proxy.ts`; see [Security Headers](security-headers.md) |
 
 **Still open:** **F8** — PKCE is explicitly `false` even though MP advertises `S256`.

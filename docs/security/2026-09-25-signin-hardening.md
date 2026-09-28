@@ -1,151 +1,67 @@
-<!--
-  EMBARGOED — DO NOT PUBLISH BEFORE COORDINATED DISCLOSURE.
-  This advisory describes two issues reported privately on 2026-09-25. This
-  repository may be public: do not push this file (or the F3b/F12 sections of
-  the downstream playbook) to any public branch until the fix has shipped and
-  the disclosure date agreed with the reporter has arrived. Fill in every
-  <placeholder>, then delete this comment.
--->
-
-# Security Advisory — Sign-in hardening: `callbackUrl` bypass and ID-token sign-in
+# Security Note — Sign-in hardening (F3b, F12)
 
 | | |
 |---|---|
-| **Issues** | **F3b** — open redirect on `/signin` via tab/CR/LF (bypass of the F3 fix) · **F12** — ID-token sign-in as another user |
-| **Severity** | F3b **Medium** · F12 **Medium**, **High** if the MP OIDC client is shared with other applications or allows the implicit/hybrid flows |
-| **Class** | F3b CWE-601 URL Redirection to Untrusted Site · F12 CWE-287 Improper Authentication / CWE-345 Insufficient Verification of Data Authenticity |
-| **Affected** | F3b: any checkout containing [`ee46343`](https://github.com/MinistryPlatform-Community/MPNext/commit/ee46343) up to and including `88c734a`. F12: any checkout up to and including `88c734a` running **better-auth 1.7.x** with `discoveryUrl` set on the genericOAuth provider |
-| **Fixed in** | `b7dc8e6` (F3b), `cf5a824` (F12) on branch `fix/signin-redirect-and-idtoken-signin` — merge date `<date>` |
+| **Issues** | **F3b**: open redirect on `/signin` via tab/CR/LF (bypass of the F3 fix) · **F12**: `/sign-in/social` accepted direct ID-token sign-in |
+| **Severity** | F3b **Low–Medium** · F12 **Low** (Low–Medium if this app's MP OIDC client is shared with another app or allows implicit/hybrid) |
+| **Affected** | F3b: checkouts from [`ee46343`](https://github.com/MinistryPlatform-Community/MPNext/commit/ee46343) through `88c734a`. F12: checkouts through `88c734a` on **better-auth 1.7.x** with `discoveryUrl` set |
+| **Fixed in** | `b7dc8e6` (F3b), `cf5a824` (F12) |
 | **Reported** | 2026-09-25, privately, by Jonathon Huff (The Moody Church) |
 
-## Summary
+Neither issue is known to have been exploited. Neither exposes data by itself.
 
-Two sign-in weaknesses, both verified upstream:
+## F3b: `callbackUrl` bypass
 
-1. **F3b.** The 2026-09-12 fix for the `/signin` open redirect (F3) only
-   refused a leading `//` or `/\`. A tab, LF or CR slipped past it, so a link
-   such as `/signin?callbackUrl=/%09/example.com` sent an **already signed-in**
-   user to `https://example.com/` from a URL that looks like this app's login.
-2. **F12.** better-auth 1.7's `POST /api/auth/sign-in/social` accepts an
-   `idToken` body that creates a session with no OAuth code exchange. The
-   identity comes from the *access token* the caller supplies, and nothing tied
-   it to the id_token. An attacker with their own valid id_token and **a
-   victim's MP access token** could obtain an MPNext session **as the victim**.
+The F3 fix only refused a leading `//` or `/\`. Browsers strip tab, LF and CR
+from a URL before parsing it, so `/signin?callbackUrl=/%09/example.com` passed
+the check and sent an **already signed-in** user to `https://example.com/`.
 
-## Impact
+- **Impact:** a phishing hop from a link on the app's own domain. No access to
+  data.
+- **Signed-out users:** already safe. better-auth's server-side callback check
+  refused the value.
 
-**F3b** — a credible phishing hop: the victim sees a link to their own church's
-app, and lands on an attacker's page. Signed-in users only. The signed-out path
-was already refused by better-auth's server-side `isSafeRelativeURL`.
+**Fix:** `sanitizeCallbackUrl` now mirrors better-auth's `isSafeRelativeURL`.
 
-**F12** — once the forged session exists, the attacker holds the victim's MP
-identity in MPNext: their **security roles** on every authorization check, and
-their `User_ID` on every write, so `dp_Audit_Log` attributes the attacker's
-changes to the victim. The precondition is a victim's MP access token from
-**any** MP OAuth client that `/connect/userinfo` accepts — a leaked token from
-another integration is enough. That is why a shared OIDC client, or one that
-allows implicit/hybrid flows (tokens in browser URLs), raises the severity.
+## F12: ID-token sign-in
 
-## Am I affected?
+With `discoveryUrl` set, better-auth 1.7 enables an ID-token mode on
+`POST /sign-in/social`. That mode signs the caller in without the OAuth code
+exchange, and it took the identity from a caller-supplied access token without
+checking it against the ID token.
 
-This is a template repository that people fork and copy — the affected set is a
-commit range, and your fork will not receive an automated alert.
+**What exploiting it required:**
+
+1. An ID token issued to this app's own OIDC client. MPNext exchanges codes
+   server-to-server, so a normal user never sees one. It is realistic only if
+   the client ID is shared with an app that exposes tokens to users.
+2. **Another user's MP access token.** That is already a stolen credential.
+
+**What it added:** the holder of a narrowly scoped stolen token could turn it
+into an MPNext session as that user. That meant their security roles, reads
+through the app's service account, and audit attribution on writes.
+
+**Fix, three independent layers:**
+
+- a `hooks.before` guard refusing `idToken` bodies (404
+  `ID_TOKEN_SIGN_IN_DISABLED`)
+- `getUserInfo` requiring the ID token's `sub` to match userinfo's `sub`
+- a route filter allowing only `{ provider, callbackURL }` as plain JSON
+
+`/link-social`, which has a similar branch, is now in `disabledAuthPaths`.
+
+## Checking a fork
 
 ```bash
-# F3b — prints if you have the weak sanitizer
-grep -rF 'startsWith("/\\")' src/components/sign-in/
-
-# F12 — affected if discoveryUrl is set, better-auth is 1.7.x, and there is no guard
-grep -n "discoveryUrl" src/lib/auth.ts
-grep '"version"' node_modules/better-auth/package.json
-grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts        # absent = affected
+grep -rF 'startsWith("/\\")' src/components/sign-in/        # prints = F3b applies
+grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent + better-auth 1.7 + discoveryUrl = F12 applies
 ```
 
-Runtime checks, against a **non-production** instance:
-
-- F3b: signed in, open `/signin?callbackUrl=/%09/example.com`. Leaving the site
-  means affected.
-- F12:
-
-  ```bash
-  curl -i -X POST https://your-app.example.com/api/auth/sign-in/social \
-    -H 'Content-Type: application/json' \
-    --data '{"provider":"ministry-platform","idToken":{"token":"x","accessToken":"y"}}'
-  ```
-
-  An error from better-auth's **id-token verification** means the branch is
-  reachable — affected. A fixed deployment returns a plain **404** before
-  better-auth runs.
-
-## Technical detail
-
-### F3b
-
-The WHATWG URL parser strips ASCII tab, LF and CR from anywhere in its input
-**before parsing** — after any string check has run. `"/\t/example.com"` does
-not start with `//`, but `window.location.href = "/\t/example.com"` navigates
-to `//example.com`. On the signed-in path that assignment is the only sink and
-no server sees the value.
-
-### F12
-
-`POST /sign-in/social` has an `idToken` branch in better-auth 1.7. It is enabled
-for a genericOAuth provider whenever that provider has an id-token verification
-config — which MPNext's provider gets automatically because `src/lib/auth.ts`
-sets `discoveryUrl`. genericOAuth offers no option to disable it. The body
-`{ provider, idToken: { token, accessToken } }` skips `state` and the code
-exchange: better-auth verifies the id_token's signature, issuer and audience
-(`OIDC_CLIENT_ID`), then calls MPNext's `getUserInfo` with the
-**caller-supplied** `accessToken`. MPNext took identity (`sub` → `userGuid`)
-from `/connect/userinfo` and never compared it with `id_token.sub`. Reproduced
-upstream against a mock.
-
-## The fix
-
-`b7dc8e6` and `cf5a824`:
-
-- **F3b** — `sanitizeCallbackUrl` now mirrors better-auth's `isSafeRelativeURL`:
-  it refuses control characters (C0, DEL, C1), **any** backslash, and `%2F`/`%5C`
-  in the path; resolves the value against a sentinel origin as a backstop; and
-  returns the **raw** value, never the URL-normalized form (normalization turns
-  `/.//evil.com` into `//evil.com`).
-- **F12**, three layers:
-  1. `hooks.before` in `src/lib/auth.ts` refuses any `/sign-in/social` body
-     containing `idToken` (404, code `ID_TOKEN_SIGN_IN_DISABLED`) — covers HTTP and
-     in-process `auth.api` calls.
-  2. `getUserInfo` returns `null` (fails closed, logs
-     `auth.userinfo.sub_mismatch`) unless the id_token's `sub` is present and
-     equals userinfo's `sub`, case-insensitively.
-  3. `src/app/api/auth/[...all]/route.ts` only forwards a `POST /sign-in/social`
-     whose Content-Type is exactly `application/json`, whose body keys are a
-     subset of `provider` and `callbackURL`, and whose `provider` is
-     `ministry-platform`; anything else gets a plain 404.
-
-Porting instructions, snippets and tests: the
-[Downstream Hardening Playbook](downstream-hardening-playbook.md), sections F3 /
+Porting steps, snippets and tests are in the
+[Downstream Hardening Playbook](downstream-hardening-playbook.md), under F3 /
 F3b and F12.
-
-## After patching
-
-- **F12**: patching stops new forged sessions but does not revoke existing
-  ones — they live in the JWT cookie cache for up to one hour
-  (`session.cookieCache.maxAge`). If you have reason to think F12 was used,
-  **rotate `BETTER_AUTH_SECRET`** (signs everyone out) and review
-  `dp_Audit_Log` for writes inconsistent with the named user.
-- If a victim's MP access token may have leaked from another integration, that
-  is an incident in that integration too.
-
-## Timeline
-
-| Date | Event |
-|---|---|
-| 2026-09-12 | `ee46343` — F3 fixed with a leading-`//`/`/\` check. **F3b introduced.** |
-| 2026-09-25 | Both issues reported privately by Jonathon Huff (The Moody Church); both verified. |
-| `<date>` | `b7dc8e6`, `cf5a824` — fixed (merged to `main`). |
-| `<date>` | Advisory published. |
 
 ## Credit
 
-Reported privately and responsibly by **Jonathon Huff** of **The Moody
-Church**, who identified both issues and reported them privately so that forks
-could be fixed before disclosure.
+Thanks to **Jonathon Huff** of **The Moody Church** for a careful, private
+report.
