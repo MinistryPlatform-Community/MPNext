@@ -274,12 +274,14 @@ way it does:
 > every existing user silently becomes a new account. Details and the resulting
 > `>= 1.7.3` version floor: [Version Notes](#173--account-identity-reverted-breaking).
 
-> ℹ️ **RP-initiated logout is available but unused.** MP's discovery document
-> exposes `end_session_endpoint`, so 1.7 can build the provider logout URL
-> itself (including `id_token_hint`, which our hand-rolled URL omits).
-> `handleSignOut()` still constructs the URL manually and ignores the `url` that
-> `auth.api.signOut()` now returns — a possible simplification, deliberately
-> left out of the 1.7 migration.
+> ℹ️ **RP-initiated logout: only the `id_token` is taken from better-auth.**
+> MP's discovery document exposes `end_session_endpoint`, so 1.7 builds a
+> provider logout URL (with `id_token_hint`) and `auth.api.signOut()` returns it
+> as `url` when called with `disableRedirect: true`. `handleSignOut()` reads
+> `id_token_hint` from that URL (MP origin only) and builds the final URL
+> itself, so `post_logout_redirect_uri` stays exactly `BETTER_AUTH_URL` —
+> better-auth would normalise it with a trailing slash, which would not match
+> the value registered in MP. See [Logout Flow](#logout-flow).
 
 #### `nonce` binding is off, and must stay off
 
@@ -610,14 +612,18 @@ exposes.
 
 ```
 1. User clicks sign out → calls handleSignOut() server action
-2. auth.api.signOut() → clears Better Auth session cookie
+2. auth.api.signOut({ body: { disableRedirect: true } }) → clears the Better
+   Auth session and returns better-auth's provider logout URL (when this
+   instance holds the account row)
 3. Redirect to MP endsession endpoint:
-   ${MP_BASE_URL}/oauth/connect/endsession?post_logout_redirect_uri=${APP_URL}
+   ${MP_BASE_URL}/oauth/connect/endsession
+     ?post_logout_redirect_uri=${APP_URL}&client_id=${OIDC_CLIENT_ID}
+     [&id_token_hint=<id_token>]
 4. MP clears its session → redirects back to app
 5. App loads without session → proxy redirects to /signin
 ```
 
-No `id_token_hint` is passed (optional in OIDC spec). The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
+`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the instance that handled sign-in (there is no account cookie — see Account cookie above), so on another serverless instance only `client_id` is sent. Whether MP honours the redirect on `client_id` alone is **unverified** (needs a non-production MP). `handleSignOut()` throws, after clearing the local session, if `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL`/`NEXTAUTH_URL` or `OIDC_CLIENT_ID` is unset — there is no localhost fallback. The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
 
 Sign-out is entirely server-side (`auth.api.signOut()`, called in-process from
 the server action) — the browser never calls a `/sign-out` HTTP endpoint, which

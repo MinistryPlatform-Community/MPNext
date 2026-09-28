@@ -48,6 +48,7 @@ const mockOidc = await vi.hoisted(async () => {
         authorization_endpoint: `${issuer}/connect/authorize`,
         token_endpoint: `${issuer}/connect/token`,
         userinfo_endpoint: `${issuer}/connect/userinfo`,
+        end_session_endpoint: `${issuer}/connect/endsession`,
         jwks_uri: `${issuer}/.well-known/openid-configuration/jwks`,
         id_token_signing_alg_values_supported: ['RS256'],
       });
@@ -123,7 +124,7 @@ async function signIn() {
   expect(session?.user.userGuid).toBe(mockOidc.sub);
   const context = await auth.$context;
   const accounts = await context.internalAdapter.findAccounts(session!.user.id);
-  return { authorizeUrl, cookies, accounts };
+  return { authorizeUrl, cookies, accounts, idToken: accounts[0]?.idToken };
 }
 
 describe('user MP OAuth tokens are not requested or retained', () => {
@@ -158,6 +159,25 @@ describe('user MP OAuth tokens are not requested or retained', () => {
       // Kept deliberately: not an API bearer; needed for a future id_token_hint.
       expect(account.idToken).toBeTruthy();
     }
+  });
+});
+
+describe('sign-out on the instance that handled sign-in', () => {
+  // src/components/user-menu/actions.ts relies on this: with no account
+  // cookie, the retained in-memory id_token is the only source for the MP
+  // logout `id_token_hint`.
+  it('returns a provider logout URL carrying the retained id_token as id_token_hint', async () => {
+    const { cookies, idToken } = await signIn();
+    expect(idToken).toBeTruthy();
+
+    const result = (await auth.api.signOut({
+      headers: new Headers({ Cookie: header(cookies) }),
+      body: { disableRedirect: true },
+    })) as { url?: string };
+
+    const url = new URL(result.url!);
+    expect(url.origin).toBe('https://test-mp.example.com');
+    expect(url.searchParams.get('id_token_hint')).toBe(idToken);
   });
 });
 
