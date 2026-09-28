@@ -1,6 +1,6 @@
 # Downstream Hardening Playbook
 
-**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12)
+**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12), follow-up `65a3225..cf5a824` (2026-09-25)
 **Audience:** maintainers of repos that were forked or copied from MPNext
 **Status of the source repo after this work:** all findings below closed except F8 (PKCE)
 
@@ -18,6 +18,13 @@ verbatim: `src/lib/auth.ts`, `src/proxy.ts`, `src/app/api/auth/[...all]/route.ts
 the service layer, and the (previously empty) `next.config.ts`. Two of the
 highest-severity ones — **F-UPDATE-USER** and **F2** — let *any authenticated
 user* assume another user's Ministry Platform identity.
+
+On 2026-09-25 a downstream maintainer (Jonathon Huff, The Moody Church)
+privately reported two more, both verified upstream: **F3b**, a bypass of the F3
+open-redirect fix, and **F12**, an ID-token sign-in path that let an attacker
+holding a victim's MP access token sign in *as* that victim. If you already took
+the 2026-09-12 fixes, those two sections are the new work. Advisory:
+`docs/security/2026-09-25-signin-hardening.md`.
 
 If your fork diverged early, some of these will not apply. Each section starts
 with a **"Does this apply to me?"** check you can run in under a minute.
@@ -66,6 +73,14 @@ grep -rn "console\.log\|console\.debug\|console\.info" src/ --include="*.ts" --i
 
 # F3: is callbackUrl sanitized before it reaches location.href?
 grep -rn "callbackUrl" src/ | grep -i "location.href\|sanitize"
+# F3b: the 2026-09-12 sanitizer only checked a leading `//` and `/\` — tab/CR/LF bypass it
+grep -rqF 'startsWith("/\\")' src/ && echo "✗ F3b (weak leading-/\\ check)" || echo "✓ no weak check"
+grep -rqF '\u001f' src/components/sign-in/ && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
+
+# F12: is ID-token sign-in refused? (live whenever discoveryUrl is set on better-auth >= 1.7)
+grep -q "discoveryUrl" src/lib/auth.ts && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
+  && echo "✗ F12 (no hooks.before idToken guard)" || echo "✓ F12 guard (or no discoveryUrl)"
+grep -q "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts" && echo "✓ F12 route filter" || echo "✗ F12 (route filter)"
 
 # F4: can a caller smuggle attribution fields into a write?
 grep -rn "Made_By" src/services/ src/components/*/actions.ts
@@ -83,15 +98,17 @@ grep -rn "Made_By" src/services/ src/components/*/actions.ts
 | **F4** | Medium | Contact-log writes accepted `Made_By` / `Contact_ID` from the caller | `d7adaf8` |
 | **F5** | Medium | Member PII and pastoral notes written to logs at info level | `395e20c`, `04e97aa` |
 | **F9** | Medium | No CSP, no HSTS, no anti-framing, no Referrer-Policy | `cfeecab`, `67e1329` |
+| **F12** | Low (Low–Medium if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
 | **F3** | Medium | Open redirect via `?callbackUrl=` on `/signin` | `ee46343` |
+| **F3b** | Low–Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
 | **F7** | Low | ~30 better-auth endpoints publicly mounted; OAuth errors on a third-party page | `91d226f` |
 | **F10** | Low | `ContactService.updateContact` wrote with no authorization at all | `16c3415` |
 | **F11** | Low | `getMpTimezone` had no check of any kind | `16c3415` |
 | **F8** | Low | **Still open** — PKCE is `false` though MP advertises `S256` | — |
 
-Fix order, if you are doing this incrementally: **F-UPDATE-USER → F2 → F1 →
-F4 → F7 → F3 → F5 → F9**. The first three are identity; everything else is
-defense in depth on top of them.
+Fix order, if you are doing this incrementally: **F-UPDATE-USER → F2 → F12 →
+F1 → F4 → F7 → F3/F3b → F5 → F9**. The first four are identity; everything else
+is defense in depth on top of them.
 
 ---
 
@@ -148,6 +165,7 @@ export const disabledAuthPaths = [
   "/set-password",
   "/delete-user",
   "/delete-user/callback",
+  "/link-social",          // has its own id_token branch — see F12
 ];
 
 const options = {
@@ -492,7 +510,7 @@ Also strip response text out of *thrown* error messages — a GET failure that
 appends the response body echoes `$filter` values and record content into every
 downstream log and error reporter.
 
-Keep structured events. Upstream has four, and alerts grep on them:
+Keep structured events. Upstream has five, and alerts grep on them:
 
 | Event | Emitted when |
 |---|---|
@@ -500,6 +518,7 @@ Keep structured events. Upstream has four, and alerts grep on them:
 | `mp.write.unauthorized` | role gate refuses a write |
 | `mp.write.non_user` | a write ran with no resolved acting user |
 | `auth.userinfo.invalid_sub` | MP userinfo returned no usable `sub` |
+| `auth.userinfo.sub_mismatch` | id_token `sub` missing or not equal to userinfo `sub` (F12) |
 
 ### Make it enforced, not advisory
 
@@ -634,20 +653,69 @@ Two mechanics that cost time upstream:
 
 ---
 
-## F3 (Medium) — open redirect via `callbackUrl`
+## F3 / F3b (Medium / Low–Medium) — open redirect via `callbackUrl`
 
 `/signin?callbackUrl=https://evil.example` bounced the user off-site from a URL
 that looks like this app's own login page — a credible phishing hop.
 
+### Does this apply to me?
+
+```bash
+grep -rn "sanitizeCallbackUrl" -A6 src/components/sign-in/ src/app/signin/
+```
+
+No sanitizer → F3. A sanitizer whose only origin checks are
+`startsWith("//")` / `startsWith("/\\")` — the version upstream shipped on
+2026-09-12 — → **F3b**. Confirm while signed in: visit
+`/signin?callbackUrl=/%09/example.com`. Landing on `https://example.com/` means
+affected.
+
+### F3b — why the first fix was bypassable
+
+The WHATWG URL parser **strips ASCII tab, LF and CR from anywhere in the input
+before it parses** — that is, *after* every string check has already run.
+`?callbackUrl=/%09/example.com` decodes to `"/\t/example.com"`, which does not
+start with `//` or `/\`, so it passed; `window.location.href` then parsed it as
+`//example.com` and sent a signed-in user to `https://example.com/`.
+
+The **signed-out** path was never exploitable — but not because of the
+leading-`//` check. There the value travels as `callbackURL` to
+`signIn.social`, and better-auth's server-side `isSafeRelativeURL` refuses
+control characters and backslashes. The **signed-in** path is a bare
+`location.href` assignment with no server in the loop, so the sanitizer is the
+*only* check there.
+
+### Fix
+
+Mirror `isSafeRelativeURL`, so client and server agree on what "safe" means (a
+URL one accepts and the other rejects strands the user):
+
 ```ts
-function sanitizeCallbackUrl(raw: string | null | undefined): string {
-  if (!raw || !raw.startsWith("/")) return "/";
-  if (raw.startsWith("//") || raw.startsWith("/\\")) return "/";  // other origin
-  return raw;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;   // C0, DEL, C1
+const ENCODED_SEPARATOR = /%2f|%5c/i;
+const SENTINEL = "https://sentinel.invalid";            // RFC 2606 reserved
+
+export function sanitizeCallbackUrl(raw: string | null | undefined): string {
+  if (typeof raw !== "string" || !raw.startsWith("/")) return "/";
+  // `//` is protocol-relative. ANY backslash is refused, not just a leading
+  // `/\`: special-scheme URLs treat `\` as `/`.
+  if (raw.startsWith("//") || raw.includes("\\") || CONTROL_CHARS.test(raw)) return "/";
+  // `%2F`/`%5C` in the PATH can be decoded downstream into a real separator.
+  // Query string and fragment are ordinary data.
+  const pathEnd = raw.search(/[?#]/);
+  if (ENCODED_SEPARATOR.test(pathEnd === -1 ? raw : raw.slice(0, pathEnd))) return "/";
+  // Backstop: let the real parser resolve it and insist it stays on-origin.
+  try { if (new URL(raw, SENTINEL).origin !== SENTINEL) return "/"; } catch { return "/"; }
+  return raw;   // RAW — see below
 }
 ```
 
-`//` is protocol-relative; `/\` is normalized to `//` by browsers.
+**Return the raw value, never the URL-normalized form.** It is tempting to
+return `url.pathname + url.search + url.hash` from the backstop "for
+tidiness". Don't: dot-segment removal turns `/.//evil.com` into the pathname
+`//evil.com` — a fresh protocol-relative redirect manufactured by the
+sanitizer itself. Raw `/.//evil.com` resolves safely to this origin's
+`//evil.com` path.
 
 **Sanitize at the source, not at each sink.** The value feeds *both* the
 `location.href` assignment (where no server is involved at all) and the
@@ -657,6 +725,18 @@ future third use cannot miss it.
 Test that legitimate deep links still survive the round trip
 (`/contactlookup?x=1`, `/contactlookup/abc?tab=logs`) — a sanitizer that breaks
 deep links gets reverted.
+
+Tests worth having, and the mutations that must fail them:
+
+- Drive the hostile cases **through a real query string**
+  (`?callbackUrl=/%09/evil.example`, `%0A`, `%0D`), not only as pre-decoded
+  strings — the bug lives in the decoding. Also `/\evil.example`, `/a\b`,
+  `/%2F/evil.example`, `//evil.example`, `https://evil.example`, and a C1
+  character (`\u0085`).
+- `/.//evil.example` must come back **unchanged** and resolve to this origin.
+- Delete the `CONTROL_CHARS` rule → the tab case must fail. Return the
+  normalized form → the `/.//` case must fail. If either still passes, the test
+  is not protecting anything.
 
 ---
 
@@ -701,6 +781,159 @@ Two related pieces:
 - **Allowlist `/auth-error` as public in the proxy.** Without it, an
   unauthenticated visit bounces to `/signin`, which auto-starts OAuth again,
   looping forever. Same for any error page that sits outside your session gate.
+
+---
+
+## F12 (Low) — ID-token sign-in bypassed the code exchange
+
+Reported privately on 2026-09-25 by Jonathon Huff (The Moody Church).
+Severity **Medium**; **High** if your MP OIDC client is shared with other
+applications or allows the implicit/hybrid flows (both make the attacker's
+precondition cheaper).
+
+### Does this apply to me?
+
+```bash
+grep -n "discoveryUrl" src/lib/auth.ts                        # set? the branch is live
+grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent? affected
+grep '"version"' node_modules/better-auth/package.json        # >= 1.7? affected
+grep -n "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts"   # absent? layer (a) missing
+```
+
+Affected = better-auth ≥ 1.7 **and** `discoveryUrl` set **and** no
+`hooks.before` guard. The F7 allowlist does **not** help — the attack goes
+through `POST /sign-in/social`, the one POST the allowlist must permit.
+
+Confirm against a **non-production** instance:
+
+```bash
+curl -i -X POST https://your-app.example.com/api/auth/sign-in/social \
+  -H 'Content-Type: application/json' \
+  --data '{"provider":"ministry-platform","idToken":{"token":"x","accessToken":"y"}}'
+```
+
+Fixed: a plain **404** from the route before better-auth runs (and, with the
+route filter removed, a 404 from the hook with code `ID_TOKEN_SIGN_IN_DISABLED`).
+Affected: an error from better-auth's **id-token verification** — which proves
+the branch is reachable.
+
+### What it is
+
+better-auth 1.7's `POST /sign-in/social` has an `idToken` branch: body
+`{ provider, idToken: { token, accessToken } }` creates a session directly —
+no `state`, no authorization code, no exchange. It is enabled for a
+genericOAuth provider whenever that provider has an id-token verification
+config, which it gets automatically because `auth.ts` sets `discoveryUrl`.
+**genericOAuth has no option to turn it off.**
+
+better-auth verifies the id_token (signature, issuer, audience = your
+`OIDC_CLIENT_ID`), then calls **our** `getUserInfo` with the
+**caller-supplied** `accessToken`. Identity — `sub` → `userGuid` — comes from
+MP's `/connect/userinfo` for that access token. **Nothing binds
+`id_token.sub` to `userinfo.sub`.**
+
+So: the attacker's *own* valid id_token for this client, plus a victim's MP
+access token from **any** MP client that `/connect/userinfo` accepts, yields an
+app session **as the victim** — their roles on every authorization check, their
+`User_ID` on every write. Reproduced upstream against a mock.
+
+### Fix — three layers
+
+**(b) Primary: refuse the branch in `hooks.before`** (`src/lib/auth.ts`). Hooks
+run for HTTP requests *and* in-process `auth.api.*` calls, so this is the one
+layer nothing routes around:
+
+```ts
+import { APIError, createAuthMiddleware } from "better-auth/api";
+
+hooks: {
+  before: createAuthMiddleware(async (ctx) => {
+    if (ctx.path !== "/sign-in/social") return;
+    const body: unknown = ctx.body;
+    // PRESENCE, not truthiness: `idToken: null` / `{}` must not slip past
+    if (typeof body === "object" && body !== null && "idToken" in body) {
+      // 404, not 400: from outside, this mode simply does not exist here
+      throw APIError.from("NOT_FOUND", {
+        message: "id_token sign-in is disabled",
+        code: "ID_TOKEN_SIGN_IN_DISABLED",
+      });
+    }
+  }),
+},
+```
+
+**(c) Bind the identity in `getUserInfo`.** Decode `tokens.idToken` (signature
+verification is better-auth's job; this is a binding check), and **return
+`null`** — fail closed, with a structured `auth.userinfo.sub_mismatch` log — when
+its `sub` is missing, not a string, or not equal to userinfo's `sub`. Compare
+case-insensitively; GUID case is not significant. Return `null`, don't throw,
+for the same reason as F2.
+
+```ts
+const idSub = subFromIdToken(tokens.idToken);          // undefined if absent/non-string
+if (!idSub || idSub.toLowerCase() !== sub.toLowerCase()) {
+  // reason: "missing_id_token" | "undecodable_id_token" | "missing_sub" | "mismatch"
+  // identifiers only — never the token or either GUID
+  console.error(JSON.stringify({ event: "auth.userinfo.sub_mismatch", reason }));
+  return null;
+}
+```
+
+This also fails the normal code flow closed if MP ever stops returning an
+id_token — keep `openid` in the scopes.
+
+**(a) Filter the body at the route** (`src/app/api/auth/[...all]/route.ts`),
+on top of the F7 allowlist. For `POST /sign-in/social`:
+
+```ts
+export const allowedSignInSocialKeys = ["provider", "callbackURL"] as const;
+
+// Plain 404 (same as a non-allowlisted path) unless ALL hold:
+//  - Content-Type media type is exactly `application/json`, and the header
+//    contains no comma
+//  - the body parses as a JSON object whose keys ⊆ allowedSignInSocialKeys
+//  - body.provider === "ministry-platform"
+```
+
+The Content-Type rule is not pedantry. better-call matches content type **by
+substring**, so a multi-valued header such as
+`application/json, application/x-www-form-urlencoded` is parsed by better-auth
+as **form data** — a filter that read the body as JSON would be inspecting
+different keys from the ones better-auth acts on. Read the body from
+`req.clone()` so the handler still gets it.
+
+The subset rule also refuses keys the app never sends — `scopes`,
+`errorCallbackURL`, `newUserCallbackURL`, `additionalParams`, `loginHint`,
+`additionalData`. On their own those are low impact (origin-checked, or they
+only affect the caller's own flow); the point is deny-by-default, same as F7.
+**Enumerate your own `signIn.social` call before copying the key list.**
+
+Why all three: (a) is HTTP-only and in-process `auth.api` calls skip it; (b)
+depends on better-auth keeping the key named `idToken`; (c) is what still holds
+if a future better-auth path reaches `getUserInfo` with caller-supplied tokens.
+
+Considered and **deferred**: dropping `discoveryUrl` would remove the id-token
+config and with it the branch — and would also remove boot-time discovery
+fragility — but it loses JWKS verification of the normal flow's id_token, and
+since 1.7 reads `profile.id` for non-OIDC providers it needs an
+`accountSubject` mapping. A separate trade-off, not part of this fix.
+
+### Tests, and the mutations that must fail them
+
+- **Hook:** drive `auth.handler` and `auth.api.signInSocial` with an `idToken`
+  body → 404 with code `ID_TOKEN_SIGN_IN_DISABLED`; control: the same call
+  without `idToken` still returns an authorization URL.
+- **`getUserInfo`:** mismatched `sub` → `null` + event; missing id_token,
+  non-string `sub` → `null`; same GUID, different case → accepted.
+- **Route:** extra key, `idToken`, wrong `provider`, `text/plain`,
+  `application/json, application/x-www-form-urlencoded`, malformed JSON, a JSON
+  array → refused **and the better-auth handler never called**;
+  `application/json; charset=utf-8` with `{provider, callbackURL}` → reaches it.
+- **Test each layer with the other two out of the way** (upstream:
+  `src/auth.id-token-sign-in.test.ts`). Three layers tested
+  only together prove only the strongest one.
+- Delete the hook, replace the `sub` comparison with `true`, drop the comma
+  check — each must turn a test red.
 
 ---
 
@@ -867,6 +1100,9 @@ contact with future contributors and agents:
 > - **Sanitize every value interpolated into a `$filter`** — including
 >   `number`-typed parameters. Types are erased at runtime and server actions are
 >   caller-shaped POST endpoints.
+> - **better-auth endpoints accept body options the app never sends** — so
+>   `POST /sign-in/social` is filtered to known keys at the route, and `idToken`
+>   is refused in `hooks.before`. Re-check both on every better-auth upgrade.
 
 ---
 
@@ -878,6 +1114,13 @@ Before you call your fork done:
 - [ ] `POST /api/auth/list-accounts` (or any non-allowlisted path) returns **404**
 - [ ] A non-allowlisted path still routes when you *remove* the allowlist — i.e. you
       verified the negative control, not just that the tests pass
+- [ ] `POST /api/auth/sign-in/social` with an `idToken` body returns **404** — at the
+      route, and again from the hook (code `ID_TOKEN_SIGN_IN_DISABLED`) with the
+      route filter removed
+- [ ] The same body sent as `Content-Type: application/json, application/x-www-form-urlencoded`,
+      and a body with an extra key (`scopes`), are refused; a normal sign-in still works
+- [ ] Signed in, `/signin?callbackUrl=/%09/example.com` **stays on-site** (lands on `/`),
+      as do `%0A`, `%0D` and `/.//example.com`; `/contactlookup?x=1` still round-trips
 - [ ] Two MP users sharing one real email produce **two distinct** better-auth users
 - [ ] A role-less user can sign in, sees the shell, **can sign out**, and is
       redirected from gated pages to an explaining page
@@ -906,6 +1149,11 @@ Before you call your fork done:
   Next's built-in 404, renders its HTML, and has no interactivity to lose.
 - Intermittent MP connectivity from some networks surfaces a
   `ConnectTimeoutError` during a role lookup as a 500. No retry/backoff on that path.
+- **F12 residue** — genericOAuth still has no switch for the `idToken` branch; the
+  fix *refuses* it rather than removing it. Re-check the hook and the route's
+  key list on every better-auth upgrade. Dropping `discoveryUrl` (which would
+  remove the branch and the boot-time discovery fragility above, at the cost of
+  JWKS verification) is deferred as a separate trade-off.
 
 ---
 
@@ -917,6 +1165,7 @@ before you adapt any of this to a diverged fork:
 
 ```bash
 git log --no-merges --reverse 436466d..5bc505a
+git log --no-merges --reverse 65a3225..cf5a824   # the 2026-09-25 follow-up
 git show 436466d           # F-UPDATE-USER
 git show 85be4b3 7da14c5   # F2, both halves
 git show afef3a9 16c3415   # F1 / F10 / F11
@@ -925,6 +1174,8 @@ git show 395e20c 04e97aa   # F5
 git show cfeecab 67e1329   # F9, report-only then enforced
 git show 91d226f           # F7
 git show ee46343           # F3
+git show b7dc8e6            # F3b, control-character bypass
+git show cf5a824            # F12, ID-token sign-in refused (hook, userinfo binding, route filter)
 git show d201b10 f88a9f1   # the two sign-in root causes
 git show 07a2bd9           # error boundaries
 ```
@@ -936,5 +1187,7 @@ Reference docs in the upstream repo:
 - `.claude/references/security-headers.md` — the header set and the deliberate
   loosenings not to "tighten"
 - `docs/security/2026-09-12-session-identity.md` — the F-UPDATE-USER advisory
+- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 security note
+- `SECURITY.md` — how to report a vulnerability privately
 - `.claude/references/testing.md` — the mock patterns and jsdom/Radix/React 19
   mechanics this work depended on

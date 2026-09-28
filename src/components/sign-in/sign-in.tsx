@@ -4,6 +4,21 @@ import { useEffect, useRef, Suspense } from "react";
 import { authClient } from "@/lib/auth-client";
 import { useSearchParams } from "next/navigation";
 
+// C0 controls, DEL and C1 controls. The WHATWG URL parser silently STRIPS tab,
+// LF and CR from anywhere in the input before it parses — i.e. AFTER every
+// string check below has run. So `/\t/evil.example` (from
+// `?callbackUrl=/%09/evil.example`) passes a `startsWith("//")` test and then
+// navigates as `//evil.example`: off-site. Refusing all control characters
+// closes that and any other parser-stripped variant in one rule.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
+// A percent-encoded `/` or `\` in the PATH can be decoded by a router or proxy
+// downstream into a real separator (`/%2F/evil` -> `//evil`). Only the path is
+// checked: `%2F` in a query string or fragment is ordinary data.
+const ENCODED_SEPARATOR = /%2f|%5c/i;
+// A throwaway base for the final resolution check. `.invalid` is reserved
+// (RFC 2606), so it can never collide with a real origin.
+const SENTINEL = "https://sentinel.invalid";
+
 /**
  * Reduces a `callbackUrl` query parameter to a safe, same-origin destination.
  *
@@ -13,13 +28,35 @@ import { useSearchParams } from "next/navigation";
  * from a URL that looks like this app's own login. Only a relative path rooted
  * at `/` is honored; everything else falls back to `/`.
  *
- * The three rejected shapes that matter: an absolute URL (`https://evil…`), a
- * protocol-relative URL (`//evil…`, which the browser resolves as another
- * origin), and `/\evil…`, which browsers normalize to `//evil…`.
+ * The rules deliberately mirror better-auth's server-side `isSafeRelativeURL`
+ * (`better-auth/dist/auth/trusted-origins.mjs`), which already refuses these
+ * values as a `callbackURL` on the signed-out path. The signed-in path is a
+ * bare `location.href` assignment with no server in the loop, so this function
+ * is the ONLY check there — and client and server should agree on what "safe"
+ * means, or a URL that one accepts and the other rejects strands the user.
+ *
+ * Exported for direct unit testing only; the barrel exports just `SignIn`.
  */
-function sanitizeCallbackUrl(raw: string | null | undefined): string {
-  if (!raw || !raw.startsWith("/")) return "/";
-  if (raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+export function sanitizeCallbackUrl(raw: string | null | undefined): string {
+  if (typeof raw !== "string" || !raw.startsWith("/")) return "/";
+  // `//evil` is protocol-relative (another origin). ANY backslash is refused,
+  // not just a leading `/\`: special-scheme URLs treat `\` as `/`, so `/\evil`
+  // becomes `//evil`, and a backslash has no legitimate use in our paths.
+  if (raw.startsWith("//") || raw.includes("\\") || CONTROL_CHARS.test(raw)) return "/";
+  const pathEnd = raw.search(/[?#]/);
+  if (ENCODED_SEPARATOR.test(pathEnd === -1 ? raw : raw.slice(0, pathEnd))) return "/";
+  // Backstop: let the real URL parser resolve it and insist it stays on our
+  // origin. After the checks above no input is known to fail this, but it is
+  // what guards us if a browser's parser ever diverges from the string rules.
+  try {
+    if (new URL(raw, SENTINEL).origin !== SENTINEL) return "/";
+  } catch {
+    return "/";
+  }
+  // Return the RAW value, never the `new URL()`-normalized form: dot-segment
+  // removal turns `/.//evil.com` into the pathname `//evil.com`, which would
+  // itself be a protocol-relative redirect. Raw `/.//evil.com` resolves safely
+  // to this origin's `//evil.com` path.
   return raw;
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 
 /**
@@ -62,7 +62,8 @@ vi.mock("@/lib/providers/ministry-platform", () => ({
   },
 }));
 
-import { GET, POST, allowedAuthRoutes } from "./route";
+import { GET, POST, allowedAuthRoutes, allowedSignInSocialKeys } from "./route";
+import { auth } from "@/lib/auth";
 
 const ORIGIN = "http://localhost:3000";
 
@@ -141,6 +142,171 @@ describe("auth catch-all route allowlist", () => {
     });
   });
 
+  /**
+   * Body filter on the one allowlisted POST (defence in depth behind
+   * `refuseIdTokenSignIn` in src/lib/auth.ts — see
+   * `isAllowedSignInSocialBody` in route.ts). `toNextJsHandler` calls
+   * `auth.handler` at request time, so spying on it tells us whether a request
+   * reached better-auth at all.
+   */
+  describe("POST /sign-in/social body filter", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function postSignIn(body: string, contentType: string | null) {
+      const headers = new Headers();
+      if (contentType !== null) headers.set("Content-Type", contentType);
+      return POST(
+        new NextRequest(new URL("/api/auth/sign-in/social", ORIGIN), {
+          method: "POST",
+          headers,
+          body,
+        }),
+      );
+    }
+
+    const legit = { provider: "ministry-platform", callbackURL: "/contacts" };
+
+    it("pins the allowed body keys to exactly what authClient.signIn.social sends", () => {
+      expect(allowedSignInSocialKeys).toEqual(["provider", "callbackURL"]);
+    });
+
+    it("passes a legitimate { provider, callbackURL } body through, still readable by better-auth", async () => {
+      // Echo the body the handler actually receives: proves the filter read a
+      // clone and left the original stream intact.
+      const handlerSpy = vi
+        .spyOn(auth, "handler")
+        .mockImplementation(async (req: Request) => Response.json(await req.json()));
+
+      const response = await postSignIn(JSON.stringify(legit), "application/json");
+
+      expect(handlerSpy).toHaveBeenCalledTimes(1);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(legit);
+    });
+
+    it("passes a legitimate body through to the REAL handler (authorize URL returned)", async () => {
+      const response = await postSignIn(JSON.stringify(legit), "application/json");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ redirect: true });
+    });
+
+    it("accepts { provider } alone (callbackURL is optional)", async () => {
+      const handlerSpy = vi
+        .spyOn(auth, "handler")
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      const response = await postSignIn(
+        JSON.stringify({ provider: "ministry-platform" }),
+        "application/json",
+      );
+
+      expect(response.status).toBe(204);
+      expect(handlerSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["application/json; charset=utf-8", "Application/JSON", " application/json ;charset=UTF-8"])(
+      "accepts Content-Type %j",
+      async (contentType) => {
+        const handlerSpy = vi
+          .spyOn(auth, "handler")
+          .mockResolvedValue(new Response(null, { status: 204 }));
+
+        const response = await postSignIn(JSON.stringify(legit), contentType);
+
+        expect(response.status).toBe(204);
+        expect(handlerSpy).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      ["idToken (the token-substitution takeover)", { idToken: { token: "a.b.c", accessToken: "victim" } }],
+      ["idToken: null (presence, not truthiness)", { idToken: null }],
+      ["scopes", { scopes: ["extra_scope"] }],
+      ["errorCallbackURL", { errorCallbackURL: "https://evil.example/x" }],
+      ["newUserCallbackURL", { newUserCallbackURL: "https://evil.example/x" }],
+      ["additionalParams", { additionalParams: { prompt: "none" } }],
+      ["loginHint", { loginHint: "someone" }],
+      ["additionalData", { additionalData: { a: 1 } }],
+      ["requestSignUp", { requestSignUp: true }],
+      ["disableRedirect", { disableRedirect: true }],
+    ])("404s a body carrying %s, without reaching better-auth", async (_label, extra) => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+
+      const response = await postSignIn(
+        JSON.stringify({ ...legit, ...extra }),
+        "application/json",
+      );
+
+      expect(response.status).toBe(404);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a __proto__ key", '{"provider":"ministry-platform","__proto__":{"x":1}}'],
+      ["a different provider", JSON.stringify({ provider: "google", callbackURL: "/" })],
+      ["no provider", JSON.stringify({ callbackURL: "/" })],
+      ["a JSON array", JSON.stringify([legit])],
+      ["JSON null", "null"],
+      ["a JSON string", JSON.stringify("ministry-platform")],
+      ["a JSON number", "42"],
+      ["non-JSON text", "provider=ministry-platform"],
+      ["an empty body", ""],
+    ])("404s %s, without reaching better-auth", async (_label, body) => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+
+      const response = await postSignIn(body, "application/json");
+
+      expect(response.status).toBe(404);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    /**
+     * better-call picks its body parser by substring match, so a multi-valued
+     * Content-Type is parsed as FORM data — keys this filter would never see.
+     * Only an exact `application/json` media type is accepted.
+     */
+    it.each([
+      ["multi-valued", "text/html, application/json, application/x-www-form-urlencoded"],
+      ["json first, then form", "application/json, application/x-www-form-urlencoded"],
+      // Only the comma check catches this one: split on ";" alone would read
+      // the media type as exactly "application/json".
+      ["json with a parameter, then form", "application/json; charset=utf-8, application/x-www-form-urlencoded"],
+      ["text/plain", "text/plain"],
+      ["form-urlencoded", "application/x-www-form-urlencoded"],
+      ["multipart", "multipart/form-data; boundary=x"],
+      ["a +json suffix type", "application/vnd.api+json"],
+      ["a json prefix lookalike", "application/jsonx"],
+      ["missing", null],
+    ])("404s a %s Content-Type, without reaching better-auth", async (_label, contentType) => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+
+      const response = await postSignIn(JSON.stringify(legit), contentType);
+
+      expect(response.status).toBe(404);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    it("404s a repeated Content-Type header (Headers.get joins them with a comma)", async () => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+      const headers = new Headers();
+      headers.append("Content-Type", "application/json; charset=utf-8");
+      headers.append("Content-Type", "application/x-www-form-urlencoded");
+
+      const response = await POST(
+        new NextRequest(new URL("/api/auth/sign-in/social", ORIGIN), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(legit),
+        }),
+      );
+
+      expect(response.status).toBe(404);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("trailing-slash and prefix tricks do not bypass exact matching", () => {
     it("GET /get-session/ (trailing slash) is treated as the same path by our allowlist", async () => {
       // Our own matching strips the trailing slash, so this path is NOT
@@ -183,6 +349,11 @@ describe("auth catch-all route allowlist", () => {
 
   it("adds no extra exports Next.js would treat as route config", async () => {
     const mod = await import("./route");
-    expect(Object.keys(mod).sort()).toEqual(["GET", "POST", "allowedAuthRoutes"]);
+    expect(Object.keys(mod).sort()).toEqual([
+      "GET",
+      "POST",
+      "allowedAuthRoutes",
+      "allowedSignInSocialKeys",
+    ]);
   });
 });

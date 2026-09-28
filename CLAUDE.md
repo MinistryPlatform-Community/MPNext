@@ -199,6 +199,7 @@ export default MyComponent;            // ❌ Avoid
 11. **Convert all date/time values at the MP boundary** - use `DomainTimezoneService` (never raw `new Date(x).toISOString()` or `getFullYear()`) when sending or receiving datetime fields, since MP stores wall-clock values in the domain's time zone, not UTC. See **[Date/Time Handling Reference](.claude/references/ministryplatform.datetimehandling.md)**.
 12. **No debug logging in `src/`** - `console.log`/`.info`/`.debug` are not allowed outside `scripts/`; log errors with identifiers (table, IDs, status), never record content, `$filter` strings, or request bodies. MP data is member PII and pastoral notes. This is enforced, not advisory: `eslint.config.mjs` sets `no-console: ["error", { allow: ["warn", "error"] }]` over `src/**`, exempting only the generator scripts and test files. (A naive grep also hits `console.log` inside `@example` JSDoc blocks in `helper.ts` — those are documentation, not executable code.)
 13. **Sanitize every value interpolated into a `$filter`** - use `sanitizeFilterValue`, `sanitizeLikeValue`, `sanitizeGuid`, or `sanitizeNumericId` from `@/lib/providers/ministry-platform/utils/filter-sanitize`. A `number`-typed parameter is *not* exempt: types are erased at runtime and server actions are caller-shaped POST endpoints, so an attacker controls the value regardless of its declared type. See **[MP Query Syntax](.claude/references/ministryplatform.query-syntax.md)** § Sanitizing interpolated values.
+14. **Treat better-auth endpoint bodies as attacker-shaped** - better-auth endpoints accept body options the app never sends (`/sign-in/social` has an `idToken` branch that skips the OAuth code exchange entirely). So `POST /sign-in/social` is filtered to `allowedSignInSocialKeys` in `src/app/api/auth/[...all]/route.ts`, *and* `idToken` is refused in `hooks.before` in `src/lib/auth.ts` (which also covers in-process `auth.api` calls). Keep both; re-check them, and what any new endpoint accepts, on every better-auth upgrade. See **[Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md)**.
 
 ## Validation Best Practices
 
@@ -263,6 +264,8 @@ For detailed context on specific areas, see:
 - **[Security Headers](.claude/references/security-headers.md)** - The nonce-based CSP and the rest of the header set, why nonces force dynamic rendering, and the deliberate loosenings not to "tighten"
 - **[Dependency Known Issues](.claude/references/deps-known-issues.md)** - Lockfile platform drift (why `npm run deps:relock` is the only supported regeneration path) and the triaged vendor advisories `npm audit` does not report
 - **[Session Identity Advisory](docs/security/2026-09-12-session-identity.md)** - The 2026-09-12 session-identity vulnerability, who is affected, and remediation
+- **[Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md)** - The 2026-09-25 `callbackUrl` control-character bypass (F3b) and ID-token sign-in (F12), who is affected, and remediation
+- **[Security Policy](SECURITY.md)** - Supported versions and how to report a vulnerability privately
 - **[OAuth Logout Setup](docs/OAUTH_LOGOUT_SETUP.md)** - OIDC RP-initiated logout configuration and post-logout redirect URIs
 - **[SQL Snippets](.claude/references/sql.db.md)** - Recipes for work done directly against the MP SQL database, outside the API safety rails
 

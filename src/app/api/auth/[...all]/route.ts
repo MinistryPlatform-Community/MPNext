@@ -67,9 +67,74 @@ export async function GET(request: NextRequest) {
   return betterAuthGET(request);
 }
 
+/**
+ * The only body keys `POST /sign-in/social` may carry. The browser client sends
+ * exactly these two — `authClient.signIn.social({ provider, callbackURL })` in
+ * src/components/sign-in/sign-in.tsx, which better-auth's client proxy
+ * (node_modules/better-auth/dist/client/proxy.mjs) forwards as the JSON body
+ * verbatim, adding nothing.
+ *
+ * better-auth's body schema accepts far more: `idToken` (a direct sign-in
+ * mode that enabled an account takeover — see `refuseIdTokenSignIn` in
+ * src/lib/auth.ts), plus `scopes`, `loginHint`, `additionalParams`,
+ * `errorCallbackURL`, `newUserCallbackURL`, `additionalData`, `requestSignUp`
+ * and `disableRedirect`, each of which lets a caller reshape the authorize
+ * request or the post-login redirects. None is used here, so all are closed.
+ * Allowlisted, not denylisted: a key a future better-auth version adds is
+ * refused until deliberately opened here.
+ */
+export const allowedSignInSocialKeys = ["provider", "callbackURL"] as const;
+
+/**
+ * Body filter for `POST /sign-in/social` (defence in depth behind
+ * `refuseIdTokenSignIn`, which is the primary control and also covers
+ * in-process `auth.api.signInSocial` calls this route never sees).
+ *
+ * The Content-Type check is what makes the body check sound. better-call picks
+ * its body parser by SUBSTRING match (node_modules/better-call/dist/utils.mjs,
+ * `getBody`): a header like `text/html, application/json,
+ * application/x-www-form-urlencoded` is accepted and parsed as FORM data. A
+ * filter that JSON-parsed that same body would fail to parse it or, worse,
+ * inspect different keys than better-auth then acts on. So the media type must
+ * be exactly `application/json` (parameters like `; charset=utf-8` allowed,
+ * case-insensitive), and any `,` is refused outright — that also catches a
+ * repeated Content-Type header, which `Headers.get` joins with ", ". Under
+ * those conditions better-call's JSON regex is the parser that runs, on the
+ * same bytes this filter reads.
+ *
+ * Reads a `clone()` so the original body stream is still intact for
+ * better-auth. Every failure — unparseable JSON, a non-object, an unknown key,
+ * a different provider — gets the same 404 as a non-allowlisted path, so the
+ * filter reveals nothing about which check tripped.
+ */
+async function isAllowedSignInSocialBody(request: NextRequest): Promise<boolean> {
+  const contentType = request.headers.get("content-type");
+  if (contentType === null || contentType.includes(",")) return false;
+  if (contentType.split(";")[0].trim().toLowerCase() !== "application/json") {
+    return false;
+  }
+  let body: unknown;
+  try {
+    body = await request.clone().json();
+  } catch {
+    return false;
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return false;
+  }
+  const allowedKeys: readonly string[] = allowedSignInSocialKeys;
+  if (!Object.keys(body).every((key) => allowedKeys.includes(key))) {
+    return false;
+  }
+  return (body as { provider?: unknown }).provider === "ministry-platform";
+}
+
 export async function POST(request: NextRequest) {
   const path = relativeAuthPath(request);
   if (!(allowedAuthRoutes.POST as readonly string[]).includes(path)) {
+    return NOT_FOUND();
+  }
+  if (path === "/sign-in/social" && !(await isAllowedSignInSocialBody(request))) {
     return NOT_FOUND();
   }
   return betterAuthPOST(request);

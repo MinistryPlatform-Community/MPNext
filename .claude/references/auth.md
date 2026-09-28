@@ -42,7 +42,7 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 |------|---------|
 | `src/lib/auth.ts` | Server-side Better Auth configuration |
 | `src/lib/auth-client.ts` | Client-side auth client (`authClient`) |
-| `src/app/api/auth/[...all]/route.ts` | Allowlisted route handler — only `GET /get-session`, `GET /callback/ministry-platform`, `POST /sign-in/social` reach better-auth; everything else 404s |
+| `src/app/api/auth/[...all]/route.ts` | Allowlisted route handler — only `GET /get-session`, `GET /callback/ministry-platform`, `POST /sign-in/social` reach better-auth; everything else 404s. `POST /sign-in/social` is also body-filtered (exact `application/json`, keys `provider`/`callbackURL` only, `provider: "ministry-platform"`) — see [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial) |
 | `src/proxy.ts` | Route protection (session cookie check) |
 | `src/app/auth-error/page.tsx` | Landing page for a failed OAuth callback (`onAPIError.errorURL`) — outside the (web) route group, public in `src/proxy.ts` |
 | `src/contexts/user-context.tsx` | `UserProvider` — loads MP user profile client-side |
@@ -155,7 +155,7 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 | `pkce` | `false` | Explicitly disabled — 1.7 defaults this to `true` (see 1.7 notes below) |
 | `disableIdTokenNonceBinding` | `true` | **Required.** MP does not echo `nonce` back in the `id_token`, and better-auth rejects a missing claim. See [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off) |
 | `authorizationUrlParams` | `{ realm: "realm" }` | Extra query parameter MP's authorize endpoint expects |
-| `getUserInfo` | Custom callback | Fetches OIDC userinfo; validates `sub` with `sanitizeGuid` and returns `null` (sign-in refused) if unusable; returns the real `email` on the raw profile and `emailVerified: profile.email_verified === true` (not hardcoded — see [Account linking](#account-linking-disabled)) |
+| `getUserInfo` | Custom callback | Requires an id_token and binds it: the userinfo `sub` must equal the id_token `sub` (case-insensitive), else `null` + `auth.userinfo.sub_mismatch` — see [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial). Fetches OIDC userinfo; validates `sub` with `sanitizeGuid` and returns `null` (sign-in refused) if unusable; returns the real `email` on the raw profile and `emailVerified: profile.email_verified === true` (not hardcoded — see [Account linking](#account-linking-disabled)) |
 | `mapProfileToUser` | Custom callback | Returns `userGuid: sub`, `email: <sub>@mp.invalid` (synthetic — see [Email is never a key](#email-is-never-a-key-synthetic-email-real-address-in-mpemail)), `mpEmail: real address or null`; throws if `sub` is absent |
 
 ### Better Auth 1.7 migration notes
@@ -293,6 +293,7 @@ export const disabledAuthPaths = [
   "/set-password",
   "/delete-user",
   "/delete-user/callback",
+  "/link-social", // own id_token branch — see "id_token sign-in is disabled"
 ];
 ```
 
@@ -332,6 +333,62 @@ protection fails the build. Do not delete one test to make the other pass.
 the endpoint that the flag had been implicitly guarding since February. Before
 that, `input: false` made `/update-user` answer `400 — userGuid is not allowed to
 be set`.
+
+### id_token sign-in is disabled (`/sign-in/social`)
+
+**The vulnerability (fixed 2026-09-28).** better-auth's `POST /sign-in/social`
+has two modes. Without `idToken` it starts the normal authorization-code
+redirect — the only mode this app uses. With
+`idToken: { token, accessToken }` it signs the caller in *directly*: it verifies
+the id_token (signature, `iss`, `aud`) and then calls our `getUserInfo` with the
+**caller-supplied** `accessToken` (`node_modules/better-auth/dist/api/routes/sign-in.mjs`).
+Because `discoveryUrl` is set, genericOAuth builds an id_token config for the
+provider, which switches that mode **on** (`supportsIdTokenSignIn`), and
+genericOAuth has no option to turn it off. Nothing bound the verified id_token
+to the access token, so an attacker's own valid id_token plus **any other
+user's** MP access token minted a session as that other user. Reproduced end to
+end against a mock OIDC server. Dropping `discoveryUrl` would also close it but
+is a separate trade-off (it removes JWKS verification of the code-flow id_token
+too), so it stays.
+
+Three independent layers now close it; keep all three:
+
+| Layer | Where | What it does |
+|---|---|---|
+| **Primary** | `refuseIdTokenSignIn` — `hooks.before` in `src/lib/auth.ts` | If `ctx.path === "/sign-in/social"` and the body *has* an `idToken` key (presence, not truthiness), throws `APIError.from("NOT_FOUND", { code: "ID_TOKEN_SIGN_IN_DISABLED" })`. User hooks run for HTTP **and** in-process `auth.api.signInSocial`, so this covers callers the route never sees. 404, not 400, to match the route's deny posture and better-auth's own `ID_TOKEN_NOT_SUPPORTED` (also 404). The customSession/nextCookies plugins register hooks on their plugin objects, so the user `hooks` key does not displace them |
+| **Defence in depth** | `getUserInfo` in `src/lib/auth.ts` | Decodes the id_token payload (hand-rolled base64url — `jose` is only a transitive dependency) and refuses (`null`, never a throw) unless its `sub` equals the userinfo `sub`, case-insensitively. Logs `auth.userinfo.sub_mismatch` with a `reason` (`missing_id_token`, `undecodable_id_token`, `missing_sub`, `mismatch`) and nothing else — no GUIDs, no token content. The decode is unverified on purpose: genericOAuth's wrapper has already verified the id_token before `getUserInfo` runs |
+| **Route filter** | `isAllowedSignInSocialBody` in `src/app/api/auth/[...all]/route.ts` | For `POST /sign-in/social` only: Content-Type media type must be exactly `application/json` (params and case tolerated, any `,` refused); `request.clone().json()` must parse to a plain object whose keys are all in `allowedSignInSocialKeys` (`provider`, `callbackURL` — exactly what `authClient.signIn.social` sends) with `provider === "ministry-platform"`. Anything else gets the route's usual 404 without reaching better-auth. This also closes `scopes`, `loginHint`, `additionalParams`, `errorCallbackURL`, `newUserCallbackURL`, `additionalData`, `requestSignUp` and `disableRedirect` |
+
+**A missing id_token fails closed.** Every legitimate caller supplies one: the
+code-flow callback requests `openid`, for which OIDC Core §3.1.3.3 requires an
+id_token in the token response (MP sends one), and the id_token mode cannot run
+without one. An access token with nothing to bind it to therefore means an
+unexpected code path, and is refused. If MP ever stopped sending id_tokens,
+sign-in would fail loudly with `reason: "missing_id_token"` in the log.
+
+**Why the Content-Type check is strict.** better-call chooses its body parser
+by *substring* match (`node_modules/better-call/dist/utils.mjs`, `getBody`), so
+`text/html, application/json, application/x-www-form-urlencoded` is accepted and
+parsed as **form** data. A filter that JSON-parsed that body would inspect
+different keys than better-auth then acts on. With an exact `application/json`
+media type and no comma, better-call's JSON parser is the one that runs, on the
+same bytes the filter read. The comma rule also catches a repeated Content-Type
+header, which `Headers.get` joins with `", "`.
+
+**`/link-social` is closed separately.** It has an id_token branch of its own
+that the hook does not inspect. It is session-gated and not in the route
+allowlist, and this app never links accounts, so it is in `disabledAuthPaths`
+(404 before any hook or session check). Re-enabling it would need the same
+treatment as `/sign-in/social`.
+
+**Testing.** `src/auth.id-token-sign-in.test.ts` drives the real `auth` against
+a mock MP OIDC provider with really signed id_tokens: the hook refuses the
+attack over HTTP and in-process; with the hook removed, the binding alone
+refuses it (and a matched pair still signs in, proving the mode is live).
+`src/auth.test.ts` covers every `getUserInfo` binding branch;
+`src/app/api/auth/[...all]/route.test.ts` covers the body filter, including that
+better-auth still receives the original body after the clone. Each layer was
+mutation-checked: removing it turns tests red.
 
 ### customSession Callback
 
@@ -410,7 +467,8 @@ export const authClient = createAuthClient({
    b. Validates the oauth_state cookie, then verifies the id_token signature,
       iss and aud against MP's JWKS (nonce binding is disabled — MP omits it)
    c. Calls getUserInfo(tokens) → fetches OIDC profile → returns { sub, ... }
-      (returns null, refusing sign-in, if sub is missing or malformed)
+      (returns null, refusing sign-in, if sub is missing or malformed, if the
+      id_token is missing, or if its sub differs from the userinfo sub)
    d. Calls mapProfileToUser(profile) → { userGuid: sub, email: <sub>@mp.invalid,
       mpEmail: real address or null }
    e. Resolves the account subject from profile.sub (OIDC default)
@@ -743,9 +801,9 @@ shape, never content**: table name, record IDs/counts, HTTP status, and an error
 names, or a URL/query string containing `$filter`. The HTTP client's failure logs are the
 canonical shape: `{ method, endpoint (path only, no query string), status, statusText }`,
 and the thrown `Error`'s message keeps only `status`/`statusText`/`endpoint` — no
-response body. The four structured events above (`mp.read.unauthorized`,
-`mp.write.unauthorized`, `mp.write.non_user`, and `auth.userinfo.invalid_sub` in
-`src/lib/auth.ts`) are the greppable contract this policy exists alongside; they already
+response body. The structured events above (`mp.read.unauthorized`,
+`mp.write.unauthorized`, `mp.write.non_user`, and `auth.userinfo.invalid_sub` /
+`auth.userinfo.sub_mismatch` in `src/lib/auth.ts`) are the greppable contract this policy exists alongside; they already
 log identifiers only and are unaffected by it.
 
 #### Attribution is server-authoritative (F4, closed 2026-09-12)
@@ -852,6 +910,7 @@ server-side; defence in depth).
 | **F4** (Medium) — contact-log writes accepted `Made_By`/`Contact_ID` from the caller | 2026-09-12 | `ContactLogService` stamps `Made_By` from the gate and strips both keys via the schema `.omit()`; `Contact_ID` is never sent on update; see § Attribution is server-authoritative above |
 | **F2** (High) — a shared MP email could merge two people onto one better-auth user | 2026-09-12 | `accountLinking.enabled: false`, a synthetic `email` derived from `sub`, the real address moved to `mpEmail`, and `emailVerified` from the provider's own claim; see § Email is never a key and § Account linking |
 | **F7** (Low) — OAuth failures landed on better-auth's built-in error page | 2026-09-12 | `onAPIError.errorURL: "/auth-error"` plus the route allowlist, which no longer exposes `GET /error`; see § OAuth Flow |
+| **id_token substitution** (Low) — `POST /sign-in/social` with an attacker's id_token and a victim's access token minted the victim's session | 2026-09-28 | `refuseIdTokenSignIn` (`hooks.before`), the `getUserInfo` sub binding, and the route's `/sign-in/social` body filter; see § id_token sign-in is disabled |
 | **F9** (Medium) — no HTTP security headers, no CSP | 2026-09-12 | Static headers in `next.config.ts`, nonce-based CSP built per request in `src/proxy.ts`; see [Security Headers](security-headers.md) |
 
 **Still open:** **F8** — PKCE is explicitly `false` even though MP advertises `S256`.
@@ -906,6 +965,11 @@ the `better-auth` version, do this before merging:
    - disabled endpoints — `/update-user` and friends still 404. **Never** relax
      this to make an unrelated failure go away; see
      [Disabled Endpoints](#disabled-endpoints) for why it is load-bearing.
+   - id_token sign-in — also run `src/auth.id-token-sign-in.test.ts`. It
+     drives the real `/sign-in/social` id_token mode against a mock OIDC
+     provider; if an upgrade renames the path, moves the mode, or adds a new
+     body key, the hook or the route filter may silently stop applying. See
+     [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial).
 4. **Manual smoke test (required — nothing else catches this):**
    - `npm run dev`, sign in through Ministry Platform.
    - Open `/api/auth/get-session` and confirm the session `user` object contains

@@ -2,6 +2,7 @@ import { betterAuth, BetterAuthOptions } from "better-auth";
 import { genericOAuth } from "better-auth/plugins";
 import { customSession } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 
@@ -174,12 +175,119 @@ export const disabledAuthPaths = [
   "/set-password",
   "/delete-user",
   "/delete-user/callback",
+  // `/link-social` has its own id_token branch (a second route to the
+  // token-substitution takeover `refuseIdTokenSignIn` closes on
+  // `/sign-in/social`). It needs a session and is not in the route allowlist,
+  // but this app never links accounts, so close it outright rather than rely
+  // on the allowlist alone.
+  "/link-social",
 ];
+
+/**
+ * Closes the id_token branch of `POST /sign-in/social` (the PRIMARY fix for
+ * the token-substitution account takeover, 2026-09-28).
+ *
+ * better-auth's `/sign-in/social` has two modes. Without `idToken` it starts
+ * the normal authorization-code redirect — the only mode this app uses. With
+ * `idToken: { token, accessToken }` it signs the caller in directly: it
+ * verifies the id_token (signature, iss, aud), then calls our `getUserInfo`
+ * with the CALLER-SUPPLIED `accessToken` (node_modules/better-auth/dist/api/
+ * routes/sign-in.mjs). Because `discoveryUrl` is set, genericOAuth builds an
+ * id_token config for this provider, which switches that mode ON
+ * (`supportsIdTokenSignIn`), and genericOAuth offers no option to turn it off.
+ * Nothing in better-auth binds the verified id_token to the access token, so
+ * an attacker's own valid id_token plus ANY other user's MP access token
+ * minted a session as that other user. Reproduced end to end against a mock
+ * OIDC server.
+ *
+ * `hooks.before` runs for every endpoint on both paths — HTTP requests and
+ * in-process `auth.api.signInSocial` calls — so refusing here covers callers
+ * the route filter in `src/app/api/auth/[...all]/route.ts` never sees. It
+ * keys on the key's PRESENCE (`"idToken" in body`), not its truthiness, so
+ * `idToken: null` / `idToken: {}` cannot slip past on a falsy value.
+ *
+ * 404 (NOT_FOUND), not 400, deliberately: from the outside this mode simply
+ * does not exist here, matching the route's deny posture for non-allowlisted
+ * endpoints and better-auth's own `ID_TOKEN_NOT_SUPPORTED` (also 404). The
+ * distinct `code` keeps it identifiable in logs and tests.
+ *
+ * Defence in depth: the route filter rejects any body key but `provider` and
+ * `callbackURL` before better-auth runs, and `getUserInfo` below refuses a
+ * profile whose userinfo `sub` does not match the id_token `sub`. Keep all
+ * three; `src/auth.id-token-sign-in.test.ts` proves each one independently.
+ */
+export const ID_TOKEN_SIGN_IN_DISABLED = "ID_TOKEN_SIGN_IN_DISABLED";
+
+const refuseIdTokenSignIn = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== "/sign-in/social") return;
+  const body: unknown = ctx.body;
+  if (typeof body === "object" && body !== null && "idToken" in body) {
+    throw APIError.from("NOT_FOUND", {
+      message: "id_token sign-in is disabled",
+      code: ID_TOKEN_SIGN_IN_DISABLED,
+    });
+  }
+});
+
+/**
+ * Reads the `sub` claim from a compact JWS WITHOUT verifying it.
+ *
+ * Deliberately unverified, and safe to be: this is only used by `getUserInfo`
+ * as a BINDING check between two tokens, never as a trust decision on its own.
+ * By the time `getUserInfo` runs, genericOAuth's wrapper has already verified
+ * the id_token against MP's JWKS, issuer and audience (plugins/generic-oauth/
+ * index.mjs, `getUserInfo`). If discovery failed at boot there is no id_token
+ * config, the `/sign-in/social` id_token mode is unavailable altogether
+ * (`supportsIdTokenSignIn`), and the only remaining caller is the code-flow
+ * callback, whose id_token came straight from MP's token endpoint in exchange
+ * for our client secret — the same provenance as the access token.
+ *
+ * Hand-rolled rather than `jose`'s `decodeJwt`: `jose` is only a transitive
+ * dependency (via better-auth), and importing it directly would break silently
+ * the day better-auth stops depending on it.
+ */
+function readIdTokenSub(idToken: string): { decoded: true; sub: unknown } | { decoded: false } {
+  const parts = idToken.split(".");
+  if (parts.length !== 3) return { decoded: false };
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      return { decoded: false };
+    }
+    return { decoded: true, sub: (payload as { sub?: unknown }).sub };
+  } catch {
+    return { decoded: false };
+  }
+}
+
+/**
+ * Logs why `getUserInfo` refused to bind the id_token to the userinfo profile.
+ * Identifiers only, per CLAUDE.md rule 12: never token contents and never the
+ * GUIDs themselves (same precedent as `auth.userinfo.invalid_sub`).
+ */
+function logSubBindingFailure(
+  reason: "missing_id_token" | "undecodable_id_token" | "missing_sub" | "mismatch",
+) {
+  console.error(
+    JSON.stringify({
+      event: "auth.userinfo.sub_mismatch",
+      message:
+        "MP userinfo sub could not be bound to the id_token sub; refusing sign-in",
+      reason,
+    }),
+  );
+}
 
 const options = {
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   disabledPaths: disabledAuthPaths,
+  // User-level hooks. The customSession and nextCookies plugins register their
+  // own hooks on the plugin objects; these run alongside them, not instead.
+  // See `refuseIdTokenSignIn` above.
+  hooks: {
+    before: refuseIdTokenSignIn,
+  },
   // Own the OAuth-failure landing page instead of better-auth's built-in
   // `/api/auth/error` page (which we no longer expose — see
   // `allowedAuthRoutes` in src/app/api/auth/[...all]/route.ts). Every OAuth
@@ -286,6 +394,41 @@ const options = {
             realm: "realm",
           },
           getUserInfo: async (tokens) => {
+            // Bind the access token to the (already verified) id_token: the
+            // userinfo `sub` must equal the id_token `sub`. Defence in depth
+            // behind `refuseIdTokenSignIn` — `/sign-in/social`'s id_token mode
+            // calls this with a CALLER-SUPPLIED access token, so without this
+            // check an attacker's id_token plus a victim's access token signed
+            // in as the victim. Every refusal returns null, never throws (see
+            // the `sub` comment below for why).
+            //
+            // A MISSING id_token fails closed too, deliberately. Every
+            // legitimate caller supplies one: the code-flow callback requests
+            // the `openid` scope, for which OIDC Core §3.1.3.3 requires an
+            // id_token in the token response (MP sends one — the nonce comment
+            // above records decoding a real one), and the id_token mode cannot
+            // run without one. So an absent id_token means an unexpected code
+            // path handing us an access token with nothing to bind it to; a
+            // future better-auth path of that shape should be refused, not
+            // trusted. The cost, if MP ever stopped sending id_tokens, is a
+            // loud sign-in outage logged as `reason: "missing_id_token"`, not a
+            // silent takeover. Checked before the userinfo fetch so a refused
+            // request never spends an MP call.
+            if (typeof tokens.idToken !== "string" || tokens.idToken === "") {
+              logSubBindingFailure("missing_id_token");
+              return null;
+            }
+            const idTokenClaim = readIdTokenSub(tokens.idToken);
+            if (!idTokenClaim.decoded) {
+              logSubBindingFailure("undecodable_id_token");
+              return null;
+            }
+            const idTokenSub = idTokenClaim.sub;
+            if (typeof idTokenSub !== "string" || idTokenSub === "") {
+              logSubBindingFailure("missing_sub");
+              return null;
+            }
+
             // Fetch the OIDC profile to get the sub (User_GUID)
             const response = await fetch(
               `${mpBaseUrl}/oauth/connect/userinfo`,
@@ -331,6 +474,14 @@ const options = {
                   hasSub: profile.sub !== undefined && profile.sub !== null,
                 }),
               );
+              return null;
+            }
+
+            // Case-insensitive: both are GUIDs, and GUID case carries no
+            // meaning, so a casing difference between MP's two endpoints must
+            // not lock a legitimate user out.
+            if (idTokenSub.toLowerCase() !== sub.toLowerCase()) {
+              logSubBindingFailure("mismatch");
               return null;
             }
 

@@ -695,16 +695,18 @@ they sum to the 1015 in the coverage summary.
 |-----------|-------|----------------|
 | `components/contact-logs/actions.test.ts` | 77 | Contact log CRUD actions, security-role gate on reads AND writes, argument guards, ownership policy, numeric-ID injection rejection |
 | `services/contactLogService.test.ts` | 72 | Contact log CRUD, service-layer read/write gate, date conversion, Zod validation, filter-injection regression guard |
+| `app/signin/page.test.tsx` | 65 | `signIn.social({ provider: "ministry-platform" })`, `callbackUrl` fallbacks and open-redirect sanitizing on both sinks (F3/F3b: tab/CR/LF, backslash, control chars, encoded separators), already-signed-in bounce, `isRedirecting` latch |
+| `auth.test.ts` | 61 | `enrichSessionUser`, cached User_ID resolution, OAuth config guards, `getUserInfo` id_token↔userinfo `sub` binding (F12), disabled paths incl. `/link-social` |
 | `lib/providers/ministry-platform/helper.test.ts` | 54 | MPHelper CRUD, validation, procedures, files |
+| `app/api/auth/[...all]/route.test.ts` | 51 | Route allowlist (deny-by-default), `/sign-in/social` body-key and strict Content-Type filter (F12), `toNextJsHandler` wiring, exported methods |
 | `lib/providers/ministry-platform/utils/filter-sanitize.test.ts` | 49 | Quote doubling, LIKE escaping, GUID rejection, numeric-ID validation |
-| `auth.test.ts` | 47 | `enrichSessionUser`, cached User_ID resolution, OAuth config guards |
 | `lib/security-headers.test.ts` | 41 | Static header values (framing, sniffing, referrer, permissions, HSTS in production only), `originOf`, nonce generation, every CSP directive, enforce vs report-only |
 | `components/contact-logs/contact-logs.test.tsx` | 40 | Delete-confirmation gate, form validation, error surfacing (MP write path), edit/cancel paths, in-flight double-write guard, log-type colour arms, MP wall-clock date rendering, unparseable-date placeholder (one bad row must not blank the list) |
 | `services/authorizationService.test.ts` | 40 | MP security-role gate for reads and writes, `hasSecurityRole`, `MP_SECURITY_ROLES` + deprecated `MP_WRITE_SECURITY_ROLES` fallback, `mp.read.unauthorized` / `mp.write.unauthorized` denials, no cross-request caching |
 | `lib/providers/ministry-platform/services/file.service.test.ts` | 35 | All 8 file endpoints, multipart bodies, unauthenticated blob fetch |
+| `components/sign-in/sign-in.test.tsx` | 34 | `sanitizeCallbackUrl` unit tests: hostile and benign lists, C1/lowercase-encoded cases, raw (not URL-normalized) return, origin/throw backstops |
 | `lib/providers/ministry-platform/utils/http-client.test.ts` | 32 | HTTP verbs, URL building, form data, error handling |
 | `components/contact-lookup-details/actions.test.ts` | 26 | Contact details + log type mapping, security-role read gate, numeric-ID injection rejection |
-| `app/signin/page.test.tsx` | 25 | `signIn.social({ provider: "ministry-platform" })`, `callbackUrl` fallbacks and open-redirect sanitizing (F3), already-signed-in bounce, `isRedirecting` latch |
 | `lib/providers/ministry-platform/provider.test.ts` | 24 | Provider delegation to all six sub-services |
 | `lib/providers/ministry-platform/services/table.service.test.ts` | 24 | TableService CRUD |
 | `proxy.test.ts` | 20 | Route protection (public paths, session, errors), the per-request CSP nonce forwarded on request headers, enforce vs report-only, MP origins in `img-src` / `form-action`, matcher pattern |
@@ -715,7 +717,6 @@ they sum to the 1015 in the coverage summary.
 | `services/contactService.test.ts` | 17 | Contact search, getByGuid, updateContact, service-layer read/write gate (F10) |
 | `components/layout/dynamic-breadcrumb.test.tsx` | 16 | Mapped route labels, GUID leaf renders `Details` (any case), GUID-ish segments must NOT match, crude fallback retained, doubled/trailing slashes, all three `customSegments` shapes |
 | `lib/providers/ministry-platform/services/procedure.service.test.ts` | 16 | Procedure listing and execution, name encoding |
-| `app/api/auth/[...all]/route.test.ts` | 15 | Route allowlist (deny-by-default), `toNextJsHandler` wiring, exported methods |
 | `components/contact-lookup/contact-lookup-results.test.tsx` | 15 | Empty state, row rendering with missing optional fields, row navigation |
 | `components/user-menu/user-menu.test.tsx` | 15 | Radix trigger opens on pointerDown, sign-out fires once, `onClose` ordering, degenerate-profile sign-out, failed sign-out alerts, successful sign-out stays silent, NEXT_REDIRECT re-thrown not alerted |
 | `lib/providers/ministry-platform/client.test.ts` | 15 | OAuth token management, `expires_in`-derived lifetime and its 30s floor |
@@ -724,6 +725,7 @@ they sum to the 1015 in the coverage summary.
 | `components/contact-lookup/contact-lookup.test.tsx` | 12 | Search-to-results state wiring, error and empty propagation, emptying the box clears stale results |
 | `components/shared-actions/user.test.ts` | 12 | `getCurrentUserProfile` delegation, server-computed `canAccessContactFeatures`, role-less users keep their profile |
 | `components/layout/sidebar.test.tsx` | 11 | Nav label+href pairs, `onClose` from X and from a nav link, panel stays mounted when closed, Contact Lookup hidden/shown by `canAccessContactFeatures` (fails closed) |
+| `auth.id-token-sign-in.test.ts` | 11 | F12 end to end: real `auth` against a mocked MP OIDC provider with RS256-signed id_tokens; the `hooks.before` refusal over HTTP and in-process, and the `sub` binding alone with the hook removed (node environment) |
 | `app/(web)/contactlookup/[guid]/page.test.tsx` | 10 | Next.js 16 async `params` await, promises passed down unresolved for streaming, `Contact_ID` guard, rejection propagation |
 | `components/contact-lookup/actions.test.ts` | 10 | Search contacts action, security-role read gate, denial not flattened into a generic error |
 | `services/sessionContextService.test.ts` | 10 | Acting-user resolution, `mp.write.non_user` warning |
@@ -752,7 +754,7 @@ they sum to the 1015 in the coverage summary.
 | `lib/next-config-headers.test.ts` | 3 | The static headers are actually attached to `/(.*)` in `next.config.ts`, and no CSP is set there — the nonce-based one is per-request in `src/proxy.ts` |
 | `app/(web)/home/page.test.tsx` | 2 | Unconditional redirect to `/`, never looping back to `/home` |
 | `contexts/session-context.test.tsx` | 2 | `useAppSession` wrapper |
-| **Total** | **1015** | 59 files |
+| **Total** | **1150** | 61 files |
 
 ## Ministry Platform Safety in Tests
 
