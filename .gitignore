@@ -425,3 +425,6 @@ FodyWeavers.xsd
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# Claude Code personal settings (shared permissions belong in .claude/settings.json)
+.claude/settings.local.json
