@@ -316,7 +316,8 @@ describe('Auth - OAuth Configuration', () => {
 
     expect(config.providerId).toBe('ministry-platform');
     expect(config.scopes).toContain('openid');
-    expect(config.scopes).toContain('offline_access');
+    // No refresh token is ever used, so none is requested.
+    expect(config.scopes).not.toContain('offline_access');
     expect(config.scopes).toContain(
       'http://www.thinkministry.com/dataplatform/scopes/all',
     );
@@ -995,11 +996,11 @@ describe('Auth - F2 account-linking behavioral guard', () => {
 
   it('refuses to implicitly link a second sub sharing an existing user\'s email', async () => {
     const context = await auth.$context;
-    // `storeAccountCookie: true` (src/lib/auth.ts) makes handleOAuthUserInfo
-    // write an account cookie via `ctx.setCookie`/`ctx.getCookie`, which only
-    // exist on the real request-endpoint context better-call builds per
-    // request. Stub the two the cookie store touches; no-ops are fine here —
-    // this test only cares about the account-linking decision, not cookies.
+    // `ctx.setCookie`/`ctx.getCookie` only exist on the real request-endpoint
+    // context better-call builds per request; stub them as no-ops in case
+    // handleOAuthUserInfo touches cookies (it writes an account cookie only
+    // when `storeAccountCookie` is on — it is off in src/lib/auth.ts). This
+    // test only cares about the account-linking decision, not cookies.
     const c = {
       context,
       headers: new Headers(),

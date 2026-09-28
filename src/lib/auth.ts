@@ -469,7 +469,14 @@ const options = {
   },
   account: {
     storeStateStrategy: "cookie" as const,
-    storeAccountCookie: true,
+    // The user's own MP tokens are never used: all MP data access goes
+    // through the client-credentials service account. better-auth defaults
+    // this to `true` when there is no database, which put the user's MP
+    // access/refresh/id tokens into the `account_data` cookie. Nothing the
+    // route allowlist exposes reads that cookie, so keep the tokens out of
+    // the browser entirely. See `stripUserOAuthTokens` below for the
+    // in-memory copy.
+    storeAccountCookie: false,
     // Identity here belongs to Ministry Platform, not better-auth. With a
     // single OAuth provider there is no legitimate case for linking a new
     // provider account onto an existing user by matching email — but
@@ -490,6 +497,17 @@ const options = {
   user: {
     additionalFields: userAdditionalFields,
   },
+  // Don't keep the user's MP access/refresh tokens in the in-memory adapter
+  // either (plaintext until restart; a heap dump would expose every signed-in
+  // user's MP API rights). `getUserInfo` has already used the access token by
+  // the time the account row is written. The id_token is kept: it is not an
+  // API bearer and is what an RP-logout `id_token_hint` would need.
+  databaseHooks: {
+    account: {
+      create: { before: async (account) => ({ data: stripUserOAuthTokens(account) }) },
+      update: { before: async (account) => ({ data: stripUserOAuthTokens(account) }) },
+    },
+  },
   plugins: [
     genericOAuth({
       config: [
@@ -508,8 +526,8 @@ const options = {
           clientId: process.env.OIDC_CLIENT_ID!,
           clientSecret: process.env.OIDC_CLIENT_SECRET!,
           scopes: [
+            // No `offline_access`: the app never refreshes the user's token.
             "openid",
-            "offline_access",
             "http://www.thinkministry.com/dataplatform/scopes/all",
           ],
           // OAuth 2.1 makes PKCE the 1.7 default. MP's discovery document does
@@ -708,6 +726,20 @@ const options = {
     }),
   ],
 } satisfies BetterAuthOptions;
+
+/**
+ * Blanks the user's MP access and refresh tokens (and their expiries) on an
+ * account row before better-auth stores it. Exported for tests.
+ */
+export function stripUserOAuthTokens<T extends object>(account: T): T {
+  return {
+    ...account,
+    accessToken: null,
+    refreshToken: null,
+    accessTokenExpiresAt: null,
+    refreshTokenExpiresAt: null,
+  };
+}
 
 export const auth = betterAuth({
   ...options,

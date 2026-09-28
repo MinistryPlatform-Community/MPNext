@@ -71,7 +71,7 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 
 - **Absolute lifetime**: 12 hours from sign-in (`session.expiresIn`), never extended (`session.disableSessionRefresh: true`)
 - **Cookie cache**: JWT strategy, 1-hour TTL (`session.cookieCache.maxAge`), `refreshCache: false` (explicit — see below)
-- **Account cookie**: OAuth tokens stored in cookie (`storeAccountCookie: true`)
+- **No account cookie**: `storeAccountCookie: false` (better-auth defaults it to `true` without a database). The user's MP tokens are never used — all MP data access is the service account — so they stay out of the browser, and `databaseHooks.account` (`stripUserOAuthTokens`) blanks the access/refresh tokens in the in-memory row too. Only the `id_token` is kept (not an API bearer; what a future RP-logout `id_token_hint` would use). Pinned by `src/auth.user-oauth-tokens.test.ts`.
 - **State**: OAuth state stored in cookie (`storeStateStrategy: "cookie"`)
 - **No database**: Uses in-memory adapter (data lost on server restart, users must re-login)
 
@@ -235,7 +235,7 @@ enabled (see the `BETTER_AUTH_SECRETS` refusal above).
 |---------|-------|-------|
 | `providerId` | `"ministry-platform"` | Used in OAuth URLs and `signIn.social({ provider })` |
 | `discoveryUrl` | `${MP_BASE_URL}/oauth/.well-known/openid-configuration` | OIDC auto-discovery |
-| `scopes` | `openid`, `offline_access`, `http://www.thinkministry.com/dataplatform/scopes/all` | Full MP API access. The third scope is the literal URI MP expects, not a short name |
+| `scopes` | `openid`, `http://www.thinkministry.com/dataplatform/scopes/all` | The second scope is the literal URI MP expects, not a short name. No `offline_access`: no refresh token is ever used. Whether userinfo works with a narrower scope than `scopes/all` is unverified (needs a non-production MP) |
 | `pkce` | `false` | Explicitly disabled — 1.7 defaults this to `true` (see 1.7 notes below) |
 | `disableIdTokenNonceBinding` | `true` | **Required.** MP does not echo `nonce` back in the `id_token`, and better-auth rejects a missing claim. See [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off) |
 | `authorizationUrlParams` | `{ realm: "realm" }` | Extra query parameter MP's authorize endpoint expects |
@@ -1119,7 +1119,7 @@ the `better-auth` version, do this before merging:
 1. **No database (top refactor priority)**: With no `database` in the config, Better Auth uses an in-memory adapter. Sessions live only in the in-memory store + cookies, so they are lost whenever the process restarts. On serverless/Vercel this is severe: **every cold start or new function instance has an empty session store**, so once the 1-hour JWT cookie cache expires, a request that lands on a fresh instance returns `null` and the user appears logged out (blank avatar / redirect to `/signin`) intermittently. This also makes auth bugs hard to reproduce. **Recommendation:** configure a persistent database adapter (e.g. a Vercel Marketplace Postgres/Neon, or SQLite for local dev) before relying on this in production.
 2. ~~**mapProfileToUser type narrowness**~~ *(resolved in better-auth 1.7)*: `mapProfileToUser` now returns `OAuthMappedUser`, which permits arbitrary extra keys, so the old `as Record<string, unknown>` cast is gone. The type does forbid returning `id` — provider identity is owned by `accountSubject`.
 3. **userGuid type cast**: `session.user.userGuid` requires a type cast because `customSessionClient` doesn't infer `additionalFields` from `genericOAuth`. This is a Better Auth type limitation.
-4. **Token refresh**: Not explicitly implemented. The `storeAccountCookie` stores refresh tokens, but automatic refresh behavior in stateless mode is unverified.
+4. **Token refresh**: None, by design. `offline_access` is not requested and the user's access/refresh tokens are not retained (see Account cookie above); the app never calls MP with the user's token.
 5. **Cookie cache staleness**: The 1-hour JWT cookie cache means `customSession` changes won't take effect until the cache expires or the user re-authenticates.
 6. **No server-side revocation, no MP re-validation of a live session**: sign-out cannot revoke a copied cookie pair, and nothing re-checks the `dp_Users` login while a session is live (only `dp_User_Roles` is re-read per request, and `userIdCache` re-resolves `User_ID` every 15 min without ending the session). Bounded by the 12 h / 1 h ceilings in [Session lifetime and revocation](#session-lifetime-and-revocation-stateless); closed properly only by a server-side store (§ 1).
 
