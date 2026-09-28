@@ -242,16 +242,13 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 | Actions call services, not MPHelper | PASS | No `MPHelper` import anywhere in `src/components/` or `src/app/` |
 | `requireSecurityRole` on MP-touching actions | PASS with documented carve-outs | See the table in § Authorization |
 | No `console.log`/`.info`/`.debug` in `src/` | PASS | Only `console.error` is used. The `console.log` hits in `src/lib/providers/ministry-platform/helper.ts` are inside `@example` JSDoc blocks, not executable code; the rest are in `scripts/`, which the rule exempts |
-| Co-located tests | PASS except `sign-in/` and `ui/` | `sign-in/sign-in.tsx` has no `sign-in.test.tsx`. Every `src/app/` route file has one |
+| Co-located tests | PASS except `ui/` | `sign-in/sign-in.test.tsx` unit-tests `sanitizeCallbackUrl`; the component itself is exercised through `src/app/signin/page.test.tsx`. Every `src/app/` route file has one |
 | TypeScript strict typing | PASS | |
 
 ## Known Issues & Recommendations
 
 ### Open items
 
-- **`src/components/sign-in/sign-in.tsx` has no test.** It is the only feature
-  component without one, and it holds the `sanitizeCallbackUrl` open-redirect fix
-  (F3) and the `useRef` double-OAuth guard — both regression-prone.
 - **`(web)/contactlookup/page.tsx` deep-imports** `@/components/contact-lookup/contact-lookup`
   instead of the barrel `@/components/contact-lookup`.
 - **Stale comment in `contact-logs.tsx`** (`formatDateTime`, ~line 65): "the app
@@ -299,8 +296,11 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 - **Why it exists separately**: route segment config (`export const dynamic`) is
   IGNORED in a `"use client"` module, so the page had to become a Server
   Component and the client work had to move here
-- **Features**: `sanitizeCallbackUrl` rejects absolute, protocol-relative and
-  `/\`-prefixed callback URLs (F3 open redirect); a `useRef` guard checked
+- **Features**: `sanitizeCallbackUrl` accepts only a same-origin relative path
+  (F3 open redirect). It mirrors better-auth's server-side `isSafeRelativeURL` —
+  refusing protocol-relative `//`, any backslash, control characters (the F3b
+  tab/CR/LF bypass, 2026-09-25) and `%2F`/`%5C` in the path — and returns the raw
+  value, never the URL-normalized one; a `useRef` guard checked
   synchronously before the first `await` prevents StrictMode from starting two
   OAuth flows and racing the single `oauth_state` cookie
 
