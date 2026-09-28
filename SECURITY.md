@@ -18,11 +18,8 @@ and the [Downstream Hardening Playbook](docs/security/downstream-hardening-playb
 security problem.**
 
 Report privately through **GitHub private vulnerability reporting**: the
-repository's **Security** tab → **Report a vulnerability**.
-<!-- MAINTAINER: this only works once "Private vulnerability reporting" is enabled
-     under Settings → Code security. Confirm it is on before merging this file. -->
-
-If you cannot use GitHub, email **`<security contact email>`**.
+repository's **Security** tab → **Report a vulnerability**. This is the only
+reporting channel.
 
 It helps to include:
 

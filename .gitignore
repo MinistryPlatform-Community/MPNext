@@ -409,7 +409,13 @@ FodyWeavers.xsd
 *.sln.iml
 
 # Environment
-.env.local
+# Every .env* file (.env, .env.local, .env.production, .env.*.local, ...) can
+# hold the MP service-account secret. Only the placeholder template is tracked.
+.env*
+!.env.example
+
+# Vercel CLI project link / pulled env (vercel env pull writes secrets here)
+.vercel
 
 # nextJS
 .next/*
@@ -418,4 +424,4 @@ FodyWeavers.xsd
 *.tsbuildinfo
 
 # Snyk Security Extension - AI Rules (auto-generated)
-.github\instructions\snyk_rules.instructions.md
+.github/instructions/snyk_rules.instructions.md
