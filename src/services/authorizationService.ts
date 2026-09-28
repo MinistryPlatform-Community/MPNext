@@ -21,8 +21,18 @@ export class UnauthorizedError extends Error {
 /** The MP operations this gate distinguishes. `read` is gated as of F1. */
 export type MpOperation = "read" | "create" | "update" | "delete";
 
-/** Why a request was refused. Stable strings — logs and alerts grep on them. */
-export type DenialReason = "no_mp_user" | "no_security_role" | "role_not_permitted";
+/**
+ * Why a request was refused. Stable strings — logs and alerts grep on them.
+ *
+ * `roles_not_configured` means the app itself has no usable role policy
+ * (`MP_SECURITY_ROLES` and its legacy fallback are unset, blank, or parse to no
+ * role names) — every user is refused until an operator sets one.
+ */
+export type DenialReason =
+  | "no_mp_user"
+  | "no_security_role"
+  | "role_not_permitted"
+  | "roles_not_configured";
 
 export interface AuthorizationContext {
   table: string;
@@ -42,41 +52,62 @@ export interface AuthorizationDecision {
  * Env var naming the MP security roles permitted to perform gated operations,
  * comma-separated (e.g. `MP_SECURITY_ROLES="Administrators,Pastoral Staff"`).
  *
- * Unset or empty means "any MP security role" — the decided default policy.
- * Set it to tighten the gate without a code change.
+ * The gate FAILS CLOSED: unset, blank, or a value that parses to no role names
+ * (e.g. `","`) permits nobody. `MP_SECURITY_ROLES=*` is the explicit opt-in to
+ * "any MP security role will do" — the pre-2026-09-28 default, which is now
+ * something an operator has to choose rather than inherit.
  */
 const SECURITY_ROLES_ENV = "MP_SECURITY_ROLES";
 
 /**
  * Deprecated predecessor of {@link SECURITY_ROLES_ENV}, read only when the
- * general var is unset or blank. It restricted writes only; the policy now
- * covers reads too, so the name no longer describes what it does. Deployments
- * that still set it keep working unchanged.
+ * general var yields no usable policy (unset, blank, or no role names). It
+ * restricted writes only; the policy now covers reads too, so the name no
+ * longer describes what it does. Deployments that still set it keep working.
  */
 const LEGACY_SECURITY_ROLES_ENV = "MP_WRITE_SECURITY_ROLES";
+
+/** The whole-value wildcard meaning "any MP security role". */
+const ANY_ROLE = "*";
+
+/**
+ * The effective role policy.
+ *
+ * - `any`: holding at least one MP security role is sufficient (`*`).
+ * - `list`: the user must hold one of `names` (normalized).
+ * - `unconfigured`: no usable policy — nobody is permitted.
+ */
+export type RolePolicy =
+  | { kind: "any" }
+  | { kind: "list"; names: string[] }
+  | { kind: "unconfigured" };
+
+type ParsedRoleValue =
+  | { kind: "any" }
+  | { kind: "list"; names: string[] }
+  /** Unset or whitespace-only. */
+  | { kind: "blank" }
+  /** Non-blank but no role names survive parsing, e.g. `","`. */
+  | { kind: "no_names" };
 
 function normalizeRoleName(role: string): string {
   return role.trim().toLowerCase();
 }
 
 /**
- * Parses the role allow-list into normalized role names, or returns null when
- * unset/blank, which means "holding any MP security role is sufficient".
- *
- * `MP_SECURITY_ROLES` wins; `MP_WRITE_SECURITY_ROLES` is the deprecated
- * fallback. Read per call rather than at module load so tests and redeploys
- * see changes.
+ * Parses one env value. `*` means "any role" only as the WHOLE value; inside a
+ * list it is just a (non-matching) name, so `"Administrators,*"` does not widen
+ * the gate.
  */
-function parseRequiredRoles(): string[] | null {
-  const raw =
-    process.env[SECURITY_ROLES_ENV]?.trim() ||
-    process.env[LEGACY_SECURITY_ROLES_ENV]?.trim();
-  if (!raw) return null;
-  const names = raw
+function parseRoleValue(raw: string | undefined): ParsedRoleValue {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return { kind: "blank" };
+  if (trimmed === ANY_ROLE) return { kind: "any" };
+  const names = trimmed
     .split(",")
     .map(normalizeRoleName)
     .filter((r) => r.length > 0);
-  return names.length > 0 ? names : null;
+  return names.length > 0 ? { kind: "list", names } : { kind: "no_names" };
 }
 
 /**
@@ -107,9 +138,12 @@ const loadSecurityRoles = cache(
  * write to Ministry Platform through this app.
  *
  * Policy (extended to reads 2026-09-12, closing F1; writes decided 2026-08-21 —
- * see `.claude/references/auth.md`): any authenticated user who holds an MP
- * security role may use the contact features; a user with no security role may
- * sign in and see the app shell but may neither read nor write contact data.
+ * see `.claude/references/auth.md`; default made fail-closed 2026-09-28): an
+ * authenticated user who holds one of the MP security roles named in
+ * `MP_SECURITY_ROLES` (or any role, when it is `*`) may use the contact
+ * features. With no roles configured nobody may. A user without a permitted
+ * role may sign in and see the app shell but may neither read nor write
+ * contact data.
  * MP security roles are the domain's own authorization mechanism, so this app
  * defers to them rather than inventing a parallel one. Ownership (`Made_By`)
  * is deliberately NOT a factor: staff need to be able to correct and remove
@@ -223,12 +257,19 @@ export class AuthorizationService {
       return { permitted: false, userId: null, reason: "no_mp_user" };
     }
 
+    // Resolved after the acting user so an unattributed write still emits
+    // `mp.write.non_user` above; checked before the role read because an
+    // unconfigured app refuses everyone and the MP round-trip would be wasted.
+    const policy = this.resolveRolePolicy();
+    if (policy.kind === "unconfigured") {
+      return { permitted: false, userId, reason: "roles_not_configured" };
+    }
+
     const roles = await this.getSecurityRoles(userId);
-    const required = parseRequiredRoles();
     const permitted =
-      required === null
+      policy.kind === "any"
         ? roles.length > 0
-        : roles.some((r) => required.includes(normalizeRoleName(r)));
+        : roles.some((r) => policy.names.includes(normalizeRoleName(r)));
 
     if (!permitted) {
       return {
@@ -260,7 +301,9 @@ export class AuthorizationService {
       throw new UnauthorizedError(
         decision.reason === "no_mp_user"
           ? `Not authorized: no Ministry Platform user is attached to this session (${ctx.operation} on ${ctx.table})`
-          : `Not authorized: an MP security role is required to ${ctx.operation} records in ${ctx.table}`,
+          : decision.reason === "roles_not_configured"
+            ? `Not authorized: no permitted MP security roles are configured for this app (${ctx.operation} on ${ctx.table})`
+            : `Not authorized: an MP security role is required to ${ctx.operation} records in ${ctx.table}`,
       );
     }
 
@@ -281,6 +324,46 @@ export class AuthorizationService {
   }
 
   /**
+   * Resolves the effective role policy from the environment. Read per call
+   * rather than at module load so tests and redeploys see changes.
+   *
+   * `MP_SECURITY_ROLES` wins when it yields a usable policy (`*` or at least
+   * one role name); otherwise the deprecated `MP_WRITE_SECURITY_ROLES` is
+   * consulted; otherwise the app is unconfigured and refuses everyone. A value
+   * that is non-blank but names no roles (`","`) is a config error: it is
+   * warned about and treated as unset — never as "any role".
+   */
+  public resolveRolePolicy(): RolePolicy {
+    for (const envName of [SECURITY_ROLES_ENV, LEGACY_SECURITY_ROLES_ENV]) {
+      const parsed = parseRoleValue(process.env[envName]);
+      if (parsed.kind === "any" || parsed.kind === "list") return parsed;
+      if (parsed.kind === "no_names") {
+        this.warnConfigOnce(
+          `no_names:${envName}`,
+          `${envName} is set but names no roles; treating it as unset. Use a comma-separated list of MP security role names, or "*" for any role.`,
+        );
+      }
+    }
+
+    this.warnConfigOnce(
+      "unconfigured",
+      `No MP security roles are configured, so every user is refused the gated contact features. Set ${SECURITY_ROLES_ENV} to a comma-separated list of MP security role names (e.g. "Administrators,Pastoral Staff"), or to "*" to permit any MP security role.`,
+    );
+    return { kind: "unconfigured" };
+  }
+
+  /** Config problems already reported by this instance; each is logged once. */
+  private readonly configWarnings = new Set<string>();
+
+  private warnConfigOnce(key: string, message: string): void {
+    if (this.configWarnings.has(key)) return;
+    this.configWarnings.add(key);
+    console.warn(
+      JSON.stringify({ event: "mp.authz.config", problem: key, message }),
+    );
+  }
+
+  /**
    * Emits a structured denial so refused operations are greppable in
    * production logs. Same shape convention as `mp.write.non_user`; reads get a
    * parallel `mp.read.unauthorized` event so the two can be alerted on
@@ -296,7 +379,10 @@ export class AuthorizationService {
     console.warn(
       JSON.stringify({
         event: isRead ? "mp.read.unauthorized" : "mp.write.unauthorized",
-        message: `MP ${isRead ? "read" : "write"} refused — acting user lacks a permitted security role`,
+        message:
+          ctx.reason === "roles_not_configured"
+            ? `MP ${isRead ? "read" : "write"} refused — no MP security roles are configured for this app`
+            : `MP ${isRead ? "read" : "write"} refused — acting user lacks a permitted security role`,
         table: ctx.table,
         operation: ctx.operation,
         userId: ctx.userId,

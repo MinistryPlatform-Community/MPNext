@@ -200,8 +200,9 @@ MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 
 # Authorization — comma-separated MP security role names allowed to use the
-# contact features (reads AND writes). Blank means any MP security role will do.
-MP_SECURITY_ROLES=
+# contact features (reads AND writes). Blank permits NOBODY; "*" permits any
+# MP security role.
+MP_SECURITY_ROLES="Administrators,Pastoral Staff"
 
 # Public Keys
 NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=https://your-instance.ministryplatform.com/ministryplatformapi/files
@@ -212,7 +213,11 @@ NEXT_PUBLIC_APP_NAME=MPNextApp
 CSP_ENFORCE=
 ```
 
-> **`MP_SECURITY_ROLES` is the access control.** Leaving it blank means *any* Ministry Platform security role can use the gated features. A signed-in user holding no security role at all can still see the app shell but is redirected to `/no-access`. A deprecated write-only predecessor, `MP_WRITE_SECURITY_ROLES`, is still honored when `MP_SECURITY_ROLES` is unset — so an existing deployment is not silently widened — but it now governs reads too. New deployments should set only `MP_SECURITY_ROLES`. See [`.claude/references/auth.md`](.claude/references/auth.md) for the full policy.
+> **`MP_SECURITY_ROLES` is the access control, and it fails closed.** Leaving it unset or blank (or setting a value that names no roles, such as `,`) means *nobody* can use the gated features: every signed-in user is redirected to `/no-access`, and the server logs an `mp.authz.config` warning once. To permit anyone who holds at least one Ministry Platform security role, set `MP_SECURITY_ROLES=*` explicitly — `*` must be the whole value. `npm run setup` prompts for it and `npm run setup:check` warns when it is blank.
+>
+> ⚠️ **Breaking change (2026-09-28) for existing deployments and forks:** blank used to mean "any MP security role". If you relied on that, set `MP_SECURITY_ROLES=*` (or, better, a list of role names) before upgrading, or everyone loses access to the contact features.
+>
+> A deprecated write-only predecessor, `MP_WRITE_SECURITY_ROLES`, is still honored when `MP_SECURITY_ROLES` yields no usable value, but it now governs reads too. New deployments should set only `MP_SECURITY_ROLES`. See [`.claude/references/auth.md`](.claude/references/auth.md) for the full policy.
 
 > **`CSP_ENFORCE` is inverted on purpose.** Anything other than the literal string `false` — including leaving it unset — enforces the policy. A typo therefore fails loud (too strict) rather than silent (no policy at all). Set it to `false` only to diagnose a violation.
 

@@ -662,6 +662,76 @@ function validateEnvVars(): {
   };
 }
 
+// ----------------------------------------------------------------------------
+// Security roles (MP_SECURITY_ROLES)
+//
+// Mirrors the parsing in src/services/authorizationService.ts, which is the
+// source of truth — keep the two in step. The gate FAILS CLOSED: unset, blank,
+// or a value naming no roles (e.g. ",") permits nobody; "*" (the whole value)
+// permits any MP security role; otherwise a comma-separated list of role names.
+// ----------------------------------------------------------------------------
+
+const SECURITY_ROLES_VAR = 'MP_SECURITY_ROLES';
+const LEGACY_SECURITY_ROLES_VAR = 'MP_WRITE_SECURITY_ROLES';
+
+type RoleValue =
+  | { kind: 'any' }
+  | { kind: 'list'; names: string[] }
+  | { kind: 'blank' }
+  | { kind: 'no_names' };
+
+function parseRoleValue(raw: string | undefined): RoleValue {
+  const trimmed = raw?.trim() ?? '';
+  if (!trimmed) return { kind: 'blank' };
+  if (trimmed === '*') return { kind: 'any' };
+  const names = trimmed
+    .split(',')
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+  return names.length > 0 ? { kind: 'list', names } : { kind: 'no_names' };
+}
+
+function checkSecurityRoles(env: Map<string, string>): StepResult {
+  const primary = parseRoleValue(env.get(SECURITY_ROLES_VAR));
+  if (primary.kind === 'any') {
+    return {
+      success: true,
+      message: `${SECURITY_ROLES_VAR}=* (any MP security role may use the contact features)`,
+    };
+  }
+  if (primary.kind === 'list') {
+    return {
+      success: true,
+      message: `${SECURITY_ROLES_VAR} permits: ${primary.names.join(', ')}`,
+    };
+  }
+
+  const legacy = parseRoleValue(env.get(LEGACY_SECURITY_ROLES_VAR));
+  if (legacy.kind === 'any' || legacy.kind === 'list') {
+    return {
+      success: true,
+      warning: true,
+      message: `Using deprecated ${LEGACY_SECURITY_ROLES_VAR}; rename it to ${SECURITY_ROLES_VAR}`,
+    };
+  }
+
+  return {
+    success: true,
+    warning: true,
+    message:
+      primary.kind === 'no_names'
+        ? `${SECURITY_ROLES_VAR} names no roles — nobody can use the contact features`
+        : `${SECURITY_ROLES_VAR} is blank — nobody can use the contact features`,
+    details:
+      'Set it to comma-separated MP security role names (e.g. "Administrators,Pastoral Staff"), or "*" for any MP security role',
+  };
+}
+
+/** Quotes an env value containing whitespace so `.env.local` stays unambiguous. */
+function formatEnvValue(value: string): string {
+  return /\s/.test(value) ? `"${value}"` : value;
+}
+
 function checkNodeModules(): StepResult {
   if (fs.existsSync(NODE_MODULES_PATH)) {
     return {
@@ -773,6 +843,11 @@ function runCheckMode(): number {
     const issues = [...missing, ...empty].map((v) => v.name);
     console.log(chalk.red(`✗ Missing: ${issues.join(', ')}`));
   }
+
+  // Step 5b: Security roles — optional, but blank now means "nobody", so warn.
+  const rolesResult = checkSecurityRoles(parseEnvFile(ENV_LOCAL_PATH));
+  results.push({ name: 'Security roles', result: rolesResult });
+  printResult(rolesResult);
 
   // Step 6: Dependencies
   process.stdout.write(chalk.cyan('[6/8] Dependencies...           '));
@@ -1053,6 +1128,39 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   if (mpClientSecret) {
     updates.set('MINISTRY_PLATFORM_CLIENT_SECRET', mpClientSecret);
     console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_CLIENT_SECRET = ********`));
+  }
+
+  // Ask which MP security roles may use the gated contact features. The gate
+  // fails closed, so leaving this blank locks everyone out of those pages.
+  console.log(chalk.yellow('\n  Authorization'));
+  console.log(
+    chalk.gray(
+      '  MP security roles permitted to read and write contacts and contact logs.\n' +
+        '  Comma-separated role names (e.g. Administrators,Pastoral Staff), or * for any\n' +
+        '  MP security role. Blank means nobody can use those features.'
+    )
+  );
+  const currentRoles = currentEnv.get(SECURITY_ROLES_VAR) ?? '';
+  const securityRoles = (
+    await input({
+      message: `Enter ${SECURITY_ROLES_VAR}:`,
+      default: currentRoles || undefined,
+      validate: (value) =>
+        parseRoleValue(value).kind === 'no_names'
+          ? 'That names no roles. Enter role names separated by commas, "*", or leave blank.'
+          : true,
+    })
+  ).trim();
+
+  if (securityRoles !== currentRoles.trim()) {
+    updates.set(SECURITY_ROLES_VAR, formatEnvValue(securityRoles));
+  }
+  const rolesResult = checkSecurityRoles(
+    new Map([...currentEnv, [SECURITY_ROLES_VAR, securityRoles]])
+  );
+  printResult(rolesResult);
+  if (rolesResult.warning) {
+    warnings++;
   }
 
   // Variables handled specially (skip in regular loop)
