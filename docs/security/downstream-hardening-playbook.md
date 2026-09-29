@@ -1290,6 +1290,10 @@ A second auth review (2026-09-28) found no Critical or High issues; the
 - **Dependencies:** Next 16.3.7 (GHSA-vcvr-r3jv-pc5j); `import "server-only"`
   in `auth.ts`, the MP client and every service.
 
+A step-by-step port of all of this, with a triage script, per-phase checks
+and a verification list, is in `.claude/playbooks/port-security-review-2026-09-28.md`
+(written for Claude Code, readable by people).
+
 **Breaking for forks** — check each before merging:
 
 - The session user no longer has `firstName`/`lastName`; read names from the MP
