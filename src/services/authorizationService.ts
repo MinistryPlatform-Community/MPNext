@@ -244,9 +244,10 @@ export class AuthorizationService {
    * Known gap (2026-09-28 review, behaviour unchanged): a failure one step
    * earlier is NOT distinguished. When the session lookup throws, or the MP
    * `User_ID` could not be resolved at sign-in because MP was unreachable
-   * (`resolveMpUserId` in `src/lib/auth.ts` returns null and does not cache
-   * it), `SessionContextService` yields null and this reports `no_mp_user` —
-   * so the user sees "no access" rather than an error. It still fails closed.
+   * (`resolveMpUserId` in `src/lib/auth.ts` returns null, and caches that
+   * null for 30 s — 5 min for "no such user"), `SessionContextService` yields
+   * null and this reports `no_mp_user` — so the user sees "no access" rather
+   * than an error until the cache entry lapses. It still fails closed.
    */
   public async hasSecurityRole(
     ctx: AuthorizationContext,

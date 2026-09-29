@@ -8,7 +8,7 @@ const SECONDARY_CLASS =
 
 /**
  * Error boundary for the routes that sit OUTSIDE the `(web)` route group —
- * `/signin`, `/session-error` and `/auth-error`.
+ * `/signin`, `/signed-out`, `/session-error` and `/auth-error`.
  *
  * Those pages render without the app shell (no Header, no user menu), so this
  * boundary matches their bare, centred layout rather than the shell card used by
