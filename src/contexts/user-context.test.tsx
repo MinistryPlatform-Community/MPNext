@@ -156,6 +156,46 @@ describe('UserContext', () => {
       spy.mockRestore();
     });
 
+    // A promise streamed from a Server Component arrives as React Flight's
+    // `ReactPromise`: a Promise subclass whose `then()` returns `undefined`, so
+    // `.catch()` on it returns `undefined` too. Plain Promises hide that.
+    function flightPromise<T>(settle: (res: (v: T) => void, rej: (e: unknown) => void) => void) {
+      const inner = new Promise<T>(settle);
+      const p = Object.create(Promise.prototype) as Promise<T>;
+      Object.defineProperty(p, 'then', {
+        value: (onFulfilled?: (v: T) => unknown, onRejected?: (e: unknown) => unknown) => {
+          inner.then(onFulfilled, onRejected);
+          return undefined;
+        },
+      });
+      return p;
+    }
+
+    it('should read a Flight-streamed promise whose then() returns undefined', async () => {
+      await renderWithProvider(flightPromise((res) => res(profile)), <ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+      expect(screen.queryByTestId('err')).toBeNull();
+    });
+
+    it('should degrade a rejected Flight-streamed promise to null', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(
+        flightPromise<CurrentUserProfile | null>((_res, rej) => rej(new Error('down'))),
+        <ProfileProbe />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'Error' });
+
+      spy.mockRestore();
+    });
+
     it('should log a non-Error rejection by its type', async () => {
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
