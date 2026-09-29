@@ -5,11 +5,35 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/test-setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['node_modules', '.next'],
+    // Two projects, one run. `npm test`, `npm run test:run` and
+    // `npm run test:coverage` (and CI's `npx vitest run --coverage`) run both,
+    // each exactly once:
+    //
+    //   src     — the app suite (jsdom + src/test-setup.ts). Inherits the
+    //             plugins and `@` alias below via `extends: true`.
+    //   scripts — the Node-only dev tooling suite (setup's .env.local writer,
+    //             the CI prerender guard), configured in
+    //             scripts/vitest.config.mts. It does NOT extend this config, so
+    //             it gets neither jsdom nor src/test-setup.ts's stubbed env.
+    //
+    // Coverage is configured once, here, for the whole run — and its `include`
+    // below is src/-only, so scripts/ never enters the denominator and the
+    // src/ thresholds are unaffected. Run one project with `--project src` or
+    // `--project scripts` (e.g. `npm run test:scripts`).
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'src',
+          environment: 'jsdom',
+          globals: true,
+          setupFiles: ['./src/test-setup.ts'],
+          include: ['src/**/*.{test,spec}.{ts,tsx}'],
+          exclude: ['node_modules', '.next'],
+        },
+      },
+      './scripts/vitest.config.mts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

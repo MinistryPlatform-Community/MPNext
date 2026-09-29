@@ -10,6 +10,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:scripts": "vitest run --project scripts",
+    "build:check-prerender": "node scripts/check-prerender.mjs",
     "mp:generate": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts",
     "mp:generate:models": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean",
     "mp:generate:storedprocs": "tsx src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts",
