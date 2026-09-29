@@ -40,6 +40,11 @@ const mockAuthSession = {
   user: { id: 'internal-id', userGuid: 'guid-123' },
 };
 
+/**
+ * What `UserService.getUserProfile` returns, plus fields it does not (and must
+ * never be passed through if a future service change adds them back): the
+ * action has to build its DTO key by key, not spread the row.
+ */
 const mockProfile = {
   User_ID: 1,
   User_GUID: 'guid-123',
@@ -48,10 +53,20 @@ const mockProfile = {
   Nickname: 'Johnny',
   Last_Name: 'Doe',
   Email_Address: 'john@example.com',
-  Mobile_Phone: null,
-  Image_GUID: null,
+  Mobile_Phone: '555-0100',
+  Image_GUID: 'img-guid-456',
   roles: ['Admin'],
   userGroups: ['Staff'],
+};
+
+/** The client-facing DTO the action must produce from `mockProfile`. */
+const expectedDto = {
+  First_Name: 'John',
+  Nickname: 'Johnny',
+  Last_Name: 'Doe',
+  Email_Address: 'john@example.com',
+  Image_GUID: 'img-guid-456',
+  canAccessContactFeatures: true,
 };
 
 describe('getCurrentUserProfile', () => {
@@ -90,7 +105,28 @@ describe('getCurrentUserProfile', () => {
     const result = await getCurrentUserProfile();
 
     expect(mockGetUserProfile).toHaveBeenCalledWith('guid-123');
-    expect(result).toEqual({ ...mockProfile, canAccessContactFeatures: true });
+    expect(result).toEqual(expectedDto);
+  });
+
+  /**
+   * security-client-data-overexposure: whatever a server action returns is
+   * readable by any script or extension on the page. Pin the exact key set so
+   * an added field is a deliberate, reviewed change.
+   */
+  it('returns exactly the fields the client renders — no IDs, phone, roles or groups', async () => {
+    mockGetSession.mockResolvedValueOnce(mockAuthSession);
+    mockGetUserProfile.mockResolvedValueOnce(mockProfile);
+
+    const result = await getCurrentUserProfile();
+
+    expect(Object.keys(result ?? {}).sort()).toEqual([
+      'Email_Address',
+      'First_Name',
+      'Image_GUID',
+      'Last_Name',
+      'Nickname',
+      'canAccessContactFeatures',
+    ]);
   });
 
   it('should ignore any caller-supplied GUID and use the session GUID', async () => {
@@ -125,8 +161,8 @@ describe('getCurrentUserProfile', () => {
    * `canAccessContactFeatures` is what the sidebar and the dashboard tile read
    * to decide whether to render a link into the contact features. It is UX
    * only — every gated layer re-checks — but it must be computed SERVER-SIDE
-   * from the same gate, never derived on the client from `roles`, or the nav
-   * and the enforcement can drift apart.
+   * from the same gate — the client has no role list to derive it from — or the
+   * nav and the enforcement could drift apart.
    */
   describe('canAccessContactFeatures', () => {
     it('is true when the gate permits the user', async () => {
@@ -149,7 +185,7 @@ describe('getCurrentUserProfile', () => {
 
     it('is false for a signed-in user holding no security role', async () => {
       mockGetSession.mockResolvedValueOnce(mockAuthSession);
-      mockGetUserProfile.mockResolvedValueOnce({ ...mockProfile, roles: [] });
+      mockGetUserProfile.mockResolvedValueOnce(mockProfile);
       mockHasSecurityRole.mockResolvedValueOnce({
         permitted: false,
         userId: 1,
@@ -165,7 +201,7 @@ describe('getCurrentUserProfile', () => {
       // POLICY: any MP user may sign in. A role-less session must still load
       // its own profile, or the header avatar and the sign-out menu vanish.
       mockGetSession.mockResolvedValueOnce(mockAuthSession);
-      mockGetUserProfile.mockResolvedValueOnce({ ...mockProfile, roles: [] });
+      mockGetUserProfile.mockResolvedValueOnce(mockProfile);
       mockHasSecurityRole.mockResolvedValueOnce({
         permitted: false,
         userId: 1,
@@ -174,7 +210,7 @@ describe('getCurrentUserProfile', () => {
 
       const result = await getCurrentUserProfile();
 
-      expect(result).toMatchObject({ User_ID: 1, First_Name: 'John' });
+      expect(result).toEqual({ ...expectedDto, canAccessContactFeatures: false });
     });
 
     it('uses the non-throwing gate so a refusal never breaks the shell', async () => {

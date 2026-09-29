@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { redirect } from "next/navigation";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * UserMenu component tests.
@@ -132,23 +132,18 @@ async function captureUnhandledRejections(
   }
 }
 
-const profile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const profile: CurrentUserProfile = {
   First_Name: "Samuel",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: "555-0100",
   Image_GUID: null,
-  roles: ["Administrators"],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
 function renderMenu(
   overrides: {
-    userProfile?: MPUserProfile | null;
+    userProfile?: CurrentUserProfile | null;
     onClose?: () => void;
     children?: React.ReactNode;
   } = {}

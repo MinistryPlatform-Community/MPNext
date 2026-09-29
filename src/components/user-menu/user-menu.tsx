@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
-import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +19,7 @@ interface UserMenuProps {
    * unreachable). The menu still renders — with sign-out — so a user whose
    * profile failed is never left with no way to sign out.
    */
-  userProfile: MPUserProfile | null;
+  userProfile: CurrentUserProfile | null;
   children: React.ReactNode;
 }
 

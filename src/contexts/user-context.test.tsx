@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, renderHook, screen, waitFor, act } from '@testing-library/react';
 import { Component, ReactNode, Suspense } from 'react';
-import type { MPUserProfile } from '@/lib/providers/ministry-platform/types';
+import type { CurrentUserProfile } from '@/lib/dto';
 
 /**
  * UserProvider / useUser tests.
@@ -25,11 +25,9 @@ vi.mock('@/components/shared-actions/user', () => ({
 import { UserProvider, useUser } from './user-context';
 
 const profile = {
-  User_ID: 1,
-  User_GUID: 'guid-123',
   First_Name: 'John',
   Last_Name: 'Doe',
-} as MPUserProfile;
+} as CurrentUserProfile;
 
 function ProfileProbe({
   onRefresh,
@@ -59,7 +57,7 @@ class Boundary extends Component<
   }
 }
 
-function tree(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
+function tree(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
   return (
     <UserProvider profilePromise={promise}>
       <Boundary>
@@ -69,7 +67,7 @@ function tree(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
   );
 }
 
-async function renderWithProvider(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
+async function renderWithProvider(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
   let result!: ReturnType<typeof render>;
   await act(async () => {
     result = render(tree(promise, ui));
@@ -123,7 +121,7 @@ describe('UserContext', () => {
     });
 
     it('should suspend consumers until the promise resolves', async () => {
-      const pending = deferred<MPUserProfile | null>();
+      const pending = deferred<CurrentUserProfile | null>();
       await renderWithProvider(pending.promise, <ProfileProbe />);
 
       expect(screen.getByTestId('loading')).toBeInTheDocument();
@@ -216,7 +214,7 @@ describe('UserContext', () => {
     it('should keep showing the current profile while the reload is in flight', async () => {
       // The regression this guards: a non-transition update swapped rendered
       // consumers (the whole header) for their Suspense fallback mid-reload.
-      const reload = deferred<MPUserProfile | undefined>();
+      const reload = deferred<CurrentUserProfile | undefined>();
       mockGetCurrentUserProfile.mockReturnValueOnce(reload.promise);
       const refreshRef: { current: (() => void) | null } = { current: null };
 
