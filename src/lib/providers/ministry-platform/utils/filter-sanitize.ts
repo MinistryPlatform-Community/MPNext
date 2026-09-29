@@ -10,7 +10,6 @@
  * an equality value, and a NUL or newline inside a filter string is at best an
  * accident and at worst an attempt to confuse something downstream of it.
  */
-// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 
 /**

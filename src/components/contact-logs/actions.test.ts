@@ -125,6 +125,14 @@ describe('contact-logs actions', () => {
       expect(result).toEqual(mockTypes);
     });
 
+    it('should wrap a non-Error rejection from the service', async () => {
+      mockGetContactLogTypes.mockRejectedValueOnce('boom');
+
+      await expect(getContactLogTypes()).rejects.toThrow(
+        'Failed to fetch contact log types'
+      );
+    });
+
     it('gates the read on a security role (F1 — it used to gate on nothing)', async () => {
       mockGetContactLogTypes.mockResolvedValueOnce([]);
 
