@@ -20,7 +20,7 @@
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-/** Loopback hosts allowed over plain http outside production. */
+/** Loopback hosts allowed over plain http (see `loopbackHttpInProduction`). */
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function isProduction(env: Env): boolean {
@@ -31,7 +31,12 @@ function isProduction(env: Env): boolean {
  * Parses `raw` and applies the checks both URLs share. `name` is the variable
  * name used in error messages; the value itself is never included.
  */
-function parseAuthCriticalUrl(name: string, raw: string | undefined, env: Env): URL {
+function parseAuthCriticalUrl(
+  name: string,
+  raw: string | undefined,
+  env: Env,
+  { loopbackHttpInProduction = false }: { loopbackHttpInProduction?: boolean } = {},
+): URL {
   const value = raw?.trim();
   if (!value) {
     throw new Error(`[env] ${name} is not set.`);
@@ -42,13 +47,14 @@ function parseAuthCriticalUrl(name: string, raw: string | undefined, env: Env): 
   } catch {
     throw new Error(`[env] ${name} is not a valid absolute URL.`);
   }
+  const loopbackAllowed = loopbackHttpInProduction || !isProduction(env);
   const loopbackHttp =
-    url.protocol === "http:" && LOOPBACK_HOSTNAMES.has(url.hostname) && !isProduction(env);
+    url.protocol === "http:" && LOOPBACK_HOSTNAMES.has(url.hostname) && loopbackAllowed;
   if (url.protocol !== "https:" && !loopbackHttp) {
     throw new Error(
-      isProduction(env)
-        ? `[env] ${name} must use https:// in production.`
-        : `[env] ${name} must use https:// (http:// is allowed only for localhost / 127.0.0.1 outside production).`,
+      loopbackAllowed
+        ? `[env] ${name} must use https:// (http:// is allowed only for localhost / 127.0.0.1${loopbackHttpInProduction ? "" : " outside production"}).`
+        : `[env] ${name} must use https:// in production.`,
     );
   }
   if (url.username || url.password) {
@@ -82,8 +88,12 @@ export function getMpBaseUrl(env: Env = process.env): string {
  * request's Host header. Origin only — better-auth appends `/api/auth` itself,
  * and the value is also the exact `post_logout_redirect_uri` registered in MP,
  * so a path is refused rather than silently dropped (a single trailing `/` is
- * tolerated). `https:` in production; `http://localhost` / `127.0.0.1`
- * otherwise.
+ * tolerated). `https:` is required for every real host, in every environment.
+ * `http://localhost` / `127.0.0.1` / `[::1]` is accepted even when
+ * `NODE_ENV=production`, so `next build` / `next start` work locally and in CI
+ * with the default `.env.local`: a loopback origin never leaves the machine,
+ * and better-auth leaves cookies non-`Secure` only for such an http origin.
+ * (The MP URL stays strict — it carries the client secret.)
  */
 export function getAuthBaseUrl(env: Env = process.env): string {
   const name = env.BETTER_AUTH_URL?.trim() ? "BETTER_AUTH_URL" : "NEXTAUTH_URL";
@@ -91,7 +101,7 @@ export function getAuthBaseUrl(env: Env = process.env): string {
   if (!raw?.trim()) {
     throw new Error("[env] BETTER_AUTH_URL is not set (NEXTAUTH_URL is accepted as a fallback).");
   }
-  const url = parseAuthCriticalUrl(name, raw, env);
+  const url = parseAuthCriticalUrl(name, raw, env, { loopbackHttpInProduction: true });
   if (url.pathname !== "/") {
     throw new Error(`[env] ${name} must be an origin only (no path), e.g. https://app.example.org.`);
   }

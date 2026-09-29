@@ -147,7 +147,14 @@ describe('auth-critical URLs at module load', () => {
 
   it('refuses an http:// BETTER_AUTH_URL on a production process', async () => {
     setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: undefined, BETTER_AUTH_URL: 'http://app.example.org' });
-    await expect(importAuthAsIfNotVitest()).rejects.toThrow(/BETTER_AUTH_URL must use https:\/\/ in production/);
+    await expect(importAuthAsIfNotVitest()).rejects.toThrow(/BETTER_AUTH_URL must use https:\/\//);
+  });
+
+  it('accepts a loopback http BETTER_AUTH_URL on a production process (local / CI next build), without forcing Secure cookies', async () => {
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: undefined, BETTER_AUTH_URL: 'http://localhost:3000' });
+    const { auth } = await importAuthAsIfNotVitest();
+    expect(auth.options.baseURL).toBe('http://localhost:3000');
+    expect(auth.options.advanced?.useSecureCookies).toBeUndefined();
   });
 
   it('refuses an http:// MINISTRY_PLATFORM_BASE_URL in any environment', async () => {

@@ -82,7 +82,7 @@ describe('getAuthBaseUrl', () => {
 
   it('names NEXTAUTH_URL in the error when that is the value in use', () => {
     expect(() => getAuthBaseUrl(prod({ NEXTAUTH_URL: 'http://legacy.example.org' }))).toThrow(
-      'NEXTAUTH_URL must use https:// in production',
+      'NEXTAUTH_URL must use https://',
     );
   });
 
@@ -100,11 +100,16 @@ describe('getAuthBaseUrl', () => {
     expect(() => getAuthBaseUrl(dev({ BETTER_AUTH_URL: input }))).toThrow(message);
   });
 
-  it('allows http://localhost outside production and refuses it in production', () => {
+  it('allows loopback http in every environment (local / CI next build), but no other http host', () => {
     expect(getAuthBaseUrl(dev({ BETTER_AUTH_URL: 'http://localhost:3000' }))).toBe('http://localhost:3000');
     expect(getAuthBaseUrl({ BETTER_AUTH_URL: 'http://127.0.0.1:3000/' })).toBe('http://127.0.0.1:3000');
-    expect(() => getAuthBaseUrl(prod({ BETTER_AUTH_URL: 'http://localhost:3000' }))).toThrow(
-      'BETTER_AUTH_URL must use https:// in production',
+    expect(getAuthBaseUrl(prod({ BETTER_AUTH_URL: 'http://localhost:3000' }))).toBe('http://localhost:3000');
+    expect(getAuthBaseUrl(prod({ BETTER_AUTH_URL: 'http://[::1]:3000' }))).toBe('http://[::1]:3000');
+    expect(() => getAuthBaseUrl(prod({ BETTER_AUTH_URL: 'http://app.example.org' }))).toThrow(
+      'BETTER_AUTH_URL must use https:// (http:// is allowed only for localhost / 127.0.0.1).',
+    );
+    expect(() => getAuthBaseUrl(prod({ BETTER_AUTH_URL: 'http://localhost.example.org' }))).toThrow(
+      'BETTER_AUTH_URL must use https://',
     );
   });
 

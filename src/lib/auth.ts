@@ -648,12 +648,14 @@ const options = {
     disableOriginCheck: false,
     // `Secure` + `__Secure-` cookies in production, stated rather than
     // inferred. better-auth derives this from the baseURL's scheme
-    // (cookies/index.mjs), which `getAuthBaseUrl` already forces to https in
-    // production, so this changes nothing today; it pins the behaviour if that
-    // derivation ever changes. Left to the derivation outside production, so
-    // `http://localhost` dev keeps working (browsers accept `Secure` cookies
-    // on localhost, but not every tool driving it does).
-    ...(process.env.NODE_ENV === "production" && { useSecureCookies: true }),
+    // (cookies/index.mjs), and `getAuthBaseUrl` requires https for every real
+    // host, so this changes nothing today; it pins the behaviour if that
+    // derivation ever changes. Left to the derivation for a loopback http
+    // origin (dev, or a local/CI `next build` + `next start`), so
+    // `http://localhost` keeps working (browsers accept `Secure` cookies on
+    // localhost, but not every tool driving it does).
+    ...(process.env.NODE_ENV === "production" &&
+      authBaseUrl.startsWith("https:") && { useSecureCookies: true }),
     // See `parseIpAddressOptions` above.
     ipAddress: parseIpAddressOptions(process.env),
   },
