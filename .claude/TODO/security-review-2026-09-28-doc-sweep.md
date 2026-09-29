@@ -84,3 +84,10 @@ Build not run — wave-2 CI build/prerender check should confirm only /_not-foun
 - Session lifetime/revocation: LEAVE AS IS — 12 h cap + 1 h replay bound; persistent cookie accepted; document as accepted risk; close shared-device remainder + Additional_Security_Hardening §1 as accepted.
 - CSP reporting: NONE — document as known gap.
 - style-src nonce: (not asked) treat as accept & document unless user objects.
+
+## Decision-closed items (TODO files deleted 2026-09-29)
+
+- **roles-matched-by-name + mp-security-roles-parsing-fails-open (deferred, names only):** document in auth.md § Authorization and `.env.example`/README where `MP_SECURITY_ROLES` is described: roles are matched by (trimmed, case-insensitive) *name*; MP role names are editable free text and not unique, so anyone who can create/rename/assign MP roles can satisfy the gate; a role whose name contains a comma cannot be listed. Recommend operators restrict who can edit Security Roles. Future option: `MP_SECURITY_ROLE_IDS`.
+- **unused-user-oauth-tokens-stored remainder (won't fix):** keep `dataplatform/scopes/all`. Rationale for auth.md § scopes: this is a template repo; forks need the broad scope for their own features. Token minimisation already shipped (no `offline_access`, no account cookie, tokens stripped from memory).
+- **shared-device session persistence / sign-out revocation (accepted):** 12 h absolute cap + 1 h replay bound after sign-out (≤12 h on another instance) are accepted; persistent 12 h cookie (survives browser close) accepted. Update `docs/security/Additional_Security_Hardening.md` §1 to "Accepted 2026-09-29", and note the signed-out page (wave 2).
+- **CSP reporting (none)** and **style-src nonce (accepted)** — see header-hardening note above.

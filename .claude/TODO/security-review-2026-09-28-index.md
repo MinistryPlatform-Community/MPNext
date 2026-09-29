@@ -38,8 +38,8 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 
 | Item | Decision |
 |---|---|
-| [security-roles-matched-by-name](security-roles-matched-by-name.md), [security-mp-security-roles-parsing-fails-open](security-mp-security-roles-parsing-fails-open.md) | **Deferred** — keep name matching for now; document the limitation |
-| [security-unused-user-oauth-tokens-stored](security-unused-user-oauth-tokens-stored.md) (scope) | **Won't fix** — template repo; forks need the broad scope |
+| `roles-matched-by-name`, `mp-security-roles-parsing-fails-open` (closed) | **Deferred** — keep name matching for now; document the limitation |
+| `unused-user-oauth-tokens-stored` scope remainder (closed) | **Won't fix** — template repo; forks need the broad scope |
 | Signed-out page | **Implement** — a page that does not auto-start OAuth (wave 2) |
 | [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | **Rebuild the auth instance on `PROVIDER_NOT_FOUND`** (single-flight, 30 s cooldown). Static endpoints ruled out: incompatible with `requireIdTokenVerification` |
 | [security-shared-device-session-persistence](security-shared-device-session-persistence.md) remainder, sign-out revocation | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
@@ -58,7 +58,7 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
 | [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
 | [security-shared-device-session-persistence](security-shared-device-session-persistence.md) | Signed-out page; rest accepted |
-| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-f3b-advisory-fork-check-incomplete](security-f3b-advisory-fork-check-incomplete.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), roles/scope decisions above | Docs sweep (runs last) |
+| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-f3b-advisory-fork-check-incomplete](security-f3b-advisory-fork-check-incomplete.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
 
