@@ -1,0 +1,23 @@
+# Dependabot version updates.
+#
+# github-actions: every workflow action is pinned to a full commit SHA with a
+# `# vX.Y.Z` comment (supply-chain hardening, 2026-09-28 security review).
+# Dependabot understands that form and opens PRs that bump both together.
+#
+# npm is deliberately NOT listed: dependency upgrades here go through the
+# /audit-deps review and, for better-auth, the upgrade checklist in
+# .claude/references/auth.md, and the lockfile must be regenerated with
+# `npm run deps:relock`. Dependabot *security* updates are enabled separately
+# in the repository settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci

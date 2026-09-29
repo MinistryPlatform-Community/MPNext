@@ -108,7 +108,7 @@ Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.
 
 ## Prerequisites
 
-- **Node.js**: v20 LTS or higher (Next.js 16 and React 19 require a modern Node runtime). `npm run setup` enforces this minimum; CI builds and tests on Node 22.
+- **Node.js**: v20 LTS or higher (Next.js 16 and React 19 require a modern Node runtime). `npm run setup` enforces this minimum; CI lints, type-checks and tests on Node 22 (it does not run `next build` yet).
 - **Package Manager**: npm (comes with Node.js)
 - **Ministry Platform**: Active instance with API credentials and OAuth client configured (see [OAuth Setup](#oauth-setup))
 
@@ -481,7 +481,8 @@ MPNext/
 │   ├── playbooks/                        # Porting playbooks
 │   └── reports/                          # Past dependency audit reports
 ├── .githooks/                            # pre-commit lockfile guard
-├── .github/workflows/                    # CI: tests + lockfile drift check
+├── .github/workflows/                    # CI: tests, lint + tsc, lockfile drift check
+├── .github/dependabot.yml                # Weekly SHA bumps for GitHub Actions
 ├── docs/
 │   ├── OAUTH_LOGOUT_SETUP.md
 │   └── security/                         # Security advisories
@@ -665,6 +666,8 @@ All services follow the singleton pattern; all except `SessionContextService` us
 
 The project uses **Vitest 4** — 1,015 tests at 99.74% statement coverage, gated in CI.
 
+The setup script's `.env.local` writer has its own small suite outside `src/` (`scripts/setup-env.test.ts`, which round-trips values through Next's real env loader). Run it with `npx vitest run --config scripts/vitest.config.mts`; CI runs it too.
+
 ### Test Infrastructure
 
 - **Framework**: Vitest with jsdom environment
@@ -709,7 +712,15 @@ Tests are configured in `vitest.config.mts`:
 
 **Coverage is gated, not advisory.** `vitest.config.mts` sets per-area thresholds (`src/app/**`, `src/components/**/*.tsx`, `src/services/**`, `src/lib/**/*.ts`, `src/contexts/**`, and `src/proxy.ts` at 100%) plus a global backstop of 98% statements / 95% branches / 97% functions / 98% lines. The global gate is what catches a newly added, entirely untested file, since a new file inside a per-area glob would simply be diluted by everything already covered there.
 
-CI (`.github/workflows/test.yml`) runs `npx vitest run --coverage` on Node 22, alongside a separate `lockfile` job described under [Known Issues](#known-issues). The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.** CI runs neither `tsc` nor `eslint`, so run those locally.
+CI (`.github/workflows/test.yml`) runs on Node 22:
+
+- `test` — `npx vitest run --coverage`, then the `scripts/` suite. The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.**
+- `lint` — `npm run lint` (including the `no-console` rule over `src/`) and `npx tsc --noEmit`.
+- `lockfile` — the platform-drift check described under [Known Issues](#known-issues).
+
+CI does **not** run `npm run build` yet, so run it locally before merging anything that adds or changes a route.
+
+Every action is pinned to a full commit SHA (Dependabot keeps them current via `.github/dependabot.yml`), and each workflow declares `permissions: contents: read`.
 
 ## Development
 

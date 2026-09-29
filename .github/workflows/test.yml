@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: every job only reads the repository. Widen per job, never
+# here. (Actions are pinned to full commit SHAs; Dependabot bumps them via
+# .github/dependabot.yml — keep the `# vX.Y.Z` comment in step with the SHA.)
+permissions:
+  contents: read
+
 jobs:
   # Fails fast and legibly when package-lock.json drifts from what Linux
   # resolution produces. The `test` job's `npm ci` would also die on this, but
@@ -16,9 +22,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -26,13 +34,41 @@ jobs:
       - name: Check package-lock.json for platform drift
         run: node scripts/check-lockfile.mjs
 
+  # ESLint (including the F5 `no-console` rule over src/, which nothing else
+  # enforces — `next build` does not run ESLint in Next 16) and a full type
+  # check. TODO: add `npm run build` plus a check that no app route other than
+  # the accepted `/_not-found` / `/_global-error` is prerendered (○), once
+  # `/_global-error` is dynamic — see .claude/TODO/security-ci-missing-lint-and-build.md.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -42,8 +78,13 @@ jobs:
       - name: Run tests with coverage
         run: npx vitest run --coverage
 
+      # scripts/ tooling (setup's .env.local writer) — outside the src/-scoped
+      # root config and its coverage gates.
+      - name: Run scripts tests
+        run: npx vitest run --config scripts/vitest.config.mts
+
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/coverage-final.json
