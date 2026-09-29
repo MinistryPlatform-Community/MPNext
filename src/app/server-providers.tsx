@@ -15,8 +15,16 @@ import { getCurrentUserProfile } from "@/components/shared-actions/user";
  * `getCurrentUserProfile()` in the layout body instead would start it before
  * the guard runs.) `getCurrentUserProfile` re-checks the session itself anyway.
  *
- * A failed load rejects the promise; `useUser()` rethrows it on the client to
- * the nearest error boundary, as the client-side load did.
+ * A failed load rejects this promise, but that rejection never reaches an
+ * error boundary: `UserProvider` (src/contexts/user-context.tsx) catches it,
+ * logs `user.profile.load_failed`, and resolves to `null`, so `useUser()`
+ * returns no profile and the header renders its no-profile state — which
+ * still offers sign-out. (It used to rethrow to the root boundary and take the
+ * shell's only sign-out control with it.)
+ *
+ * The promise resolves to the `CurrentUserProfile` DTO, not the MP row: it is
+ * serialised into the page for the client, so it carries only what the client
+ * renders (see src/lib/dto/user-profile.ts).
  */
 export function ServerProviders({ children }: { children: ReactNode }) {
   const profilePromise = getCurrentUserProfile().then((p) => p ?? null);

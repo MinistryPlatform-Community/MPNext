@@ -108,7 +108,7 @@ describe("WebLayout", () => {
   });
 
   it("puts the whole shell — header and page — inside the client SessionGuard", async () => {
-    // SessionGuard drops the page and leaves for /signin when the session
+    // SessionGuard drops the page and leaves for /signed-out when the session
     // ends in the browser (sign-out in another tab, expiry). Anything rendered
     // outside it would stay on screen after sign-out.
     await renderLayout();

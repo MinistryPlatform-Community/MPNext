@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
  *
  * Tests for the authentication proxy in src/proxy.ts
  * These tests verify route protection behavior including:
- * - Public path access (API routes, signin)
+ * - Public path access (API routes, signin, auth-error, signed-out)
  * - Session cookie validation
  * - Redirect behavior for unauthenticated users
  * - Error handling during session checks
@@ -128,6 +128,40 @@ describe('proxy', () => {
       expect(mockNext).toHaveBeenCalled();
       expect(mockGetSessionCookie).not.toHaveBeenCalled();
     });
+  });
+
+  describe('/signed-out is public, exactly', () => {
+    it('should allow /signed-out without a session cookie', async () => {
+      // SessionGuard sends a tab here after its session ended, when the cookie
+      // is usually already gone. A redirect to /signin would auto-start OAuth
+      // and, with the MP SSO session alive, silently sign the tab back in.
+      // (The cookie mock returns undefined by default — no cookie.)
+      await proxy(createMockRequest('/signed-out'));
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockRedirect).not.toHaveBeenCalled();
+      expect(mockGetSessionCookie).not.toHaveBeenCalled();
+    });
+
+    it('sets a CSP on /signed-out', async () => {
+      const response = await proxy(createMockRequest('/signed-out'));
+
+      expect(cspFrom(response)).toContain("default-src 'self'");
+    });
+
+    it.each(['/signed-outx', '/signed-out/x', '/signed'])(
+      'should still redirect %s to /signin when there is no session cookie',
+      async (pathname) => {
+        mockGetSessionCookie.mockReturnValueOnce(null);
+
+        await proxy(createMockRequest(pathname));
+
+        expect(mockRedirect).toHaveBeenCalledWith(
+          expect.objectContaining({ pathname: '/signin' })
+        );
+        expect(mockNext).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('The /api carve-out is /api or /api/*, not any /api prefix', () => {
@@ -349,6 +383,7 @@ describe('proxy', () => {
       '/signin',
       '/auth-error',
       '/session-error',
+      '/signed-out',
       '/no-access',
       '/contactlookup',
       '/contactlookup/123',

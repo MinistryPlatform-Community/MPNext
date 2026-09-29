@@ -1,6 +1,6 @@
 'use server';
 
-import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from '@/lib/dto';
 import { UserService } from '@/services/userService';
 import { AuthorizationService } from '@/services/authorizationService';
 import { auth } from "@/lib/auth";
@@ -10,10 +10,9 @@ import { headers } from "next/headers";
  * Fetches the signed-in user's own profile from Ministry Platform.
  *
  * Takes no parameters by design. The User_GUID is read from the session rather
- * than accepted from the caller, because this action also discloses the user's
- * roles and user groups — an arbitrary-GUID parameter would let any caller read
- * the authorization model for any user whose GUID they knew, and GUIDs are not
- * usefully secret (they appear in the client session and in /contactlookup URLs).
+ * than accepted from the caller, so an arbitrary-GUID parameter can never turn
+ * this into a lookup of someone else's name and email (GUIDs are not usefully
+ * secret — they appear in the client session and in /contactlookup URLs).
  *
  * If a feature ever needs to read another user's profile, add a separate,
  * explicitly role-gated function rather than widening this one. The service
@@ -26,9 +25,14 @@ import { headers } from "next/headers";
  * with no security role. The profile carries `canAccessContactFeatures` so the
  * UI can hide links the user would only be refused at — see below.
  *
- * @returns The signed-in user's profile data, or undefined if MP has no match
+ * Returns the `CurrentUserProfile` DTO, built field by field — never a spread
+ * of the MP row. Whatever a server action returns is readable by any script or
+ * extension on the page, so the user's IDs, GUID and anything else the client
+ * doesn't render stay on the server (security-client-data-overexposure).
+ *
+ * @returns The signed-in user's profile, or undefined if MP has no match
  */
-export async function getCurrentUserProfile(): Promise<MPUserProfile | undefined> {
+export async function getCurrentUserProfile(): Promise<CurrentUserProfile | undefined> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.id) {
     throw new Error('Authentication required');
@@ -55,5 +59,12 @@ export async function getCurrentUserProfile(): Promise<MPUserProfile | undefined
     operation: 'read',
   });
 
-  return { ...userProfile, canAccessContactFeatures: decision.permitted };
+  return {
+    First_Name: userProfile.First_Name,
+    Nickname: userProfile.Nickname,
+    Last_Name: userProfile.Last_Name,
+    Email_Address: userProfile.Email_Address,
+    Image_GUID: userProfile.Image_GUID,
+    canAccessContactFeatures: decision.permitted,
+  };
 }

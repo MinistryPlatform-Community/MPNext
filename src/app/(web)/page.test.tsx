@@ -49,17 +49,11 @@ import Home from "./page";
 function withAccess(canAccessContactFeatures: boolean) {
   mockUseUser.mockReturnValue({
     userProfile: {
-      User_ID: 7,
-      User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-      Contact_ID: 42,
       First_Name: "Sam",
       Nickname: "Sam",
       Last_Name: "Ortiz",
       Email_Address: null,
-      Mobile_Phone: null,
       Image_GUID: null,
-      roles: [],
-      userGroups: [],
       canAccessContactFeatures,
     },
     refreshUserProfile: vi.fn(),

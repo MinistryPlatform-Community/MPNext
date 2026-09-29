@@ -10,11 +10,11 @@ import {
   startTransition,
   ReactNode,
 } from "react";
-import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 import { getCurrentUserProfile } from "@/components/shared-actions/user";
 
 interface UserContextValue {
-  userProfilePromise: Promise<MPUserProfile | null>;
+  userProfilePromise: Promise<CurrentUserProfile | null>;
   refreshUserProfile: () => void;
 }
 
@@ -40,7 +40,7 @@ interface UserProviderProps {
    * get-session fetch, then a server-action POST, and replaced the whole
    * header with its Suspense fallback for the duration.
    */
-  profilePromise: Promise<MPUserProfile | null>;
+  profilePromise: Promise<CurrentUserProfile | null>;
   children: ReactNode;
 }
 
@@ -49,7 +49,7 @@ export function UserProvider({ profilePromise, children }: UserProviderProps) {
   // the source of truth, including a fresh one from a server re-render
   // (`router.refresh()`), which replaces the layout's props.
   const [refreshedPromise, setRefreshedPromise] =
-    useState<Promise<MPUserProfile | null> | null>(null);
+    useState<Promise<CurrentUserProfile | null> | null>(null);
 
   // A failed load resolves to `null` instead of rejecting. The header — the
   // shell's only sign-out control — reads this promise and sits in
@@ -84,7 +84,7 @@ export function UserProvider({ profilePromise, children }: UserProviderProps) {
 }
 
 interface UseUserResult {
-  userProfile: MPUserProfile | null;
+  userProfile: CurrentUserProfile | null;
   refreshUserProfile: () => void;
 }
 

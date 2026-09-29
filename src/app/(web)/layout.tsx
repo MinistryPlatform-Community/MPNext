@@ -42,7 +42,7 @@ export default async function WebLayout({
       <ServerProviders>
         {/*
           AuthWrapper checks the session once, server-side. SessionGuard keeps
-          checking in the browser and leaves for /signin (dropping the page)
+          checking in the browser and leaves for /signed-out (dropping the page)
           when the session ends — sign-out in another tab, or expiry — so
           member data doesn't stay on screen on a shared machine.
         */}

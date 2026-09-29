@@ -17,8 +17,14 @@ import { clearSignInAttempts } from "@/components/sign-in/sign-in-attempts";
  * This watches better-auth's client session (which refetches on tab focus and
  * whenever another tab broadcasts a sign-out, see
  * `src/contexts/sign-out-broadcast.ts`) and, the moment it goes from a session
- * to none, stops rendering the page and replaces the location with `/signin`.
- * `replace`, not `href`, so Back doesn't return to the member-data page.
+ * to none, stops rendering the page and replaces the location with
+ * `/signed-out`. `replace`, not `href`, so Back doesn't return to the
+ * member-data page.
+ *
+ * `/signed-out`, not `/signin`: `/signin` starts OAuth on its own, so if the
+ * user's Ministry Platform SSO session is still alive (session expiry here, or
+ * a sign-out whose MP logout didn't complete) the tab would silently sign
+ * straight back in. `/signed-out` starts nothing and only links to `/signin`.
  *
  * Only a real "no session" answer counts: better-auth keeps the previous
  * session on a network error and nulls it only for a successful empty
@@ -43,7 +49,7 @@ export function SessionGuard({ children }: { children: ReactNode }) {
     }
     if (!isPending && hadSessionRef.current) {
       setSignedOut(true);
-      window.location.replace("/signin");
+      window.location.replace("/signed-out");
     }
   }, [data, isPending]);
 

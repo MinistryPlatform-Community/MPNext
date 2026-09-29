@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { use } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * Sidebar navigation tests.
@@ -63,18 +63,13 @@ vi.mock("next/link", () => ({
 
 import { Sidebar } from "./sidebar";
 
-const baseProfile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const baseProfile: CurrentUserProfile = {
   First_Name: "Sam",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: null,
   Image_GUID: null,
-  roles: [],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
 /** Stubs `useUser()` with a profile carrying the given access flag. */
@@ -213,15 +208,16 @@ describe("Sidebar", () => {
     });
 
     it("does not derive access from the role list on the client", () => {
-      // Policy must come from the server-computed flag. A profile carrying
-      // roles but `canAccessContactFeatures: false` (e.g. MP_SECURITY_ROLES
-      // names other roles) must still hide the link.
+      // Policy must come from the server-computed flag. `CurrentUserProfile`
+      // no longer carries roles at all; even a stray role list alongside
+      // `canAccessContactFeatures: false` (e.g. MP_SECURITY_ROLES names other
+      // roles) must still hide the link.
       mockUseUser.mockReturnValue({
         userProfile: {
           ...baseProfile,
           roles: ["Administrators", "Pastoral Staff"],
           canAccessContactFeatures: false,
-        },
+        } as CurrentUserProfile,
         refreshUserProfile: vi.fn(),
       });
       render(<Sidebar isOpen onClose={() => {}} />);

@@ -7,7 +7,8 @@
  * showing member data until they happen to refetch the session. The sign-out
  * controls post on this channel once the action has returned; `SessionGuard`
  * in every other tab listens, refetches its session, and — finding none —
- * leaves the protected page.
+ * leaves the protected page for `/signed-out` (a page that does not restart
+ * OAuth, so the other tabs don't silently sign back in).
  *
  * The message carries no data. A receiver treats it only as a hint to
  * re-check the session with the server, never as proof of sign-out, so a

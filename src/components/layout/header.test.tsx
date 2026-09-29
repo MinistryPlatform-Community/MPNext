@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { use } from "react";
 import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * Header tests.
@@ -73,21 +73,16 @@ function installJsdomPolyfills() {
   proto.scrollIntoView ??= () => {};
 }
 
-const profile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const profile: CurrentUserProfile = {
   First_Name: "Sam",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: null,
   Image_GUID: null,
-  roles: [],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
-function setUser(userProfile: MPUserProfile | null) {
+function setUser(userProfile: CurrentUserProfile | null) {
   mockUseUser.mockReturnValue({ userProfile, refreshUserProfile: vi.fn() });
 }
 
