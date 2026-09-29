@@ -113,3 +113,16 @@ Build not run — wave-2 CI build/prerender check should confirm only /_not-foun
 - auth.md CI claim (~946/1121): "lint + tsc + unit tests + build + prerender check".
 - security-headers.md: point to scripts/check-prerender.mjs as the CI guard for nonce-less prerenders; `/signed-out` is dynamic.
 - Note for README/auth.md: `next build` performs the OIDC discovery GET once per worker (read-only); with a real .env.local it contacts the real MP discovery endpoint.
+
+## From wave 2 — env validation + discovery rebuild (merged d6b2642, + 2227a80)
+- auth.md ~341 and ~1172: discovery failure now fails closed (404) only until the next sign-in/callback after a 30 s cooldown rebuilds the instance (`auth.discovery.rebuild` event: recovered / provider_still_missing / create_failed). `/get-session` never triggers a rebuild. Don't cache `auth.api` in a module-level variable.
+- auth.md ~668: handleSignOut refuses a non-https or malformed MP URL.
+- auth.md env table ~1095: MP URL https (loopback http outside production only), no query/credentials, trailing slash stripped; BETTER_AUTH_URL required, origin only, https for real hosts, loopback http allowed in any env; `useSecureCookies` pinned for https origins in production.
+- playbook ~998 remove "succeeded only when boot-time discovery had failed"; ~1175 "for the life of the process" → "until a rebuild after a 30 s cooldown".
+- CLAUDE.md:68: both URLs validated at startup (`src/lib/env.ts`).
+- README ~377: production BETTER_AUTH_URL must be https (loopback excepted).
+- Code nits (optional): `src/proxy.ts:31` could use getMpBaseUrl(); `sign-out-button.test.tsx:70` mocks the old "BETTER_AUTH_URL is not configured" string.
+
+## From wave 2 — auth test harness (merged 4ee3c65)
+- testing.md inventory: add src/auth.code-flow.test.ts, src/auth.origin-check.test.ts, src/auth.session-config.test.ts, src/auth.rate-limit.test.ts, src/auth.discovery-rebuild.test.ts, src/lib/env.test.ts, and src/test-utils/mock-oidc.ts (install inside vi.hoisted; node environment; its stub fetch throws on unmocked URLs). Note auth.test.ts, auth.ip-address.test.ts, auth.user-id-cache.test.ts now run on the verified path.
+- auth.md § CSRF/origin: better-auth does not check Origin on a cookie-less /sign-in/social — the route's JSON Content-Type check is the only guard there (by design; documented in tests).

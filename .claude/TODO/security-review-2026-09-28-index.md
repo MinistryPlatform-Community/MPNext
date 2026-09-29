@@ -41,6 +41,9 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 - **Signed-out page + profile DTO (wave 2):** `/signed-out` (public, dynamic, never starts OAuth) is where `SessionGuard` and cross-tab sign-out land; `getCurrentUserProfile` returns a six-field `CurrentUserProfile`; `UserService` no longer reads roles/groups/phone — `client-data-overexposure`, `shared-device-session-persistence`
 - **CI build (wave 2):** `build` job + `scripts/check-prerender.mjs` (only `/_not-found`, `/_global-error` static); setup tests run as a second Vitest project in `test:run`; `SessionContextService` rethrows Next control-flow errors (no build-log noise) — `ci-missing-lint-and-build`
 
+- **Env validation + discovery rebuild (wave 2):** `src/lib/env.ts` — `MINISTRY_PLATFORM_BASE_URL` https-only (loopback http outside production), normalized; `BETTER_AUTH_URL` required, origin only, https for every real host (loopback http allowed even in production so `next build`/`next start` work locally and in CI); the exported `auth` is a self-healing facade that rebuilds the instance on sign-in/callback when the MP provider is missing (single-flight, 30 s cooldown, `auth.discovery.rebuild` log) — `auth-url-env-not-validated`, `discovery-failure-no-retry`
+- **Auth test harness (wave 2):** `src/test-utils/mock-oidc.ts` + code-flow, origin-check, session-config and rate-limit suites; all discovery stubs on the verified path; mutants (origin check off, `trustedOrigins: ["*"]`, strategy, `expiresIn`, `refreshCache`, sub-binding, nonce, PKCE, account cookie) all caught — `auth-test-gaps`
+
 ## Decisions (2026-09-29)
 
 | Item | Decision |
@@ -48,7 +51,6 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | `roles-matched-by-name`, `mp-security-roles-parsing-fails-open` (closed) | **Deferred** — keep name matching for now; document the limitation |
 | `unused-user-oauth-tokens-stored` scope remainder (closed) | **Won't fix** — template repo; forks need the broad scope |
 | Signed-out page | **Implement** — a page that does not auto-start OAuth (wave 2) |
-| [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | **Rebuild the auth instance on `PROVIDER_NOT_FOUND`** (single-flight, 30 s cooldown). Static endpoints ruled out: incompatible with `requireIdTokenVerification` |
 | `shared-device-session-persistence` remainder, sign-out revocation (closed) | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
 | CSP reporting | **None** — known gap |
 
@@ -56,9 +58,6 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 
 | Item | Remaining |
 |---|---|
-| [security-auth-url-env-not-validated](security-auth-url-env-not-validated.md) | `src/lib/env.ts`; wire into auth, MP client, sign-out, CSP |
-| [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | Rebuild-on-failure |
-| [security-auth-test-gaps](security-auth-test-gaps.md) | #1–#5, #8 (route/proxy gaps #6–#7 done) |
 | [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
 | [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
 | [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
