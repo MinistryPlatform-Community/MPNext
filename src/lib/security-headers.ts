@@ -222,25 +222,30 @@ export function buildContentSecurityPolicy({
     // it (2026-09-12): Radix's dialog pulls in react-remove-scroll, which locks
     // body scroll by INJECTING A <style> ELEMENT at runtime. That is an
     // element, not an attribute, so `style-src-attr` does not apply and it
-    // falls through to `style-src` — where a nonce cannot help, because the
-    // element is created by script long after the server chose the nonce.
-    // Under enforcement the browser blocked it and the dialog broke with
+    // falls through to `style-src`. That element carries no nonce as shipped,
+    // so under enforcement the browser blocked it and the dialog broke with
     // React error #441.
     //
     // A hash is not a workable alternative: the blocked content includes the
     // computed scrollbar width, so it varies by platform and zoom level. Two
     // different hashes showed up in a single page view.
     //
-    // `'unsafe-inline'` is therefore the honest answer, and it must appear
-    // WITHOUT a nonce — a nonce in the same directive makes CSP3 browsers
-    // ignore `'unsafe-inline'` entirely, which is the trap that produced the
-    // broken policy above. `style-src-attr` is gone as redundant: this covers
-    // attributes and elements alike.
+    // A nonce COULD cover it: react-style-singleton stamps whatever
+    // `get-nonce`'s `setNonce()` was given onto the <style> it creates, so
+    // calling `setNonce(nonce)` client-side (with the attributes still under
+    // `style-src-attr 'unsafe-inline'`) would work. Not done — accepted
+    // 2026-09-29 for simplicity, because the gain is small (below).
     //
-    // The security cost is real but small: inline STYLE injection can do
-    // limited data exfiltration via selectors, but not script execution. The
-    // control that matters, `script-src` with a nonce and `strict-dynamic`,
-    // is untouched.
+    // `'unsafe-inline'` must appear WITHOUT a nonce — a nonce in the same
+    // directive makes CSP3 browsers ignore `'unsafe-inline'` entirely, which
+    // is the trap that produced the broken policy above. `style-src-attr` is
+    // gone as redundant: this covers attributes and elements alike.
+    //
+    // The security cost is small: inline STYLE injection cannot execute
+    // script, and the usual CSS exfiltration channel (selector-triggered
+    // `url()` loads) is already shut by `img-src` and `font-src`, which allow
+    // no attacker origin. The control that matters, `script-src` with a nonce
+    // and `strict-dynamic`, is untouched.
     "style-src 'self' 'unsafe-inline'",
 
     // `data:` and `blob:` are next/image's placeholder and preview machinery.

@@ -216,6 +216,8 @@ CSP_ENFORCE=
 > ⚠️ **Breaking change (2026-09-28) for existing deployments and forks:** blank used to mean "any MP security role". If you relied on that, set `MP_SECURITY_ROLES=*` (or, better, a list of role names) before upgrading, or everyone loses access to the contact features.
 >
 > A deprecated write-only predecessor, `MP_WRITE_SECURITY_ROLES`, is still honored when `MP_SECURITY_ROLES` yields no usable value, but it now governs reads too. New deployments should set only `MP_SECURITY_ROLES`. See [`.claude/references/auth.md`](.claude/references/auth.md) for the full policy.
+>
+> Roles are matched by **name** (trimmed, case-insensitive), not by `Role_ID`. MP role names are editable and need not be unique, so anyone who can create, rename or assign Security Roles in Ministry Platform can satisfy the gate — restrict who can edit Security Roles there. A role whose name contains a comma cannot be listed.
 
 > **`CSP_ENFORCE` is inverted on purpose.** Anything other than the literal string `false` — including leaving it unset — enforces the policy. A typo therefore fails loud (too strict) rather than silent (no policy at all). Set it to `false` only to diagnose a violation.
 
@@ -335,17 +337,19 @@ Successfully generated 301 table types + 301 Zod schemas (602 total files)
 **Advanced options:**
 ```bash
 # Generate types for specific tables only
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -s "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -s "Contact"
 
 # Generate without Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types
 
 # Generate with detailed mode (samples records for better type inference)
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -d --sample-size 10
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -d --sample-size 10
 
 # See all options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
+
+> **`--conditions=react-server` is required.** The generator imports `MPHelper`, whose MP client is guarded by `server-only`; plain `tsx` fails with "This module cannot be imported from a Client Component module". The `npm run mp:generate*` scripts already pass it.
 
 > **Note**: Field names containing special characters (like `Allow_Check-in`) are automatically quoted in the generated types for valid TypeScript syntax.
 
@@ -374,12 +378,14 @@ npm run dev
 
 When deploying to production:
 
-1. Update `BETTER_AUTH_URL` to your production domain
+1. Update `BETTER_AUTH_URL` to your production origin. It is required and validated at startup (`src/lib/env.ts`): an origin only (no path, query or credentials), and `https://` for every real host — plain `http://` is accepted only for loopback (`localhost`, `127.0.0.1`, `[::1]`). `MINISTRY_PLATFORM_BASE_URL` must likewise be `https://` (loopback `http` only outside production)
 2. Add production redirect URI (`https://yourdomain.com/api/auth/callback/ministry-platform`) to Ministry Platform OAuth client
 3. Add production post-logout redirect URIs
 4. Ensure environment variables are set in your hosting provider
 5. Enable HTTPS/SSL certificates
 6. Test the complete authentication flow in production environment
+
+> `next build` loads the auth module while collecting page data, so better-auth makes its read-only OIDC discovery `GET` to `MINISTRY_PLATFORM_BASE_URL` during the build. With a real `.env.local` that contacts your real MP discovery endpoint; if it fails, the build logs "Discovery fetch failed" and carries on (CI builds against an unresolvable `mp.invalid` URL on purpose).
 
 ## Project Structure
 
@@ -557,8 +563,11 @@ await mp.updateTableRecords('Contact_Log', records, {
 // ContactLogService derives them from the authorized session, never from the
 // caller. They are shown literally here only to keep the example self-contained.
 
-// Execute stored procedures
-const results = await mp.executeProcedureWithBody('api_Custom_Procedure', {
+// Execute stored procedures — deny-all by default. A procedure runs only if the
+// helper instance that calls it lists it (exact name, fixed in code, never from
+// request input):
+const procs = new MPHelper({ allowedProcedures: ['api_Custom_Procedure'] });
+const results = await procs.executeProcedureWithBody('api_Custom_Procedure', {
   '@ContactID': 12345
 });
 
@@ -575,10 +584,12 @@ const files = await mp.getFilesByRecord({
 |---------|---------|-------------|
 | **Table Service** | CRUD operations | `getTableRecords`, `createTableRecords`, `updateTableRecords`, `deleteTableRecords` |
 | **Procedure Service** | Stored procedures | `getProcedures`, `executeProcedure`, `executeProcedureWithBody` |
-| **Communication Service** | Email/SMS | `createCommunication`, `sendMessage` |
+| **Communication Service** | Email/SMS | `createCommunication(content, sender, attachments?)`, `sendMessage(content, sender, attachments?)` |
 | **File Service** | File management | `getFilesByRecord`, `uploadFiles`, `updateFile`, `deleteFile`, `getFileContentByUniqueId`, `getFileMetadata`, `getFileMetadataByUniqueId` |
 | **Metadata Service** | Schema info | `getTables`, `refreshMetadata` |
 | **Domain Service** | Domain config | `getDomainInfo`, `getGlobalFilters` |
+
+The communication methods take the sender as a separate, required argument; any author/From fields left on the content are ignored. Build `sender` only from trusted server state — the `User_ID` returned by `AuthorizationService.requireSecurityRole` and a contact looked up server-side — never from request input: the service account can send as anyone.
 
 ### Type Generation
 
@@ -589,13 +600,13 @@ Generate TypeScript interfaces and Zod schemas from your Ministry Platform datab
 npm run mp:generate:models
 
 # Generate types for specific tables
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
 
 # Generate to a custom directory with Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types --zod
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types --zod
 
 # See all options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
 
 **CLI Options:**
@@ -742,6 +753,10 @@ npm run lint
 npm test              # Watch mode
 npm run test:run      # Single run
 npm run test:coverage # With coverage report
+npm run test:scripts  # Only the scripts/ (dev tooling) project
+
+# After a build: fail if a route other than /_not-found and /_global-error was prerendered
+npm run build:check-prerender
 
 # Generate MP types (basic, to custom location)
 npm run mp:generate
@@ -949,7 +964,7 @@ Also: **do not run `npm ci` while `next dev` is running.** It deletes `node_modu
 
 ### npm audit advisories
 
-`npm audit` currently reports **0 vulnerabilities across 720 packages** (verified 2026-09-12). The moderate `postcss` advisories this section used to describe were resolved upstream: `next@16.3.5` bundles `postcss@8.5.23` and the top-level `postcss` resolves to `8.5.28`, both well clear of the `< 8.5.10` threshold.
+`npm audit` currently reports **0 vulnerabilities across 720 packages** (verified 2026-09-12). The moderate `postcss` advisories this section used to describe were resolved upstream: `next@16.3.7` bundles `postcss@8.5.23` and the top-level `postcss` resolves to `8.5.28`, both well clear of the `< 8.5.10` threshold.
 
 **Never run `npm audit fix --force`.** It still "fixes" bundled-dependency findings by downgrading `next` to a major version this codebase cannot run on.
 

@@ -62,9 +62,9 @@ interface ContactLogsProps {
 const DATE_PLACEHOLDER = "—";
 
 function formatDateTime(dateString: string, timeZone: string): string {
-  // Rendered unguarded for every row, and the app has no error boundary, so an
-  // unparseable value must degrade to a placeholder rather than throw — a
-  // single bad datetime would otherwise take down the whole contact page.
+  // Rendered unguarded for every row, so an unparseable value must degrade to
+  // a placeholder rather than throw — a single bad datetime would otherwise
+  // replace the whole contact page with the `(web)/error.tsx` boundary.
   if (!dateString || !dateString.trim()) {
     return DATE_PLACEHOLDER;
   }

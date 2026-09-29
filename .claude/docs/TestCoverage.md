@@ -189,6 +189,8 @@ HTTP call. The probe tests were **kept** this time: `contactLogService.test.ts` 
 filter string and that `getTableRecords` is never called for each payload — the assertion the old
 100% coverage lacked. Behavior change: `searchContactLogs(0)` now throws instead of silently reading
 the whole table (the old `if (contactId)` truthiness check treated 0 as "no filter").
+(`searchContactLogs` itself, unused, was removed on 2026-09-29 along with the `contact-logs`
+read actions; the remaining sanitized interpolation sites are unchanged.)
 
 Was:
 
@@ -327,6 +329,8 @@ deleted. That is why `auth.ts` reported 18.5% despite the file containing 12 tes
 
 Now rewritten to call the real `enrichSessionUser`. Verified by mutation: changing
 `firstName: user.name?.split(" ")[0]` to a constant fails 6 tests. The old versions failed none.
+(The name split was later removed outright, 2026-09-29: `enrichSessionUser` now only adds `userId`
+and withholds `token`/`ipAddress`/`userAgent`; its tests call it the same way.)
 
 ---
 

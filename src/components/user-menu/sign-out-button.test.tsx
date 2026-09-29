@@ -67,9 +67,9 @@ describe("signOutEverywhere", () => {
   });
 
   it("returns the message of a genuine failure (the session is already cleared)", async () => {
-    mockHandleSignOut.mockRejectedValue(new Error("BETTER_AUTH_URL is not configured"));
+    mockHandleSignOut.mockRejectedValue(new Error("OIDC_CLIENT_ID is not configured"));
 
-    await expect(signOutEverywhere()).resolves.toBe("BETTER_AUTH_URL is not configured");
+    await expect(signOutEverywhere()).resolves.toBe("OIDC_CLIENT_ID is not configured");
     expect(mockBroadcastSignOut).toHaveBeenCalledTimes(1);
   });
 

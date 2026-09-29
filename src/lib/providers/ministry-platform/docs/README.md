@@ -161,6 +161,9 @@ mp.deleteTableRecords<T>(
 `getTableRecords` takes camelCase keys and maps them onto MP's `$`-prefixed query
 parameters internally. The write methods take the `$`-prefixed keys directly.
 
+Table names must be plain identifiers (`/^[A-Za-z_][A-Za-z0-9_]*$/`, at most 128
+characters); anything else throws `Invalid table name` before a request is built.
+
 ### Procedures
 
 ```typescript
