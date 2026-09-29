@@ -1,6 +1,23 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+
+const BUTTON_STYLE = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "0.375rem",
+  border: "none",
+  background: "#344767",
+  color: "#ffffff",
+  fontWeight: 500,
+  fontSize: "1rem",
+  padding: "0.625rem 1.25rem",
+  cursor: "pointer",
+} as const;
+
+// Nothing to subscribe to: the store only answers "are we in the browser yet".
+const subscribeNever = () => () => {};
 
 /**
  * Last-resort boundary for a failure in the root `layout.tsx` itself.
@@ -21,6 +38,16 @@ import { useEffect } from "react";
  *     are permitted. A nonce-based `style-src` would silently drop all of this.
  *  3. `metadata`/`generateMetadata` exports are not supported in a client
  *     component, so the tab title uses React's `<title>` element instead.
+ *  4. It must work WITHOUT JavaScript. Next prerenders this file at build time
+ *     (`/_global-error` in the prerender manifest, served as the static 500
+ *     page), and a prerender has no request and so no CSP nonce: under the
+ *     enforced nonce-based `script-src` its scripts are blocked and it never
+ *     hydrates. It cannot opt out — error boundaries must be client
+ *     components, which can neither read `headers()` nor honour
+ *     `export const dynamic`. So the primary recovery control is a plain
+ *     `<a href="/">` (a full reload), and the `retry()` button is rendered
+ *     only once hydrated (`useSyncExternalStore`'s server snapshot is
+ *     `false`), so the static copy never shows a button that does nothing.
  */
 export default function GlobalError({
   error,
@@ -30,6 +57,12 @@ export default function GlobalError({
   // Next 16 renamed this prop: it is `retry`, not the `reset` of earlier versions.
   retry: () => void;
 }) {
+  const hydrated = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false,
+  );
+
   useEffect(() => {
     // Identifiers and shape only — never `error.message`. See the F5 logging
     // policy in .claude/references/auth.md § Logging policy.
@@ -68,7 +101,7 @@ export default function GlobalError({
             Something went wrong
           </h1>
           <p style={{ color: "#4b5563", margin: "0 0 1.5rem" }}>
-            The application failed to start. Try again, and if this keeps
+            The application failed to start. Reload the app, and if this keeps
             happening contact your administrator.
           </p>
           {error.digest && (
@@ -85,25 +118,39 @@ export default function GlobalError({
               </code>
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => retry()}
+          <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
+              display: "flex",
+              gap: "0.75rem",
               justifyContent: "center",
-              borderRadius: "0.375rem",
-              border: "none",
-              background: "#344767",
-              color: "#ffffff",
-              fontWeight: 500,
-              fontSize: "1rem",
-              padding: "0.625rem 1.25rem",
-              cursor: "pointer",
+              flexWrap: "wrap",
             }}
           >
-            Try again
-          </button>
+            {/*
+              A plain link, not a button: it is the one control that works on
+              the prerendered, nonce-less copy of this page (see constraint 4).
+              A full navigation also re-runs the root layout from scratch,
+              which is what a root-layout failure needs anyway.
+            */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- deliberate: <Link> needs hydration, which the static copy of this page never gets */}
+            <a href="/" style={{ ...BUTTON_STYLE, textDecoration: "none" }}>
+              Reload the app
+            </a>
+            {hydrated && (
+              <button
+                type="button"
+                onClick={() => retry()}
+                style={{
+                  ...BUTTON_STYLE,
+                  background: "#ffffff",
+                  color: "#344767",
+                  border: "1px solid #d1d5db",
+                }}
+              >
+                Try again
+              </button>
+            )}
+          </div>
         </div>
       </body>
     </html>
