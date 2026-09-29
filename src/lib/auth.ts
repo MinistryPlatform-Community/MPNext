@@ -802,16 +802,55 @@ export function stripUserOAuthTokens<T extends object>(account: T): T {
   };
 }
 
-export const auth = betterAuth({
-  ...options,
-  plugins: [
-    ...(options.plugins ?? []),
-    customSession(
-      async ({ user, session }) => enrichSessionUser(user, session),
-      options,
-    ),
-    nextCookies(),
-  ],
-});
+function createAuth() {
+  return betterAuth({
+    ...options,
+    plugins: [
+      ...(options.plugins ?? []),
+      customSession(
+        async ({ user, session }) => enrichSessionUser(user, session),
+        options,
+      ),
+      nextCookies(),
+    ],
+  });
+}
+
+/** globalThis key holding the process-wide auth instance. Exported for tests. */
+export const SHARED_AUTH_KEY = Symbol.for("mpnext.auth");
+
+/**
+ * Returns the one instance for this process, creating it on first use.
+ *
+ * Next loads this module once PER BUNDLE LAYER — the `/api/auth` route
+ * handler, server actions and server components each get their own copy
+ * (verified 2026-09-29: 4 copies under `next dev`, 2 in a production build).
+ * Each copy would build its own `betterAuth()` with its own in-memory adapter,
+ * so the OAuth callback stored the account and session rows in one copy while
+ * the sign-out server action ran in another, where they did not exist:
+ * - sign-out could not delete the session row the route handler serves
+ *   `/get-session` from, so a copied cookie pair outlived sign-out up to the
+ *   12 h cap instead of the 1 h cookie cache;
+ * - better-auth found no id_token, so the MP logout URL had no
+ *   `id_token_hint` and MP stopped at a "log out?" prompt.
+ * Caching on globalThis makes every layer share one instance and one store.
+ * It is still per PROCESS: separate serverless instances share nothing.
+ *
+ * Vitest is exempt (it re-imports the module to rebuild the instance under a
+ * different environment); `src/auth.shared-instance.test.ts` clears `VITEST`
+ * to exercise the real path. Under `next dev`, edits to the auth options take
+ * effect after a server restart, not on hot reload.
+ */
+export function sharedInstance<T>(
+  key: symbol,
+  create: () => T,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): T {
+  if (env.VITEST) return create();
+  const store = globalThis as unknown as Record<symbol, T | undefined>;
+  return (store[key] ??= create());
+}
+
+export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
 
 export type Session = typeof auth.$Infer.Session;

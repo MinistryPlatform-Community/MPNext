@@ -71,10 +71,19 @@ keeps `post_logout_redirect_uri` exactly `BETTER_AUTH_URL`: better-auth would
 normalise it with a trailing slash, which would not match the registered value.
 
 The id_token is not in any cookie (`storeAccountCookie` is off). It lives only
-in the in-memory account row of the server instance that handled sign-in. On
-a different serverless instance, only `client_id` is sent. **Whether MP
-honours the redirect on `client_id` alone has not been verified** against a
-non-production MP; see Testing.
+in the in-memory account row of the server process that handled sign-in. Every
+Next bundle layer in that process shares one `auth` instance (`sharedInstance`
+in `src/lib/auth.ts`); before that fix, the sign-out server action ran in a
+different module copy from the OAuth callback and never had the id_token. On a
+different serverless instance, only `client_id` is sent.
+
+**Tested against MP 2026-09-29 (Playwright, `next build && next start`):**
+
+- With `id_token_hint`: no prompt. MP logs out, redirects to the app, and the
+  next sign-in asks for credentials.
+- With `client_id` only: MP shows "Would you like to logout?" with a **Yes**
+  button. After Yes, the MP session ends as above; closing the tab instead
+  leaves it alive.
 
 ## Ministry Platform OAuth Configuration
 
@@ -125,9 +134,9 @@ sign-in and shows the real `auth` instance returns the retained id_token as
 5. MP should now ask for credentials rather than signing you straight back in —
    if it does not, the MP session was not ended (check the post-logout redirect
    URI registration)
-6. Repeat on a serverless deployment where sign-out may land on another
-   instance (URL carries `client_id` but no `id_token_hint`). Record whether MP
-   redirects without a prompt; if it prompts, document that here
+6. On a serverless deployment where sign-out may land on another instance,
+   expect MP's "Would you like to logout?" prompt (URL carries `client_id` but
+   no `id_token_hint`); click **Yes** to finish
 
 ## References
 - [OpenID Connect RP-Initiated Logout Spec](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)

@@ -40,8 +40,11 @@ Emergency "sign everyone out" levers are in `.claude/references/auth.md`
 
 - **Replay after sign-out:** a copied `session_token` + `session_data` pair still
   validates for up to 1 h after the victim signs out.
-- **Long-running processes:** if a different instance handled the sign-out, the
-  in-memory row survives, and the pair validates up to the 12 h cap.
+- **Multiple instances:** if a different serverless instance or process handled
+  the sign-out, the in-memory row survives there, and the pair validates up to
+  the 12 h cap. (Within one process all Next bundle layers now share one `auth`
+  instance — fixed 2026-09-29; before that, sign-out never reached the row
+  `/get-session` reads, even on a single `next start`.)
 
 ### Option
 

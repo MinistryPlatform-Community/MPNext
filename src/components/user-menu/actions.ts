@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 
 /**
  * Pulls the `id_token_hint` out of the provider logout URL better-auth returns
- * from `signOut`. better-auth can only build that URL on the instance whose
+ * from `signOut`. better-auth can only build that URL in the process whose
  * in-memory account row still holds the user's id_token (the token is not in
  * any cookie — `storeAccountCookie` is off), so this is null on any other
  * serverless instance. Only a URL on the MP origin is trusted.
