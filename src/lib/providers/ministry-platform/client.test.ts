@@ -141,9 +141,8 @@ describe('MinistryPlatformClient', () => {
 
       await Promise.all([promise1, promise2, promise3]);
 
-      // Each call triggers getClientCredentialsToken because there's no deduplication
-      // This is current behavior - could be optimized in the future
-      expect(mockGetClientCredentialsToken).toHaveBeenCalled();
+      // All three share the one in-flight refresh
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -324,9 +323,289 @@ describe('MinistryPlatformClient', () => {
       // First attempt fails
       await expect(client.ensureValidToken()).rejects.toThrow('Temporary error');
 
-      // Second attempt succeeds
+      // Once the negative-cache window (at most 30 s) has passed, a retry succeeds
+      vi.advanceTimersByTime(30 * 1000 + 1);
       await client.ensureValidToken();
       expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should log only the error name on refresh failure, never its message', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetClientCredentialsToken.mockRejectedValueOnce(
+        new Error('Unexpected token "Jane Doe, "... is not valid JSON')
+      );
+
+      const client = new MinistryPlatformClient();
+      await expect(client.ensureValidToken()).rejects.toThrow();
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0]).toEqual([
+        'Failed to refresh MP access token:',
+        { error: 'Error' },
+      ]);
+    });
+  });
+
+  describe('Single-flight refresh and negative cache', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    it('should make one token request for 50 concurrent cold calls', async () => {
+      let resolveToken: (value: unknown) => void;
+      mockGetClientCredentialsToken.mockImplementation(
+        () => new Promise((resolve) => { resolveToken = resolve; })
+      );
+
+      const client = new MinistryPlatformClient();
+      const calls = Array.from({ length: 50 }, () => client.ensureValidToken());
+
+      resolveToken!({ access_token: 'shared-token', token_type: 'Bearer', expires_in: 3600 });
+      await Promise.all(calls);
+
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('should share one failed refresh across concurrent callers', async () => {
+      let rejectToken: (reason: unknown) => void;
+      mockGetClientCredentialsToken.mockImplementation(
+        () => new Promise((_, reject) => { rejectToken = reject; })
+      );
+
+      const client = new MinistryPlatformClient();
+      const calls = Array.from({ length: 20 }, () => client.ensureValidToken());
+
+      rejectToken!(new Error('503'));
+      const results = await Promise.allSettled(calls);
+
+      expect(results.every((r) => r.status === 'rejected')).toBe(true);
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fail fast without a token request inside the jittered window', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5); // 5 s + 12.5 s = 17.5 s
+      mockGetClientCredentialsToken
+        .mockRejectedValueOnce(new Error('down'))
+        .mockResolvedValueOnce({ access_token: 'back', token_type: 'Bearer', expires_in: 3600 });
+
+      const client = new MinistryPlatformClient();
+      await expect(client.ensureValidToken()).rejects.toThrow('down');
+
+      vi.advanceTimersByTime(17 * 1000);
+      await expect(client.ensureValidToken()).rejects.toThrow(
+        'MP access token unavailable: recent refresh failed'
+      );
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should hold failures for at least 5 s even with zero jitter', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      mockGetClientCredentialsToken.mockRejectedValue(new Error('down'));
+
+      const client = new MinistryPlatformClient();
+      await expect(client.ensureValidToken()).rejects.toThrow('down');
+
+      vi.advanceTimersByTime(4999);
+      await expect(client.ensureValidToken()).rejects.toThrow('recent refresh failed');
+
+      vi.advanceTimersByTime(2);
+      await expect(client.ensureValidToken()).rejects.toThrow('down');
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should clear the negative cache after a successful refresh', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      mockGetClientCredentialsToken
+        .mockRejectedValueOnce(new Error('down'))
+        .mockResolvedValueOnce({ access_token: 'a', token_type: 'Bearer', expires_in: 60 })
+        .mockResolvedValueOnce({ access_token: 'b', token_type: 'Bearer', expires_in: 60 });
+
+      const client = new MinistryPlatformClient();
+      await expect(client.ensureValidToken()).rejects.toThrow('down');
+      vi.advanceTimersByTime(5001);
+      await client.ensureValidToken();
+
+      // Token 'a' lives 30 s; the next refresh must not be blocked by the old failure
+      vi.advanceTimersByTime(31 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('Lifetime clamping', () => {
+    it('should clamp a huge expires_in to 1 hour (no Invalid Date / never-refresh)', async () => {
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({ access_token: 't1', token_type: 'Bearer', expires_in: 1e13 })
+        .mockResolvedValueOnce({ access_token: 't2', token_type: 'Bearer', expires_in: 1e13 });
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+
+      vi.advanceTimersByTime(54 * 60 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(60 * 1000 + 1);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([0, -5])('should treat expires_in %s as the 30-second floor, not an hour', async (expiresIn) => {
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({ access_token: 't1', token_type: 'Bearer', expires_in: expiresIn })
+        .mockResolvedValueOnce({ access_token: 't2', token_type: 'Bearer', expires_in: expiresIn });
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+
+      vi.advanceTimersByTime(31 * 1000);
+      await client.ensureValidToken();
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('401 handling through the HttpClient', () => {
+    const originalEnv = { ...process.env };
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    const jsonHeaders = { get: (n: string) => (n.toLowerCase() === 'content-type' ? 'application/json' : null) };
+    const ok = (body: unknown) => ({ ok: true, status: 200, statusText: 'OK', headers: jsonHeaders, json: () => Promise.resolve(body) });
+    const unauthorized = () => ({ ok: false, status: 401, statusText: 'Unauthorized', headers: jsonHeaders, json: vi.fn() });
+    const authHeader = (call: number) => fetchMock.mock.calls[call][1].headers.Authorization;
+
+    beforeEach(() => {
+      process.env.MINISTRY_PLATFORM_BASE_URL = 'https://mp.example.org/ministryplatformapi';
+      fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({ access_token: 'revoked', token_type: 'Bearer', expires_in: 3600 })
+        .mockResolvedValueOnce({ access_token: 'fresh', token_type: 'Bearer', expires_in: 3600 });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      process.env = { ...originalEnv };
+    });
+
+    it('should invalidate the token, refresh once, and retry once', async () => {
+      fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(ok([{ Contact_ID: 1 }]));
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+      const result = await client.getHttpClient().get('/tables/Contacts');
+
+      expect(result).toEqual([{ Contact_ID: 1 }]);
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(authHeader(0)).toBe('Bearer revoked');
+      expect(authHeader(1)).toBe('Bearer fresh');
+    });
+
+    it('should not loop when the retry is also rejected', async () => {
+      fetchMock.mockResolvedValue(unauthorized());
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+
+      await expect(client.getHttpClient().get('/tables/Contacts')).rejects.toThrow(
+        'GET /tables/Contacts failed: 401 Unauthorized'
+      );
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('should refresh once for a burst of 401s on the same stale token', async () => {
+      fetchMock
+        .mockResolvedValueOnce(unauthorized())
+        .mockResolvedValueOnce(unauthorized())
+        .mockResolvedValue(ok([]));
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+      const http = client.getHttpClient();
+      await Promise.all([http.get('/tables/A'), http.get('/tables/B')]);
+
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    it('should not invalidate a token that was already replaced', async () => {
+      fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValue(ok([]));
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken(); // 'revoked'
+      await client.getHttpClient().get('/tables/A'); // 401 -> now 'fresh'
+
+      // A late 401 for 'revoked' arriving after 'fresh' is in place is a no-op
+      const handler = (client as unknown as { handleUnauthorized: (t: string) => Promise<void> }).handleUnauthorized.bind(client);
+      await handler('revoked');
+
+      expect(mockGetClientCredentialsToken).toHaveBeenCalledTimes(2);
+    });
+
+    it('should surface the 401 when the refresh itself fails', async () => {
+      mockGetClientCredentialsToken.mockReset();
+      mockGetClientCredentialsToken
+        .mockResolvedValueOnce({ access_token: 'revoked', token_type: 'Bearer', expires_in: 3600 })
+        .mockRejectedValueOnce(new Error('token endpoint down'));
+      fetchMock.mockResolvedValue(unauthorized());
+
+      const client = new MinistryPlatformClient();
+      await client.ensureValidToken();
+
+      await expect(client.getHttpClient().get('/tables/Contacts')).rejects.toThrow(
+        'GET /tables/Contacts failed: 401 Unauthorized'
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Secret handling on token-refresh failure', () => {
+    const originalEnv = { ...process.env };
+    const SECRET = 'super-secret-client-secret-value';
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      process.env = { ...originalEnv };
+    });
+
+    it('should never pass the client secret to console.error', async () => {
+      // Exercise the real token function behind the mock, with a token
+      // endpoint that rejects the request
+      const actual = await vi.importActual<
+        typeof import('@/lib/providers/ministry-platform/auth/client-credentials')
+      >('@/lib/providers/ministry-platform/auth/client-credentials');
+      mockGetClientCredentialsToken.mockImplementation(actual.getClientCredentialsToken);
+
+      process.env.MINISTRY_PLATFORM_BASE_URL = 'https://mp.example.org/ministryplatformapi';
+      process.env.MINISTRY_PLATFORM_CLIENT_ID = 'client-id';
+      process.env.MINISTRY_PLATFORM_CLIENT_SECRET = SECRET;
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized', json: vi.fn() })
+        .mockRejectedValueOnce(new TypeError(`fetch failed (body: client_secret=${SECRET})`));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const client = new MinistryPlatformClient();
+      await expect(client.ensureValidToken()).rejects.toThrow();
+      vi.advanceTimersByTime(31 * 1000);
+      await expect(client.ensureValidToken()).rejects.toThrow();
+
+      // The secret really was sent, so its absence from the logs is meaningful
+      expect(String(fetchMock.mock.calls[0][1].body)).toContain(SECRET);
+      expect(errorSpy).toHaveBeenCalledTimes(2);
+      for (const args of errorSpy.mock.calls) {
+        const logged = args
+          .map((a) => (a instanceof Error ? `${a.name} ${a.message} ${String(a.cause)}` : JSON.stringify(a)))
+          .join(' ');
+        expect(logged).not.toContain(SECRET);
+      }
     });
   });
 });
