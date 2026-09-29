@@ -526,7 +526,6 @@ MPNext/
 ├── components.json                       # shadcn/ui configuration
 ├── next.config.ts                        # Next.js configuration
 ├── postcss.config.mjs                    # PostCSS (Tailwind v4 plugin)
-├── tailwind.config.js                    # Tailwind CSS configuration
 ├── tsconfig.json                         # TypeScript configuration
 └── package.json                          # Dependencies and scripts
 ```

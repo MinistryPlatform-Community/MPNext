@@ -299,7 +299,7 @@ Lower security risk, watch for breaking majors:
 Dev/build-time only — real but lower urgency, often Windows-specific:
 - **vitest**, **@vitest/coverage-v8**, **@vitejs/plugin-react**, **esbuild** (transitive),
   **tsx**, **jsdom**, **eslint** / **eslint-config-next**, **typescript**, **postcss**,
-  **autoprefixer**, **@inquirer/prompts**, **chalk**, **@types/\***.
+  **@inquirer/prompts**, **chalk**, **@types/\***.
 
 Not in this project — don't chase advisories for them: `next-auth`, `jsonwebtoken`,
 `bcryptjs`, Drizzle, Prisma, AWS SDK, express.
