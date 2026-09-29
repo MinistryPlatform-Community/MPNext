@@ -12,6 +12,11 @@ const { mockGetTableRecords } = vi.hoisted(() => ({
   mockGetTableRecords: vi.fn(),
 }));
 
+// Mock MP OIDC server (discovery with `issuer` + `jwks_uri`, a local JWKS), so
+// the instance under test is built on the VERIFIED id_token path, not with the
+// provider skipped by a failed discovery fetch. Any other fetch throws.
+await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
+
 // MPHelper is mocked as a class (not vi.fn().mockImplementation) so `new MPHelper()`
 // inside resolveMpUserId picks up the stubbed method — see .claude/references/testing.md.
 vi.mock('@/lib/providers/ministry-platform', () => ({
