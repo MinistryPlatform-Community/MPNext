@@ -206,7 +206,14 @@ describe("auth catch-all route allowlist", () => {
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
-    it.each(["application/json; charset=utf-8", "Application/JSON", " application/json ;charset=UTF-8"])(
+    // A leading ASCII space never reaches the filter: `Headers` strips HTTP
+    // whitespace from both ends, so " application/json" arrives trimmed.
+    it.each([
+      "application/json; charset=utf-8",
+      "Application/JSON",
+      " application/json ;charset=UTF-8",
+      "application/json\t;charset=utf-8",
+    ])(
       "accepts Content-Type %j",
       async (contentType) => {
         const handlerSpy = vi
@@ -263,16 +270,26 @@ describe("auth catch-all route allowlist", () => {
     });
 
     /**
-     * better-call picks its body parser by substring match, so a multi-valued
-     * Content-Type is parsed as FORM data — keys this filter would never see.
-     * Only an exact `application/json` media type is accepted.
+     * better-call uses its JSON parser only for a header that STARTS with
+     * `application/json` (anchored, untrimmed regex) and otherwise picks a
+     * parser by substring match, so a multi-valued Content-Type is parsed as
+     * FORM data — keys this filter would never see. Only a raw header that is
+     * `application/json` at position 0 (plus parameters) is accepted.
      */
     it.each([
       ["multi-valued", "text/html, application/json, application/x-www-form-urlencoded"],
       ["json first, then form", "application/json, application/x-www-form-urlencoded"],
-      // Only the comma check catches this one: split on ";" alone would read
-      // the media type as exactly "application/json".
+      // Refused by the comma check alone. Not load-bearing: better-call's
+      // anchored regex would still parse this as JSON, so there is no
+      // differential — the comma rule is belt and braces.
       ["json with a parameter, then form", "application/json; charset=utf-8, application/x-www-form-urlencoded"],
+      // U+00A0 is not HTTP whitespace, so `Headers` keeps it, and JS `trim()`
+      // would strip it — a trimmed check would accept these while better-call
+      // skips its JSON parser (text/stream parsing, or `formData()` → 500).
+      ["leading-NBSP", " application/json"],
+      ["leading-NBSP with a form parameter", " application/json; x=application/x-www-form-urlencoded"],
+      ["trailing-NBSP", "application/json "],
+      ["json followed by junk", "application/json x"],
       ["text/plain", "text/plain"],
       ["form-urlencoded", "application/x-www-form-urlencoded"],
       ["multipart", "multipart/form-data; boundary=x"],
@@ -286,6 +303,13 @@ describe("auth catch-all route allowlist", () => {
 
       expect(response.status).toBe(404);
       expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    it("keeps a leading NBSP in the header value (precondition for the NBSP cases above)", () => {
+      // If `Headers` normalized U+00A0 away, the NBSP rows would pass for the
+      // wrong reason. It strips only HTTP whitespace (space, tab, CR, LF).
+      const headers = new Headers({ "Content-Type": " application/json" });
+      expect(headers.get("content-type")).toBe(" application/json");
     });
 
     it("404s a repeated Content-Type header (Headers.get joins them with a comma)", async () => {
