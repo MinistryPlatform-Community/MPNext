@@ -2,9 +2,9 @@ import { MinistryPlatformProvider } from "./provider";
 import {
   TableQueryParams,
   ProcedureInfo,
-  CommunicationInfo,
+  CommunicationContent,
   Communication,
-  MessageInfo,
+  MessageContent,
   DomainInfo,
   GlobalFilterItem,
   GlobalFilterParams,
@@ -15,7 +15,29 @@ import {
   TableMetadata,
   QueryParams,
 } from "./types";
+import type { CommunicationSender, MessageSender } from "./services";
+import { sanitizeIdentifier } from "./services/guards";
 import type { ZodObject, ZodRawShape } from "zod";
+
+/** Options for {@link MPHelper}. */
+export interface MPHelperOptions {
+  /**
+   * Stored procedures this helper instance may execute, in addition to the
+   * built-in `ALLOWED_PROCEDURES` (empty, so by default every execute call is
+   * refused).
+   *
+   * This is how a fork enables a procedure without editing library code: the
+   * service class that calls it constructs its own helper with a fixed,
+   * module-level list, e.g.
+   * `new MPHelper({ allowedProcedures: ['api_MyChurch_Get_Stats'] })`, so the
+   * name is reviewed next to its caller and no other helper instance gains it.
+   * Never build this list from request input: the allowlist is what stops a
+   * caller-chosen name from reaching a mutating procedure on the admin-level
+   * service account. Names must be plain identifiers and match exactly
+   * (case-sensitive); an invalid name throws at construction.
+   */
+  allowedProcedures?: readonly string[];
+}
 
 /**
  * MPHelper - Main Public API for Ministry Platform Operations
@@ -31,13 +53,23 @@ import type { ZodObject, ZodRawShape } from "zod";
  */
 export class MPHelper {
   private provider: MinistryPlatformProvider; // Reference to the singleton provider instance
+  private allowedProcedures?: readonly string[]; // Extra procedures this instance may execute
 
   /**
    * Creates a new MPHelper instance
    * Gets the singleton provider instance for all operations
+   * @param options - Optional per-instance settings (see {@link MPHelperOptions})
+   * @throws Error if `options.allowedProcedures` holds a name that is not a plain identifier
    */
-  constructor() {
+  constructor(options?: MPHelperOptions) {
     this.provider = MinistryPlatformProvider.getInstance();
+    if (options?.allowedProcedures !== undefined) {
+      this.allowedProcedures = Object.freeze(
+        options.allowedProcedures.map((name) =>
+          sanitizeIdentifier(name, 'allowed procedure name')
+        )
+      );
+    }
   }
 
   // =================================================================
@@ -350,7 +382,6 @@ export class MPHelper {
    * Retrieves available global filters for the domain
    * Global filters provide domain-wide data filtering capabilities
    * @param params - Optional parameters for the global filters request
-   * @param params.$ignorePermissions - Whether to ignore user permissions when retrieving filters
    * @param params.$userId - User context for permission-based filter access
    * @returns Promise resolving to array of global filter items with keys and display values
    * @throws Error if authentication fails or filters are inaccessible
@@ -424,6 +455,7 @@ export class MPHelper {
   // Procedure Service Methods
   /**
    * Returns the list of procedures available to the current user with basic metadata.
+   * Metadata only, so it is not subject to the procedure allowlist.
    * @param search Optional search term to filter procedures
    * @returns Promise with an array of ProcedureInfo objects
    */
@@ -433,57 +465,102 @@ export class MPHelper {
 
   /**
    * Executes the requested stored procedure retrieving parameters from the query string.
+   *
+   * Refused unless `procedure` is on the built-in `ALLOWED_PROCEDURES` or on
+   * this instance's `allowedProcedures` option (see {@link MPHelperOptions}).
    * @param procedure Stored procedure name
    * @param params Query parameters to pass to the procedure
    * @returns Promise with the procedure results
+   * @throws Error if the name is not a plain identifier or not on the allowlist
    */
   public async executeProcedure(
     procedure: string,
     params?: QueryParams
   ): Promise<unknown[][]> {
-    return await this.provider.executeProcedure(procedure, params);
+    return await this.provider.executeProcedure(procedure, params, this.allowedProcedures);
   }
 
   /**
    * Executes the requested stored procedure with provided parameters in the request body.
+   *
+   * Allowlisted exactly as {@link executeProcedure} is.
    * @param procedure Stored procedure name
    * @param parameters Parameters to be used for calling stored procedure
    * @returns Promise with the procedure results
+   * @throws Error if the name is not a plain identifier or not on the allowlist
    */
   public async executeProcedureWithBody(
     procedure: string,
     parameters: Record<string, unknown>
   ): Promise<unknown[][]> {
-    return await this.provider.executeProcedureWithBody(procedure, parameters);
+    return await this.provider.executeProcedureWithBody(
+      procedure,
+      parameters,
+      this.allowedProcedures
+    );
   }
 
   // Communication Service Methods
   /**
    * Creates a new communication, immediately renders it and schedules for delivery.
    * Supports both simple JSON communication and multipart form data with file attachments.
-   * @param communication Communication information object
+   *
+   * **The sender must be trusted.** MPHelper is a low-level library with no
+   * session and no authorization gate, and the service account it uses can
+   * send as anyone. So the author and From contact are a separate, required
+   * argument, and any `AuthorUserId` / `FromContactId` left on `communication`
+   * is ignored. The caller, a service method that has already run
+   * `AuthorizationService.requireSecurityRole`, must build `sender` from the
+   * `User_ID` that gate resolved and a contact that user may send as (looked
+   * up server-side), never from request input such as form fields, server
+   * action arguments or query strings.
+   *
+   * @param communication Communication content (recipients, subject, body, ...)
+   * @param sender Trusted `authorUserId` (`dp_Users.User_ID`) and `fromContactId`
    * @param attachments Optional array of file attachments
    * @returns Promise with the created communication
+   * @throws Error if `sender` is missing or invalid, or a content field fails validation
+   *
+   * @example
+   * // In a service method, after the role gate
+   * const userId = await AuthorizationService.getInstance().requireSecurityRole({
+   *   table: 'dp_Communications',
+   *   operation: 'create',
+   * });
+   * const fromContactId = await this.getContactIdForUser(userId); // server-side lookup
+   * await mp.createCommunication(content, { authorUserId: userId, fromContactId });
    */
   public async createCommunication(
-    communication: CommunicationInfo,
+    communication: CommunicationContent,
+    sender: CommunicationSender,
     attachments?: File[]
   ): Promise<Communication> {
-    return await this.provider.createCommunication(communication, attachments);
+    return await this.provider.createCommunication(communication, sender, attachments);
   }
 
   /**
    * Creates email messages from the provided information and immediately schedules them for delivery.
    * Supports both simple JSON message and multipart form data with file attachments.
-   * @param message Message information object
+   *
+   * **The sender must be trusted**, exactly as for {@link createCommunication}:
+   * the From address is a separate, required argument, any `FromAddress` on
+   * `message` is ignored, and the caller (a service method that has already
+   * run `AuthorizationService.requireSecurityRole`) must build `sender` from
+   * trusted server state, such as the gated user's own address or a configured
+   * organisation address, never from request input.
+   *
+   * @param message Message content (recipients, subject, body, ...)
+   * @param sender Trusted `fromAddress`
    * @param attachments Optional array of file attachments
    * @returns Promise with the created communication
+   * @throws Error if `sender` is missing or invalid, or a content field fails validation
    */
   public async sendMessage(
-    message: MessageInfo,
+    message: MessageContent,
+    sender: MessageSender,
     attachments?: File[]
   ): Promise<Communication> {
-    return await this.provider.sendMessage(message, attachments);
+    return await this.provider.sendMessage(message, sender, attachments);
   }
 
   // File Service Methods

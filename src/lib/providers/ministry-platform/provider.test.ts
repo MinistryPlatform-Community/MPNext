@@ -21,6 +21,7 @@ const {
   mockGetFileContentByUniqueId,
   mockGetFileMetadata,
   mockGetFileMetadataByUniqueId,
+  mockProcedureServiceCtor,
 } = vi.hoisted(() => ({
   mockGetTableRecords: vi.fn(),
   mockCreateTableRecords: vi.fn(),
@@ -42,6 +43,7 @@ const {
   mockGetFileContentByUniqueId: vi.fn(),
   mockGetFileMetadata: vi.fn(),
   mockGetFileMetadataByUniqueId: vi.fn(),
+  mockProcedureServiceCtor: vi.fn(),
 }));
 
 vi.mock('./client', () => ({
@@ -57,7 +59,11 @@ vi.mock('./services', () => ({
     updateTableRecords = mockUpdateTableRecords;
     deleteTableRecords = mockDeleteTableRecords;
   },
+  ALLOWED_PROCEDURES: ['api_Builtin_Allowed'],
   ProcedureService: class {
+    constructor(...args: unknown[]) {
+      mockProcedureServiceCtor(...args);
+    }
     getProcedures = mockGetProcedures;
     executeProcedure = mockExecuteProcedure;
     executeProcedureWithBody = mockExecuteProcedureWithBody;
@@ -163,6 +169,56 @@ describe('MinistryPlatformProvider', () => {
 
       expect(mockExecuteProcedureWithBody).toHaveBeenCalledWith('sp_test', { '@Param1': 'value' });
     });
+
+    it('should use the shared ProcedureService (built-in allowlist only) when no extra names are given', async () => {
+      const provider = MinistryPlatformProvider.getInstance();
+      expect(mockProcedureServiceCtor).toHaveBeenCalledTimes(1);
+      // The shared instance gets no options, so ProcedureService's own default applies.
+      expect(mockProcedureServiceCtor.mock.calls[0]).toHaveLength(1);
+
+      await provider.executeProcedure('sp_test');
+      await provider.executeProcedureWithBody('sp_test', {});
+
+      expect(mockProcedureServiceCtor).toHaveBeenCalledTimes(1);
+    });
+
+    it('should run executeProcedure on a ProcedureService allowing the built-in list plus the extra names', async () => {
+      mockExecuteProcedure.mockResolvedValueOnce([[{ result: 1 }]]);
+      const provider = MinistryPlatformProvider.getInstance();
+
+      const result = await provider.executeProcedure('api_Fork_Proc', { '@P': 1 }, ['api_Fork_Proc']);
+
+      expect(mockProcedureServiceCtor).toHaveBeenCalledTimes(2);
+      expect(mockProcedureServiceCtor.mock.calls[1][1]).toEqual({
+        allowedProcedures: ['api_Builtin_Allowed', 'api_Fork_Proc'],
+      });
+      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Fork_Proc', { '@P': 1 });
+      expect(result).toEqual([[{ result: 1 }]]);
+    });
+
+    it('should run executeProcedureWithBody on a ProcedureService allowing the extra names', async () => {
+      mockExecuteProcedureWithBody.mockResolvedValueOnce([[{ ok: true }]]);
+      const provider = MinistryPlatformProvider.getInstance();
+
+      await provider.executeProcedureWithBody('api_Fork_Proc', { '@P': 1 }, new Set(['api_Fork_Proc']));
+
+      expect(mockProcedureServiceCtor.mock.calls[1][1]).toEqual({
+        allowedProcedures: ['api_Builtin_Allowed', 'api_Fork_Proc'],
+      });
+      expect(mockExecuteProcedureWithBody).toHaveBeenCalledWith('api_Fork_Proc', { '@P': 1 });
+    });
+
+    it('should not let one call\'s extra names widen the shared ProcedureService', async () => {
+      const provider = MinistryPlatformProvider.getInstance();
+
+      await provider.executeProcedure('api_Fork_Proc', undefined, ['api_Fork_Proc']);
+      await provider.executeProcedure('api_Fork_Proc');
+
+      // Two ctor calls: the shared one at startup and the per-call one; the
+      // second execute goes back to the shared one, with no options.
+      expect(mockProcedureServiceCtor).toHaveBeenCalledTimes(2);
+      expect(mockProcedureServiceCtor.mock.calls[0]).toHaveLength(1);
+    });
   });
 
   describe('Domain operations', () => {
@@ -212,14 +268,18 @@ describe('MinistryPlatformProvider', () => {
     // These pass-throughs sit in front of the endpoints that send real email and
     // SMS to real church members. The DomainService/FileService/CommunicationService
     // classes are mocked at the module boundary above, so nothing here reaches MP.
+    const commSender = { authorUserId: 7, fromContactId: 70 };
+    const msgSender = { fromAddress: { DisplayName: 'Church Office', Address: 'office@example.org' } };
+
     it('should delegate createCommunication to CommunicationService', async () => {
       const communication = { Subject: 'Sunday update' } as never;
       mockCreateCommunication.mockResolvedValueOnce({ Communication_ID: 555 });
 
       const provider = MinistryPlatformProvider.getInstance();
-      const result = await provider.createCommunication(communication);
+      const result = await provider.createCommunication(communication, commSender);
 
-      expect(mockCreateCommunication).toHaveBeenCalledWith(communication, undefined);
+      // The service takes (payload, attachments, sender).
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communication, undefined, commSender);
       expect(result).toEqual({ Communication_ID: 555 });
     });
 
@@ -229,9 +289,9 @@ describe('MinistryPlatformProvider', () => {
       mockCreateCommunication.mockResolvedValueOnce({ Communication_ID: 556 });
 
       const provider = MinistryPlatformProvider.getInstance();
-      await provider.createCommunication(communication, attachments);
+      await provider.createCommunication(communication, commSender, attachments);
 
-      expect(mockCreateCommunication).toHaveBeenCalledWith(communication, attachments);
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communication, attachments, commSender);
     });
 
     it('should delegate sendMessage to CommunicationService', async () => {
@@ -239,9 +299,9 @@ describe('MinistryPlatformProvider', () => {
       mockSendMessage.mockResolvedValueOnce({ Communication_ID: 557 });
 
       const provider = MinistryPlatformProvider.getInstance();
-      const result = await provider.sendMessage(message);
+      const result = await provider.sendMessage(message, msgSender);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(message, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith(message, undefined, msgSender);
       expect(result).toEqual({ Communication_ID: 557 });
     });
 
@@ -251,9 +311,9 @@ describe('MinistryPlatformProvider', () => {
       mockSendMessage.mockResolvedValueOnce({ Communication_ID: 558 });
 
       const provider = MinistryPlatformProvider.getInstance();
-      await provider.sendMessage(message, attachments);
+      await provider.sendMessage(message, msgSender, attachments);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(message, attachments);
+      expect(mockSendMessage).toHaveBeenCalledWith(message, attachments, msgSender);
     });
   });
 
