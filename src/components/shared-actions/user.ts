@@ -16,7 +16,10 @@ import { headers } from "next/headers";
  * usefully secret (they appear in the client session and in /contactlookup URLs).
  *
  * If a feature ever needs to read another user's profile, add a separate,
- * explicitly role-gated function rather than widening this one.
+ * explicitly role-gated function rather than widening this one. The service
+ * enforces the same rule on its own: `UserService.getUserProfile` re-reads the
+ * session and refuses any GUID but the caller's (2026-09-28), so it stays safe
+ * even for a caller that forgets this reasoning.
  *
  * Requires only an authenticated session: any MP user may sign in and see the
  * app shell, so their own profile (avatar, name, sign-out menu) must load even
