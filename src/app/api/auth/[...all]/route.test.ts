@@ -142,6 +142,9 @@ describe("auth catch-all route allowlist", () => {
       // GET-allowlisted paths are not POST-allowlisted, and vice versa.
       ["POST", "/get-session"],
       ["GET", "/sign-in/social"],
+      // The mount point itself.
+      ["GET", ""],
+      ["GET", "/"],
     ])("%s %s", async (method, path) => {
       const handlerSpy = vi.spyOn(auth, "handler");
       const handler = method === "GET" ? GET : POST;
@@ -188,6 +191,12 @@ describe("auth catch-all route allowlist", () => {
       expect(req.nextUrl.pathname).toBe(`/api/auth${path}`);
 
       expectStopped(await handler(req), handlerSpy);
+    });
+
+    it("matches a pathname outside the /api/auth mount as-is (Next never routes one here)", async () => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+
+      expectStopped(await GET(new NextRequest(`${ORIGIN}/other/get-session`)), handlerSpy);
     });
 
     /**
