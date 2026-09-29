@@ -1,3 +1,4 @@
+import "server-only";
 import { headers } from "next/headers";
 import { unstable_rethrow } from "next/navigation";
 import { auth } from "@/lib/auth";

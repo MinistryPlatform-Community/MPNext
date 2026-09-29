@@ -1,3 +1,4 @@
+import "server-only";
 import { cache } from "react";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeNumericId } from "@/lib/providers/ministry-platform/utils/filter-sanitize";

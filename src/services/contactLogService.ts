@@ -1,3 +1,4 @@
+import "server-only";
 import { ContactLog } from "@/lib/providers/ministry-platform/models/ContactLog";
 import { ContactLogTypes } from "@/lib/providers/ministry-platform/models/ContactLogTypes";
 import { ContactLogSchema, ContactLogInput } from "@/lib/providers/ministry-platform/models/ContactLogSchema";

@@ -1,3 +1,4 @@
+import "server-only";
 import { CONTACT_SEARCH_MAX_LENGTH, ContactSearch } from "@/lib/dto";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { ContactsSchema } from "@/lib/providers/ministry-platform/models/ContactsSchema";

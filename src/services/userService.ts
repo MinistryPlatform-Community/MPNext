@@ -1,3 +1,4 @@
+import "server-only";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 import { UnauthorizedError } from "@/services/authorizationService";

@@ -136,6 +136,10 @@ export default defineConfig({
       // `new URL(...).pathname`) is what keeps this correct on Windows, where
       // a raw pathname comes back as `/S:/MP/MPNext/src`.
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // `server-only` throws unless resolved under the `react-server` export
+      // condition, which Vitest does not set. Point it at the package's own
+      // no-op build, exactly what Next resolves for server code.
+      'server-only': fileURLToPath(new URL('./node_modules/server-only/empty.js', import.meta.url)),
     },
   },
 });

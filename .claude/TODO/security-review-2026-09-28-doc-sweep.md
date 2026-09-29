@@ -126,3 +126,9 @@ Build not run — wave-2 CI build/prerender check should confirm only /_not-foun
 ## From wave 2 — auth test harness (merged 4ee3c65)
 - testing.md inventory: add src/auth.code-flow.test.ts, src/auth.origin-check.test.ts, src/auth.session-config.test.ts, src/auth.rate-limit.test.ts, src/auth.discovery-rebuild.test.ts, src/lib/env.test.ts, and src/test-utils/mock-oidc.ts (install inside vi.hoisted; node environment; its stub fetch throws on unmocked URLs). Note auth.test.ts, auth.ip-address.test.ts, auth.user-id-cache.test.ts now run on the verified path.
 - auth.md § CSRF/origin: better-auth does not check Origin on a cookie-less /sign-in/social — the route's JSON Content-Type check is the only guard there (by design; documented in tests).
+
+## From wave 3 — dependencies (branch security/w3-deps)
+- deps-known-issues.md: record next 16.3.7 (GHSA-vcvr-r3jv-pc5j / CVE-2026-94545 cleared); better-auth must stay >= 1.6.2 for GHSA-wxw3-q3m9-c3jr (forged OAuth state with cookie state storage + pkce:false) — the state-tamper tests in src/auth.code-flow.test.ts guard the binding.
+- CLAUDE.md Code Style / Key Practices: new server-only modules (auth, MP client, services) must start with `import "server-only"`; tests get it via the Vitest alias.
+- CLAUDE.md Commands + provider scripts README: mp:generate* now run `tsx --conditions=react-server` (required because MPHelper imports server-only); running the generator scripts with plain `tsx` fails with "This module cannot be imported from a Client Component module".
+- testing.md: note the `server-only` alias in vitest.config.mts.
