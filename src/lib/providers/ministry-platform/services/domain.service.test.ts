@@ -106,19 +106,51 @@ describe('DomainService', () => {
       const result = await domainService.getGlobalFilters();
 
       expect(mockClient.ensureValidToken).toHaveBeenCalledTimes(1);
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/domain/filters', undefined);
+      expect(mockHttpClient.get).toHaveBeenCalledWith('/domain/filters', {});
       expect(result).toEqual(mockFilters);
     });
 
-    it('should pass optional params through to the query string', async () => {
+    it('should forward $userId to the query string', async () => {
+      (mockHttpClient.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockFilters);
+
+      await domainService.getGlobalFilters({ $userId: 42 });
+
+      expect(mockHttpClient.get).toHaveBeenCalledWith('/domain/filters', { $userId: 42 });
+    });
+
+    it('should never forward $ignorePermissions, even when a caller sets it', async () => {
       (mockHttpClient.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockFilters);
 
       await domainService.getGlobalFilters({ $ignorePermissions: true, $userId: 42 });
+      await domainService.getGlobalFilters({ $ignorePermissions: true });
 
-      expect(mockHttpClient.get).toHaveBeenCalledWith('/domain/filters', {
-        $ignorePermissions: true,
-        $userId: 42,
-      });
+      const calls = (mockHttpClient.get as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0]).toEqual(['/domain/filters', { $userId: 42 }]);
+      expect(calls[1]).toEqual(['/domain/filters', {}]);
+      for (const [, query] of calls) {
+        expect(query).not.toHaveProperty('$ignorePermissions');
+      }
+    });
+
+    it.each([0, -1, 1.5, '42; DROP', '../x', null])(
+      'should refuse an invalid $userId (%s) before any token or network work',
+      async (bad) => {
+        await expect(
+          domainService.getGlobalFilters({ $userId: bad as unknown as number })
+        ).rejects.toThrow('Invalid user ID');
+        expect(mockClient.ensureValidToken).not.toHaveBeenCalled();
+        expect(mockHttpClient.get).not.toHaveBeenCalled();
+      }
+    );
+
+    it('should log only the error name, never the error itself', async () => {
+      const failure = new SyntaxError('Unexpected token J in "Jane Doe, 12 Main St" is not valid JSON');
+      (mockHttpClient.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(failure);
+
+      await expect(domainService.getGlobalFilters()).rejects.toBe(failure);
+
+      expect(console.error).toHaveBeenCalledWith('Error getting global filters:', 'SyntaxError');
+      expect(JSON.stringify((console.error as ReturnType<typeof vi.fn>).mock.calls)).not.toContain('Jane');
     });
 
     it('should return an empty array when the domain has no global filters', async () => {
