@@ -8,6 +8,7 @@ import type { MinistryPlatformClient } from '@/lib/providers/ministry-platform/c
 import type { HttpClient } from '@/lib/providers/ministry-platform/utils/http-client';
 import type {
   Communication,
+  CommunicationContent,
   CommunicationInfo,
   MessageInfo,
 } from '@/lib/providers/ministry-platform/types';
@@ -193,6 +194,105 @@ describe('CommunicationService', () => {
       ).rejects.toThrow('Token refresh failed');
       expect(mockHttpClient.post).not.toHaveBeenCalled();
       expect(mockHttpClient.postFormData).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * `CommunicationType` is limited to `Email` and `SMS`, and an `'SMS'` send
+   * must carry `TextPhoneNumberId`. MP answers a bad type or a missing number
+   * with an opaque HTTP 500, so the service refuses them itself.
+   *
+   * Each rejection test asserts that **nothing was sent** — not merely that an
+   * error came back. Asserting on the message alone would still pass if the
+   * guard were moved below the POST, which is the failure mode it exists to
+   * prevent.
+   */
+  describe('createCommunication — payloads Ministry Platform answers with a 500', () => {
+    const smsInfo: CommunicationInfo = {
+      ...communicationInfo,
+      CommunicationType: 'SMS',
+      TextPhoneNumberId: 1,
+    };
+
+    /** An SMS payload with the number stripped, as untyped JSON would arrive. */
+    function smsWithoutNumber(): CommunicationInfo {
+      const payload = { ...smsInfo };
+      delete (payload as { TextPhoneNumberId?: number }).TextPhoneNumberId;
+      return payload as CommunicationInfo;
+    }
+
+    function expectNothingSent() {
+      expect(mockHttpClient.post).not.toHaveBeenCalled();
+      expect(mockHttpClient.postFormData).not.toHaveBeenCalled();
+      // The guard sits above `ensureValidToken`, so a doomed payload costs
+      // neither a token refresh nor a round trip.
+      expect(mockClient.ensureValidToken).not.toHaveBeenCalled();
+    }
+
+    it("should POST SMS with its outbound number — the value MP accepts, not 'Text'", async () => {
+      (mockHttpClient.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce(createdCommunication);
+
+      await communicationService.createCommunication(smsInfo, undefined, commSender);
+
+      expect(mockHttpClient.post).toHaveBeenCalledWith(
+        '/communications',
+        expect.objectContaining({ CommunicationType: 'SMS', TextPhoneNumberId: 1 })
+      );
+    });
+
+    it('should refuse SMS with no TextPhoneNumberId, and send nothing', async () => {
+      await expect(
+        communicationService.createCommunication(smsWithoutNumber(), undefined, commSender)
+      ).rejects.toThrow('Invalid TextPhoneNumberId');
+
+      expectNothingSent();
+    });
+
+    it('should refuse SMS with no TextPhoneNumberId on the attachments path too', async () => {
+      // The guard must sit above the attachments branch, not inside one arm.
+      const flyer = new File(['flyer'], 'flyer.png', { type: 'image/png' });
+
+      await expect(
+        communicationService.createCommunication(smsWithoutNumber(), [flyer], commSender)
+      ).rejects.toThrow('Invalid TextPhoneNumberId');
+
+      expectNothingSent();
+    });
+
+    it('should treat TextPhoneNumberId 0 as absent', async () => {
+      // MP identity columns start at 1, so 0 is never a real number id — and MP
+      // rejects it with the same "required and must be populated" 500.
+      await expect(
+        communicationService.createCommunication(
+          { ...smsInfo, TextPhoneNumberId: 0 },
+          undefined,
+          commSender
+        )
+      ).rejects.toThrow('Invalid TextPhoneNumberId');
+
+      expectNothingSent();
+    });
+
+    it.each([
+      // The values this was previously typed with; neither is in MP's enum.
+      ['Text'],
+      ['Letter'],
+      // Real MP enum members the template deliberately does not permit.
+      ['Unknown'],
+      ['RssFeed'],
+      ['GlobalMFA'],
+      // Matching is exact, not case-insensitive.
+      ['sms'],
+    ])("should refuse CommunicationType '%s', and send nothing", async (type) => {
+      await expect(
+        communicationService.createCommunication(
+          { ...communicationInfo, CommunicationType: type } as unknown as CommunicationInfo,
+          undefined,
+          commSender
+        )
+      ).rejects.toThrow('Invalid CommunicationType');
+
+      expectNothingSent();
     });
   });
 
@@ -492,5 +592,78 @@ describe('CommunicationService', () => {
       ).rejects.toThrow(SyntaxError);
       expect(console.error).toHaveBeenCalledWith('Error sending message:', 'SyntaxError');
     });
+  });
+});
+
+/**
+ * Compile-time half of the fix. These assertions never run — `tsc --noEmit`,
+ * which `next build` also performs, is what checks them: each
+ * `@ts-expect-error` fails the build if the type ever stops rejecting the
+ * payload beneath it.
+ */
+describe('CommunicationInfo — type-level contract', () => {
+  const email: CommunicationInfo = {
+    AuthorUserId: 7,
+    Body: 'Service is cancelled this Sunday.',
+    FromContactId: 100,
+    ReplyToContactId: 100,
+    CommunicationType: 'Email',
+    Contacts: [1, 2, 3],
+    IsBulkEmail: true,
+    SendToContactParents: false,
+    Subject: 'Sunday update',
+    StartDate: '2026-08-21T09:00:00',
+  };
+
+  it('should reject every type but Email and SMS, and demand a number for SMS', () => {
+    const invalidText: CommunicationInfo = {
+      ...email,
+      // @ts-expect-error — 'Text' is not a Platform.Messaging.CommunicationType member.
+      CommunicationType: 'Text',
+    };
+
+    const invalidLetter: CommunicationInfo = {
+      ...email,
+      // @ts-expect-error — 'Letter' never existed in MP's enum either.
+      CommunicationType: 'Letter',
+    };
+
+    const excludedMember: CommunicationInfo = {
+      ...email,
+      // @ts-expect-error — a real MP member, but not one the template permits.
+      CommunicationType: 'GlobalMFA',
+    };
+
+    // @ts-expect-error — 'SMS' requires TextPhoneNumberId.
+    const smsWithoutNumber: CommunicationInfo = {
+      ...email,
+      CommunicationType: 'SMS',
+    };
+
+    expect([invalidText, invalidLetter, excludedMember, smsWithoutNumber]).toHaveLength(4);
+  });
+
+  it('should keep the SMS requirement on CommunicationContent, the MPHelper input', () => {
+    // Guards the distributive Omit: a plain `Omit` over the union loses it.
+    const content = {
+      Body: 'Service is cancelled this Sunday.',
+      ReplyToContactId: 100,
+      Contacts: [1, 2, 3],
+      IsBulkEmail: true,
+      SendToContactParents: false,
+      Subject: 'Sunday update',
+      StartDate: '2026-08-21T09:00:00',
+    };
+
+    // @ts-expect-error — 'SMS' requires TextPhoneNumberId here too.
+    const smsWithoutNumber: CommunicationContent = { ...content, CommunicationType: 'SMS' };
+
+    const sms: CommunicationContent = {
+      ...content,
+      CommunicationType: 'SMS',
+      TextPhoneNumberId: 1,
+    };
+
+    expect([smsWithoutNumber, sms]).toHaveLength(2);
   });
 });

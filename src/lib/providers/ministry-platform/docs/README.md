@@ -256,9 +256,16 @@ await mp.createCommunication(content, { authorUserId: userId, fromContactId });
 ```
 
 The content itself is validated too. The payload is rebuilt from the known fields only, so
-extra keys are dropped. `CommunicationType` must be `Email`, `Text` or `Letter`. IDs must be
-positive integers. Subjects and display names must not contain control characters, and
+extra keys are dropped. `CommunicationType` must be `Email` or `SMS`, and an `SMS`
+communication must also carry `TextPhoneNumberId` (`dp_SMS_Numbers.SMS_Number_ID` of the
+outbound number). IDs must be positive integers. Subjects and display names must not contain control characters, and
 addresses must be single plain addresses.
+
+`CommunicationType` is deliberately narrower than MP's `Platform.Messaging.CommunicationType`
+enum (`Unknown | Email | SMS | RssFeed | GlobalMFA`): the template permits only `Email` and
+`SMS`, in both the type and the runtime check. MP has no `Text` or `Letter` member. MP answers
+an unknown type, or an `SMS` send without `TextPhoneNumberId`, with an opaque HTTP 500 rather
+than a 400, so both are refused before anything is sent.
 
 ### Files
 

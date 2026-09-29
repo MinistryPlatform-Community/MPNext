@@ -1,5 +1,12 @@
 import { MinistryPlatformClient } from "../client";
-import { CommunicationInfo, Communication, MessageAddress, MessageInfo } from "../types";
+import {
+    COMMUNICATION_TYPES,
+    CommunicationInfo,
+    CommunicationType,
+    Communication,
+    MessageAddress,
+    MessageInfo,
+} from "../types";
 import { sanitizeNumericId } from "../utils/filter-sanitize";
 import { errorName } from "./guards";
 
@@ -30,7 +37,8 @@ export interface MessageSender {
     fromAddress: MessageAddress;
 }
 
-const COMMUNICATION_TYPES: ReadonlySet<string> = new Set(['Email', 'Text', 'Letter']);
+/** The `CommunicationType` values that may be sent; see `COMMUNICATION_TYPES`. */
+const ALLOWED_COMMUNICATION_TYPES: ReadonlySet<string> = new Set(COMMUNICATION_TYPES);
 
 /** C0 controls and DEL: CR/LF in a subject or display name is header injection. */
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
@@ -100,21 +108,35 @@ function buildCommunication(communication: unknown, sender: unknown): Communicat
     const { authorUserId, fromContactId } = sender as Record<string, unknown>;
     const c = communication as Record<string, unknown>;
 
-    if (typeof c.CommunicationType !== 'string' || !COMMUNICATION_TYPES.has(c.CommunicationType)) {
+    if (typeof c.CommunicationType !== 'string' || !ALLOWED_COMMUNICATION_TYPES.has(c.CommunicationType)) {
         throw invalid('CommunicationType');
     }
 
-    const payload: CommunicationInfo = {
+    const fields = {
         AuthorUserId: sanitizeNumericId(authorUserId, 'sender authorUserId'),
         Body: requireString(c.Body, 'Body'),
         FromContactId: sanitizeNumericId(fromContactId, 'sender fromContactId'),
         ReplyToContactId: sanitizeNumericId(c.ReplyToContactId, 'ReplyToContactId'),
-        CommunicationType: c.CommunicationType as CommunicationInfo['CommunicationType'],
         Contacts: requireIdList(c.Contacts, 'Contacts'),
         IsBulkEmail: requireBoolean(c.IsBulkEmail, 'IsBulkEmail'),
         SendToContactParents: requireBoolean(c.SendToContactParents, 'SendToContactParents'),
         Subject: requireHeaderText(c.Subject, 'Subject'),
         StartDate: requireString(c.StartDate, 'StartDate'),
+    };
+
+    // MP's Swagger marks TextPhoneNumberId optional, but an SMS send without it
+    // fails with an opaque 500 ("required and must be populated").
+    if (c.CommunicationType === 'SMS') {
+        return {
+            ...fields,
+            CommunicationType: 'SMS',
+            TextPhoneNumberId: sanitizeNumericId(c.TextPhoneNumberId, 'TextPhoneNumberId'),
+        };
+    }
+
+    const payload: CommunicationInfo = {
+        ...fields,
+        CommunicationType: c.CommunicationType as Exclude<CommunicationType, 'SMS'>,
     };
     if (c.TextPhoneNumberId !== undefined) {
         payload.TextPhoneNumberId = sanitizeNumericId(c.TextPhoneNumberId, 'TextPhoneNumberId');

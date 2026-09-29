@@ -33,19 +33,73 @@ export interface FileDescription {
   InclusionType: 'Attachment' | 'Link';
 }
 
-export interface CommunicationInfo {
+/**
+ * The `CommunicationType` values this template lets `POST /communications`
+ * send: a deliberate subset of MP's `Platform.Messaging.CommunicationType`
+ * enum, which is `Unknown | Email | SMS | RssFeed | GlobalMFA`.
+ *
+ * Verified against a live MP tenant on 2026-09-08 rather than taken from the
+ * Swagger alone: `dp_Communication_Types` holds `1 Email`, `2 SMS Text`,
+ * `3 RSS Feed` and `4 GlobalMFA`; `Unknown` is the zero value and has no row.
+ * Only `Email` and `SMS` are permitted: `Unknown` is not a real channel,
+ * `GlobalMFA` is MP's own multi-factor channel, and `RssFeed` is not a message
+ * to contacts. `CommunicationService` enforces the same list at runtime.
+ *
+ * This was previously typed `'Email' | 'Text' | 'Letter'`. Neither `'Text'`
+ * nor `'Letter'` was ever a member, and MP rejects either with an opaque
+ * HTTP **500** rather than a 400:
+ *
+ * ```
+ * {"Message":"Error converting value \"Text\" to type
+ *   'Platform.Messaging.CommunicationType'. Path 'CommunicationType' ...
+ *   Requested value 'Text' was not found."}
+ * ```
+ *
+ * `'Email'` happens to be a real member, and it is the only value anyone had
+ * ever passed — which is why the other two went unnoticed.
+ *
+ * Only ever add a value that is a member of MP's enum.
+ */
+export const COMMUNICATION_TYPES = ['Email', 'SMS'] as const;
+
+export type CommunicationType = (typeof COMMUNICATION_TYPES)[number];
+
+interface CommunicationInfoBase {
   AuthorUserId: number;
   Body: string;
   FromContactId: number;
   ReplyToContactId: number;
-  CommunicationType: 'Email' | 'Text' | 'Letter';
   Contacts: number[];
   IsBulkEmail: boolean;
   SendToContactParents: boolean;
   Subject: string;
   StartDate: string;
-  TextPhoneNumberId?: number;
 }
+
+/**
+ * A communication to hand to `POST /communications`.
+ *
+ * Modelled as a discriminated union rather than one interface because
+ * `TextPhoneNumberId` is **conditionally required**: MP's Swagger marks it
+ * optional, but an `'SMS'` send without it fails with
+ * `Property 'TextPhoneNumberId' is required and must be populated` — another
+ * 500, not a 400. Making the compiler ask for it turns a runtime failure into
+ * a build failure; `CommunicationService.createCommunication` re-checks at
+ * runtime for callers that arrive through an `as` cast or untyped JSON.
+ */
+export type CommunicationInfo =
+  | (CommunicationInfoBase & {
+      CommunicationType: 'SMS';
+      /**
+       * `dp_SMS_Numbers.SMS_Number_ID` of the outbound number. Required for
+       * SMS; a tenant's numbers are listed in `dp_SMS_Numbers`.
+       */
+      TextPhoneNumberId: number;
+    })
+  | (CommunicationInfoBase & {
+      CommunicationType: 'Email';
+      TextPhoneNumberId?: number;
+    });
 
 export interface MessageAddress {
   DisplayName: string;
@@ -66,8 +120,15 @@ export interface MessageInfo {
  * {@link CommunicationInfo} without the author/from fields, which are stamped
  * from the separate trusted `CommunicationSender` argument instead. Values for
  * them left on the object are ignored.
+ *
+ * The `Omit` is applied to each member of the union separately. A plain
+ * `Omit<CommunicationInfo, ...>` merges the members, so an `'SMS'` payload
+ * without `TextPhoneNumberId` would compile again.
  */
-export type CommunicationContent = Omit<CommunicationInfo, 'AuthorUserId' | 'FromContactId'>;
+export type CommunicationContent = DistributiveOmit<CommunicationInfo, 'AuthorUserId' | 'FromContactId'>;
+
+/** `Omit` applied to each member of a union rather than to the merged union. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /**
  * What a caller of `MPHelper.sendMessage` supplies: a {@link MessageInfo}
