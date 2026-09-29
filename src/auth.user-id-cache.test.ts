@@ -9,6 +9,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { mockGetTableRecords } = vi.hoisted(() => ({ mockGetTableRecords: vi.fn() }));
 
+// Mock MP OIDC server (discovery with `issuer` + `jwks_uri`, a local JWKS);
+// any other fetch throws.
+await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
+
 vi.mock('@/lib/providers/ministry-platform', () => ({
   MPHelper: class {
     getTableRecords = mockGetTableRecords;

@@ -5,7 +5,7 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", ".claude/worktrees/**"]),
   // F5 (2026-09-12): member PII and pastoral notes must never reach info-level
   // logs. `console.log`/`.debug`/`.info` are disallowed in application source;
   // `console.warn`/`.error` remain for structured/error logging. Generator

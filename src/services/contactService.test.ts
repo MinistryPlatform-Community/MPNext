@@ -38,6 +38,7 @@ vi.mock('@/services/authorizationService', () => {
 
 import { ContactService } from '@/services/contactService';
 import { UnauthorizedError } from '@/services/authorizationService';
+import { CONTACT_SEARCH_MAX_LENGTH } from '@/lib/dto';
 
 describe('ContactService', () => {
   beforeEach(() => {
@@ -107,6 +108,44 @@ describe('ContactService', () => {
       const filter = mockGetTableRecords.mock.calls[0][0].filter;
       expect(filter).toContain("O''Brien");
       expect(filter).not.toContain("O'Brien");
+    });
+
+    it("gives every LIKE clause ESCAPE '\\' so the sanitizer's escapes are honored", async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.contactSearch('[0-9]');
+
+      const filter: string = mockGetTableRecords.mock.calls[0][0].filter;
+      const clauses = filter.split(' OR ');
+      expect(clauses).toHaveLength(5);
+      for (const clause of clauses) {
+        expect(clause).toMatch(/ LIKE '%\\\[0-9\]%' ESCAPE '\\'$/);
+      }
+    });
+
+    it('accepts a term of exactly CONTACT_SEARCH_MAX_LENGTH characters', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.contactSearch('a'.repeat(CONTACT_SEARCH_MAX_LENGTH));
+
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects an over-long term before any MP call', async () => {
+      const service = await ContactService.getInstance();
+      await expect(service.contactSearch('a'.repeat(10_000))).rejects.toThrow(
+        `Search term must be ${CONTACT_SEARCH_MAX_LENGTH} characters or fewer`,
+      );
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('rejects control characters and non-strings before any MP call', async () => {
+      const service = await ContactService.getInstance();
+      await expect(service.contactSearch('a\u0000b')).rejects.toThrow('control characters');
+      await expect(service.contactSearch(['x'] as never)).rejects.toThrow('expected a string');
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
     });
   });
 
@@ -269,7 +308,71 @@ describe('ContactService', () => {
       mockUpdateTableRecords.mockRejectedValueOnce(new Error('Update failed'));
 
       const service = await ContactService.getInstance();
-      await expect(service.updateContact(42, { Email_Address: 'bad' })).rejects.toThrow('Update failed');
+      await expect(
+        service.updateContact(42, { Email_Address: 'ok@example.com' }),
+      ).rejects.toThrow('Update failed');
+    });
+
+    // Mass assignment (2026-09-28 review). The `Pick` on the parameter is
+    // erased at runtime, so the service allowlists the columns itself.
+    it('drops a smuggled column that is not on the allowlist', async () => {
+      mockUpdateTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.updateContact(42, {
+        Email_Address: 'new@example.com',
+        Household_ID: 999,
+        Contact_Status_ID: 2,
+      } as never);
+
+      expect(mockUpdateTableRecords).toHaveBeenCalledWith(
+        'Contacts',
+        [{ Contact_ID: 42, Email_Address: 'new@example.com' }],
+        { $userId: 500 },
+      );
+    });
+
+    it('ignores fields.Contact_ID — the write always targets the contactId argument', async () => {
+      mockUpdateTableRecords.mockResolvedValueOnce([]);
+
+      const service = await ContactService.getInstance();
+      await service.updateContact(42, {
+        Contact_ID: 7,
+        Mobile_Phone: '555-0000',
+      } as never);
+
+      const [, records] = mockUpdateTableRecords.mock.calls[0];
+      expect(records).toEqual([{ Contact_ID: 42, Mobile_Phone: '555-0000' }]);
+    });
+
+    it.each(['5 OR 1=1', [42], 0, -1, 1.5, '1e3'])(
+      'rejects a non-ID contactId (%j) before any MP call',
+      async (bad) => {
+        const service = await ContactService.getInstance();
+        await expect(
+          service.updateContact(bad as never, { Email_Address: 'new@example.com' }),
+        ).rejects.toThrow('Invalid Contact ID');
+        expect(mockUpdateTableRecords).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects an invalid email before any MP call', async () => {
+      const service = await ContactService.getInstance();
+      await expect(
+        service.updateContact(42, { Email_Address: 'not-an-email' }),
+      ).rejects.toThrow();
+      expect(mockUpdateTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('checks the gate before validating arguments', async () => {
+      mockRequireSecurityRole.mockRejectedValueOnce(
+        new UnauthorizedError('Not authorized: an MP security role is required'),
+      );
+
+      const service = await ContactService.getInstance();
+      await expect(
+        service.updateContact('5 OR 1=1' as never, {}),
+      ).rejects.toThrow(UnauthorizedError);
     });
   });
 });

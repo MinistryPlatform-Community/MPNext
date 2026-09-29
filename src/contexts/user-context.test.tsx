@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, renderHook, screen, waitFor, act } from '@testing-library/react';
 import { Component, ReactNode, Suspense } from 'react';
-import type { MPUserProfile } from '@/lib/providers/ministry-platform/types';
+import type { CurrentUserProfile } from '@/lib/dto';
 
 /**
  * UserProvider / useUser tests.
@@ -25,11 +25,9 @@ vi.mock('@/components/shared-actions/user', () => ({
 import { UserProvider, useUser } from './user-context';
 
 const profile = {
-  User_ID: 1,
-  User_GUID: 'guid-123',
   First_Name: 'John',
   Last_Name: 'Doe',
-} as MPUserProfile;
+} as CurrentUserProfile;
 
 function ProfileProbe({
   onRefresh,
@@ -59,7 +57,7 @@ class Boundary extends Component<
   }
 }
 
-function tree(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
+function tree(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
   return (
     <UserProvider profilePromise={promise}>
       <Boundary>
@@ -69,7 +67,7 @@ function tree(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
   );
 }
 
-async function renderWithProvider(promise: Promise<MPUserProfile | null>, ui: ReactNode) {
+async function renderWithProvider(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
   let result!: ReturnType<typeof render>;
   await act(async () => {
     result = render(tree(promise, ui));
@@ -123,7 +121,7 @@ describe('UserContext', () => {
     });
 
     it('should suspend consumers until the promise resolves', async () => {
-      const pending = deferred<MPUserProfile | null>();
+      const pending = deferred<CurrentUserProfile | null>();
       await renderWithProvider(pending.promise, <ProfileProbe />);
 
       expect(screen.getByTestId('loading')).toBeInTheDocument();
@@ -136,17 +134,37 @@ describe('UserContext', () => {
       expect(screen.getByTestId('name')).toHaveTextContent('John');
     });
 
-    it('should propagate profile load error to ErrorBoundary', async () => {
+    it('should degrade a failed profile load to null instead of throwing to a boundary', async () => {
+      // The header — the shell's only sign-out control — reads this promise
+      // from ABOVE (web)/error.tsx. A rejection used to escape to the root
+      // boundary and take the whole shell (and sign-out) with it.
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       await renderWithProvider(
-        Promise.reject(new Error('Network error')),
+        Promise.reject(new Error('ConnectTimeoutError: pastoral note text')),
         <ProfileProbe />
       );
 
       await waitFor(() => {
-        expect(screen.getByTestId('err')).toHaveTextContent('Network error');
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
+      expect(screen.queryByTestId('err')).toBeNull();
+      // Logged by identifier and shape only — never the message.
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'Error' });
+      expect(JSON.stringify(spy.mock.calls)).not.toContain('pastoral');
+
+      spy.mockRestore();
+    });
+
+    it('should log a non-Error rejection by its type', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(Promise.reject('boom'), <ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'string' });
 
       spy.mockRestore();
     });
@@ -196,7 +214,7 @@ describe('UserContext', () => {
     it('should keep showing the current profile while the reload is in flight', async () => {
       // The regression this guards: a non-transition update swapped rendered
       // consumers (the whole header) for their Suspense fallback mid-reload.
-      const reload = deferred<MPUserProfile | undefined>();
+      const reload = deferred<CurrentUserProfile | undefined>();
       mockGetCurrentUserProfile.mockReturnValueOnce(reload.promise);
       const refreshRef: { current: (() => void) | null } = { current: null };
 
@@ -220,6 +238,31 @@ describe('UserContext', () => {
       });
 
       expect(screen.getByTestId('name')).toHaveTextContent('Jane');
+    });
+
+    it('should degrade a failed reload to null', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetCurrentUserProfile.mockRejectedValueOnce(new Error('MP down'));
+      const refreshRef: { current: (() => void) | null } = { current: null };
+
+      await renderWithProvider(
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        refreshRef.current?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(screen.queryByTestId('err')).toBeNull();
+
+      spy.mockRestore();
     });
 
     it('should normalize an undefined reloaded profile to null', async () => {

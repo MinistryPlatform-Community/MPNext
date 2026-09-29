@@ -25,12 +25,21 @@ vi.mock('@/lib/providers/ministry-platform', () => ({
 }));
 
 const GOOD_SECRET = 'a-perfectly-fine-test-secret-0123456789';
-const KEYS = ['VITEST', 'BETTER_AUTH_SECRET', 'NEXTAUTH_SECRET', 'BETTER_AUTH_SECRETS', 'NODE_ENV', 'TEST'] as const;
+const KEYS = [
+  'VITEST', 'BETTER_AUTH_SECRET', 'NEXTAUTH_SECRET', 'BETTER_AUTH_SECRETS', 'NODE_ENV', 'TEST',
+  'BETTER_AUTH_URL', 'MINISTRY_PLATFORM_BASE_URL',
+] as const;
+// test-setup.ts stubs an http://localhost BETTER_AUTH_URL, which src/lib/env.ts
+// refuses in production; the production cases below use this one instead.
+const PROD_URL = 'https://app.example.org';
 let saved: Record<string, string | undefined>;
 
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
   vi.resetModules();
+  // An import with VITEST cleared caches the instance on globalThis
+  // (`sharedInstance`); drop it so each import builds from its own env.
+  delete (globalThis as Record<symbol, unknown>)[Symbol.for('mpnext.auth')];
   vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
     throw new Error(`Blocked unexpected fetch in test: ${String(input)}`);
   }));
@@ -99,12 +108,12 @@ describe('assertAuthEnvironment at module load', () => {
   });
 
   it.each(['1', 'true', 'yes'])('refuses to import with TEST=%s on a production process', async (flag) => {
-    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, BETTER_AUTH_SECRETS: undefined, NODE_ENV: 'production', TEST: flag });
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, BETTER_AUTH_SECRETS: undefined, NODE_ENV: 'production', TEST: flag, BETTER_AUTH_URL: PROD_URL });
     await expect(importAuthAsIfNotVitest()).rejects.toThrow(/TEST is set on a production process/);
   });
 
   it('allows TEST=false on a production process (better-auth reads it as false too)', async () => {
-    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, BETTER_AUTH_SECRETS: undefined, NODE_ENV: 'production', TEST: 'false' });
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, BETTER_AUTH_SECRETS: undefined, NODE_ENV: 'production', TEST: 'false', BETTER_AUTH_URL: PROD_URL });
     await expect(importAuthAsIfNotVitest()).resolves.toHaveProperty('auth');
   });
 
@@ -117,8 +126,62 @@ describe('assertAuthEnvironment at module load', () => {
   });
 
   it('is skipped under Vitest (the only exemption), so tests can build instances freely', async () => {
-    setEnv({ VITEST: 'true', BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: '1' });
+    setEnv({ VITEST: 'true', BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: '1', BETTER_AUTH_URL: PROD_URL });
     await expect(import('@/lib/auth')).resolves.toHaveProperty('auth');
+  });
+});
+
+/**
+ * TODO security-auth-url-env-not-validated: the two auth-critical URLs are
+ * validated at module load (src/lib/env.ts has the per-value cases). Unlike the
+ * secret guard these run under Vitest too, so no exemption is switched off.
+ */
+describe('auth-critical URLs at module load', () => {
+  it.each([
+    ['BETTER_AUTH_URL', { BETTER_AUTH_URL: undefined }, /BETTER_AUTH_URL is not set/],
+    ['MINISTRY_PLATFORM_BASE_URL', { MINISTRY_PLATFORM_BASE_URL: undefined }, /MINISTRY_PLATFORM_BASE_URL is not set/],
+  ])('refuses to import with %s unset (no Host-header fallback, no undefined/oauth)', async (_n, env, message) => {
+    setEnv(env);
+    await expect(import('@/lib/auth')).rejects.toThrow(message);
+  });
+
+  it('refuses an http:// BETTER_AUTH_URL on a production process', async () => {
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: undefined, BETTER_AUTH_URL: 'http://app.example.org' });
+    await expect(importAuthAsIfNotVitest()).rejects.toThrow(/BETTER_AUTH_URL must use https:\/\//);
+  });
+
+  it('accepts a loopback http BETTER_AUTH_URL on a production process (local / CI next build), without forcing Secure cookies', async () => {
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: undefined, BETTER_AUTH_URL: 'http://localhost:3000' });
+    const { auth } = await importAuthAsIfNotVitest();
+    expect(auth.options.baseURL).toBe('http://localhost:3000');
+    expect(auth.options.advanced?.useSecureCookies).toBeUndefined();
+  });
+
+  it('refuses an http:// MINISTRY_PLATFORM_BASE_URL in any environment', async () => {
+    setEnv({ MINISTRY_PLATFORM_BASE_URL: 'http://mp.example.org' });
+    await expect(import('@/lib/auth')).rejects.toThrow(/MINISTRY_PLATFORM_BASE_URL must use https:\/\//);
+  });
+
+  it('uses the normalized values: origin-only baseURL, no //oauth', async () => {
+    setEnv({ BETTER_AUTH_URL: 'https://app.example.org/', MINISTRY_PLATFORM_BASE_URL: 'https://mp.example.org/api/' });
+    const { auth } = await import('@/lib/auth');
+    expect(auth.options.baseURL).toBe('https://app.example.org');
+    const fetchMock = vi.mocked(fetch);
+    await auth.$context;
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+      'https://mp.example.org/api/oauth/.well-known/openid-configuration',
+    );
+  });
+
+  it('pins Secure cookies in production, and leaves them to the baseURL scheme otherwise', async () => {
+    setEnv({ BETTER_AUTH_SECRET: GOOD_SECRET, NODE_ENV: 'production', TEST: undefined, BETTER_AUTH_URL: PROD_URL });
+    const prod = await importAuthAsIfNotVitest();
+    expect(prod.auth.options.advanced?.useSecureCookies).toBe(true);
+
+    vi.resetModules();
+    setEnv({ VITEST: 'true', NODE_ENV: 'development', BETTER_AUTH_URL: 'http://localhost:3000' });
+    const dev = await import('@/lib/auth');
+    expect(dev.auth.options.advanced?.useSecureCookies).toBeUndefined();
   });
 });
 

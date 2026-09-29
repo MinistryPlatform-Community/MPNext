@@ -10,15 +10,26 @@ import {
   startTransition,
   ReactNode,
 } from "react";
-import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 import { getCurrentUserProfile } from "@/components/shared-actions/user";
 
 interface UserContextValue {
-  userProfilePromise: Promise<MPUserProfile | null>;
+  userProfilePromise: Promise<CurrentUserProfile | null>;
   refreshUserProfile: () => void;
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
+
+/**
+ * Logs a failed profile load (identifiers and shape only — never the message,
+ * per the F5 logging policy) and degrades to "no profile".
+ */
+function profileLoadFailed(error: unknown): null {
+  console.error("user.profile.load_failed", {
+    name: error instanceof Error ? error.name : typeof error,
+  });
+  return null;
+}
 
 interface UserProviderProps {
   /**
@@ -29,7 +40,7 @@ interface UserProviderProps {
    * get-session fetch, then a server-action POST, and replaced the whole
    * header with its Suspense fallback for the duration.
    */
-  profilePromise: Promise<MPUserProfile | null>;
+  profilePromise: Promise<CurrentUserProfile | null>;
   children: ReactNode;
 }
 
@@ -38,16 +49,29 @@ export function UserProvider({ profilePromise, children }: UserProviderProps) {
   // the source of truth, including a fresh one from a server re-render
   // (`router.refresh()`), which replaces the layout's props.
   const [refreshedPromise, setRefreshedPromise] =
-    useState<Promise<MPUserProfile | null> | null>(null);
+    useState<Promise<CurrentUserProfile | null> | null>(null);
 
-  const userProfilePromise = refreshedPromise ?? profilePromise;
+  // A failed load resolves to `null` instead of rejecting. The header — the
+  // shell's only sign-out control — reads this promise and sits in
+  // `(web)/layout.tsx`, ABOVE `(web)/error.tsx`, so a rejection used to
+  // escape to the root boundary, replace the whole shell, and leave a
+  // signed-in user with no way to sign out ("Go to sign in" just bounced back
+  // to the same failure). As `null` it renders the no-profile header, whose
+  // menu still offers sign-out. Memoised so `use()` sees a stable promise.
+  const safeServerPromise = useMemo(
+    () => profilePromise.catch(profileLoadFailed),
+    [profilePromise]
+  );
+  const userProfilePromise = refreshedPromise ?? safeServerPromise;
 
   const refreshUserProfile = useCallback(() => {
     // A transition, so components already showing a profile keep showing it
     // until the new one resolves instead of dropping back to their Suspense
     // fallbacks.
     startTransition(() => {
-      setRefreshedPromise(getCurrentUserProfile().then((p) => p ?? null));
+      setRefreshedPromise(
+        getCurrentUserProfile().then((p) => p ?? null, profileLoadFailed)
+      );
     });
   }, []);
 
@@ -60,7 +84,7 @@ export function UserProvider({ profilePromise, children }: UserProviderProps) {
 }
 
 interface UseUserResult {
-  userProfile: MPUserProfile | null;
+  userProfile: CurrentUserProfile | null;
   refreshUserProfile: () => void;
 }
 

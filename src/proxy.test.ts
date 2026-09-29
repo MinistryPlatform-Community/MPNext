@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
  *
  * Tests for the authentication proxy in src/proxy.ts
  * These tests verify route protection behavior including:
- * - Public path access (API routes, signin)
+ * - Public path access (API routes, signin, auth-error, signed-out)
  * - Session cookie validation
  * - Redirect behavior for unauthenticated users
  * - Error handling during session checks
@@ -44,7 +44,18 @@ vi.mock('next/server', () => ({
   NextRequest: vi.fn(),
 }));
 
+import * as pageStaticInfo from 'next/dist/build/analysis/get-page-static-info';
+import { getMiddlewareRouteMatcher } from 'next/dist/shared/lib/router/utils/middleware-route-matcher';
 import { proxy, config } from './proxy';
+
+// Next's build-time matcher compiler. Exported at runtime but absent from the
+// package's .d.ts, hence the cast.
+const { getMiddlewareMatchers } = pageStaticInfo as unknown as {
+  getMiddlewareMatchers: (
+    matcher: string | string[],
+    nextConfig: { i18n?: unknown; basePath?: string }
+  ) => pageStaticInfo.ProxyMatcher[];
+};
 
 function createMockRequest(pathname: string, baseUrl = 'http://localhost:3000') {
   const url = new URL(pathname, baseUrl);
@@ -117,6 +128,64 @@ describe('proxy', () => {
       expect(mockNext).toHaveBeenCalled();
       expect(mockGetSessionCookie).not.toHaveBeenCalled();
     });
+  });
+
+  describe('/signed-out is public, exactly', () => {
+    it('should allow /signed-out without a session cookie', async () => {
+      // SessionGuard sends a tab here after its session ended, when the cookie
+      // is usually already gone. A redirect to /signin would auto-start OAuth
+      // and, with the MP SSO session alive, silently sign the tab back in.
+      // (The cookie mock returns undefined by default — no cookie.)
+      await proxy(createMockRequest('/signed-out'));
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockRedirect).not.toHaveBeenCalled();
+      expect(mockGetSessionCookie).not.toHaveBeenCalled();
+    });
+
+    it('sets a CSP on /signed-out', async () => {
+      const response = await proxy(createMockRequest('/signed-out'));
+
+      expect(cspFrom(response)).toContain("default-src 'self'");
+    });
+
+    it.each(['/signed-outx', '/signed-out/x', '/signed'])(
+      'should still redirect %s to /signin when there is no session cookie',
+      async (pathname) => {
+        mockGetSessionCookie.mockReturnValueOnce(null);
+
+        await proxy(createMockRequest(pathname));
+
+        expect(mockRedirect).toHaveBeenCalledWith(
+          expect.objectContaining({ pathname: '/signin' })
+        );
+        expect(mockNext).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('The /api carve-out is /api or /api/*, not any /api prefix', () => {
+    it('should allow /api itself without session check', async () => {
+      await proxy(createMockRequest('/api'));
+
+      expect(mockNext).toHaveBeenCalled();
+      expect(mockGetSessionCookie).not.toHaveBeenCalled();
+    });
+
+    it.each(['/apifoo', '/api-docs', '/apidocs', '/api.json'])(
+      'should redirect %s to /signin when there is no session cookie',
+      async (pathname) => {
+        mockGetSessionCookie.mockReturnValueOnce(null);
+
+        await proxy(createMockRequest(pathname));
+
+        expect(mockGetSessionCookie).toHaveBeenCalled();
+        expect(mockRedirect).toHaveBeenCalledWith(
+          expect.objectContaining({ pathname: '/signin' })
+        );
+        expect(mockNext).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('Protected Paths', () => {
@@ -288,18 +357,64 @@ describe('proxy', () => {
     });
   });
 
+  /**
+   * Behavioural, not `toContain`: the matcher is compiled here exactly the way
+   * Next compiles it at build time (`getMiddlewareMatchers`, which adds the
+   * `_next/data` prefix and `.rsc`/`.json` suffixes) and then run through
+   * Next's own runtime matcher. A `toContain` check would still pass with an
+   * extra exclusion such as `|contactlookup`, or with the old unescaped,
+   * unanchored `favicon.ico` that also skipped `/faviconXico`.
+   */
   describe('Route Matcher', () => {
-    it('should export config with correct matcher pattern', () => {
-      expect(config.matcher).toBeDefined();
-      expect(config.matcher).toHaveLength(1);
+    const proxyRunsOn = getMiddlewareRouteMatcher(
+      getMiddlewareMatchers(config.matcher, {})
+    );
+    const runs = (pathname: string) =>
+      proxyRunsOn(pathname, {} as Parameters<typeof proxyRunsOn>[1], {});
+
+    it('pins the exact matcher', () => {
+      expect(config.matcher).toEqual([
+        '/((?!_next/static/|_next/image(?:$|/)|favicon\\.ico$|assets/).*)',
+      ]);
     });
 
-    it('should exclude _next/static, _next/image, favicon.ico, and assets paths', () => {
-      const pattern = config.matcher[0];
-      expect(pattern).toContain('_next/static');
-      expect(pattern).toContain('_next/image');
-      expect(pattern).toContain('favicon.ico');
-      expect(pattern).toContain('assets/');
+    it.each([
+      '/',
+      '/signin',
+      '/auth-error',
+      '/session-error',
+      '/signed-out',
+      '/no-access',
+      '/contactlookup',
+      '/contactlookup/123',
+      '/contactlookup.rsc',
+      '/api',
+      '/api/auth/get-session',
+      '/apifoo',
+      // Lookalikes of the excluded paths — the old matcher skipped all of
+      // these, so they got no cookie redirect and no CSP.
+      '/faviconXico',
+      '/favicon.icox',
+      '/favicon.ico/x',
+      '/_next/imagefoo',
+      '/_next/staticX',
+      '/_next/static',
+      '/_nextfoo',
+      '/assets',
+      '/assetsX',
+    ])('runs on %s', (pathname) => {
+      expect(runs(pathname)).toBe(true);
+    });
+
+    it.each([
+      '/_next/static/chunks/main.js',
+      '/_next/static/css/app.css',
+      '/_next/image',
+      '/_next/image/',
+      '/favicon.ico',
+      '/assets/icons/logo.svg',
+    ])('skips %s', (pathname) => {
+      expect(runs(pathname)).toBe(false);
     });
   });
 });

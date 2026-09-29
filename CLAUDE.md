@@ -35,7 +35,8 @@ Ministry Platform is a shared production database containing real church member 
 - **Generate MP Types**: `npm run mp:generate:models` (generates TypeScript types + Zod schemas from Ministry Platform API, cleans output directory first)
 - **Generate MP Types (custom)**: `npm run mp:generate` (same generator, no preset flags — pass your own)
 - **Generate MP Stored Procs**: `npm run mp:generate:storedprocs` (regenerates `.claude/references/ministryplatform.storedprocs.md`)
-- **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage — thresholds are enforced, see Testing)
+- **Tests**: `npm test` (Vitest in watch mode), `npm run test:run` (single run), `npm run test:coverage` (with coverage — thresholds are enforced, see Testing), `npm run test:scripts` (only the `scripts/` project)
+- **Prerender check**: `npm run build:check-prerender` (after `npm run build`; fails if any route other than `/_not-found` and `/_global-error` was prerendered — a nonce-less static page breaks under the CSP)
 - **Setup**: `npm run setup` (interactive project setup wizard), `npm run setup:check` (validate setup without changes)
 - **Dependencies**: `npm run deps:relock` (regenerate `package-lock.json` — the only supported way), `npm run deps:verify` (check it for platform drift)
 
@@ -55,7 +56,8 @@ Also: do not run `npm ci` while `next dev` is running — it deletes `node_modul
 
 - Generated types automatically quote field names with special characters (e.g., `"Allow_Check-in"`)
 - The `mp:generate:models` script uses `--clean` flag to remove old files before regenerating
-- Manual generation with options: `tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help`
+- The `mp:generate*` scripts run `tsx --conditions=react-server`: the generators import `MPHelper`, whose client is guarded by `server-only`. Plain `tsx` fails with "This module cannot be imported from a Client Component module"
+- Manual generation with options: `tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help`
 
 ## Architecture
 
@@ -64,18 +66,19 @@ Also: do not run `npm ci` while `next dev` is running — it deletes `node_modul
 - **Auth**: Better Auth with Ministry Platform OAuth via genericOAuth plugin — see **[Auth Reference](.claude/references/auth.md)** for full details
   - **Key files**: `src/lib/auth.ts` (server config), `src/lib/auth-client.ts` (client), `src/proxy.ts` (route protection)
   - **Critical**: `session.user.id` is Better Auth's internal ID, NOT the MP User_GUID. Use `session.user.userGuid` for all MP API lookups.
-  - **Stateless Sessions**: JWT cookie cache, no database; `customSession` splits the name *and* resolves the MP `User_ID` from `dp_Users` (one call per user per process, cached; failures are not cached and never block session creation)
-  - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL` (or `NEXTAUTH_URL` fallback), `BETTER_AUTH_SECRET` (or `NEXTAUTH_SECRET` fallback), `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` (end-user OAuth login), `MINISTRY_PLATFORM_CLIENT_ID`/`MINISTRY_PLATFORM_CLIENT_SECRET` (all server-side MP data access, including the role gate)
-  - **Authorization Environment Variables**: `MP_SECURITY_ROLES` (comma-separated MP security role names permitted to use the gated features, reads *and* writes; `*` means "any MP security role will do"). **Fails closed**: unset, blank, or a value naming no roles (e.g. `","`) permits nobody. Deprecated write-only predecessor `MP_WRITE_SECURITY_ROLES` is still read when `MP_SECURITY_ROLES` yields no usable value.
+  - **Stateless Sessions**: encrypted (JWE) cookie cache, no database; `customSession` resolves the MP `User_ID` from `dp_Users` (cached per user per process for 15 min; failures are cached as `null` for 30 s when the lookup threw or 5 min when there is no such login, and never block session creation) and strips `token`/`ipAddress`/`userAgent` from the returned session. The session user has no `firstName`/`lastName` — read names from the MP profile
+  - **Required Environment Variables**: `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL` (or `NEXTAUTH_URL` fallback; both URLs are validated by `src/lib/env.ts` — https, loopback `http` excepted — and a bad value throws), `BETTER_AUTH_SECRET` (or `NEXTAUTH_SECRET` fallback), `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` (end-user OAuth login), `MINISTRY_PLATFORM_CLIENT_ID`/`MINISTRY_PLATFORM_CLIENT_SECRET` (all server-side MP data access, including the role gate)
+  - **Authorization Environment Variables**: `MP_SECURITY_ROLES` (comma-separated MP security role names permitted to use the gated features, reads *and* writes; `*` means "any MP security role will do"). **Fails closed**: unset, blank, or a value naming no roles (e.g. `","`) permits nobody. Deprecated write-only predecessor `MP_WRITE_SECURITY_ROLES` is still read when `MP_SECURITY_ROLES` yields no usable value. Roles are matched by **name** (trimmed, case-insensitive), not `Role_ID`: anyone who can create, rename or assign MP Security Roles can satisfy the gate, so restrict who can edit them in MP. A role name containing a comma cannot be listed.
 - **Services Layer**: Singleton service classes in `src/services/` wrap MPHelper for domain logic
   - Domain: `ContactService`, `ContactLogService`, `UserService`
   - Cross-cutting: `AuthorizationService` (MP security-role gate, exports `UnauthorizedError`), `SessionContextService` (resolves the acting MP `User_ID` for audit attribution), `DomainTimezoneService` (all datetime conversion at the MP boundary)
-- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`. The MP profile is started server-side by `src/app/server-providers.tsx` (below `AuthWrapper`) and streamed in as a promise; `useUser()` suspends on it, so keep each `<Suspense>` around it tight and same-size (the header wraps only its avatar) or the page shifts; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`
+- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`. The MP profile (the six-field `CurrentUserProfile` DTO) is started server-side by `src/app/server-providers.tsx` (below `AuthWrapper`) and streamed in as a promise; a failed load resolves to `null` (logged as `user.profile.load_failed`), not a throw; `useUser()` suspends on it, so keep each `<Suspense>` around it tight and same-size (the header wraps only its avatar) or the page shifts; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`
 - **Error Boundaries**: `src/app/global-error.tsx` (root, replaces the whole document), `src/app/error.tsx` (root segment), and `src/app/(web)/error.tsx` (protected shell, keeps header/sidebar alive) — so one throw no longer takes the whole page
 - **Security Headers**: `src/lib/security-headers.ts` builds the policy; `src/proxy.ts` applies it with a fresh per-request nonce. See **[Security Headers](.claude/references/security-headers.md)**.
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
 - **Validation**: Zod v4 (`zod@^4.3`) — note: different API from Zod v3 (e.g., `z.object()` vs `z.interface()`)
 - **Path Alias**: `@/*` maps to `src/*`
+- **Server-only modules**: `src/lib/auth.ts`, the MP client (`client.ts`, `auth/client-credentials.ts`, `utils/http-client.ts`) and every service in `src/services/` start with `import "server-only"`, so importing one from a client component fails `next build`. New modules that hold secrets or call MP must do the same (tests resolve it through an alias in `vitest.config.mts`)
 
 ## Next.js 16 Notes
 
@@ -146,7 +149,7 @@ import { ContactLookup } from '@/components/contact-lookup';
 import { AuthWrapper, Header, Sidebar } from '@/components/layout';
 
 // Application DTOs
-import { ContactSearch, ContactLookupDetails } from '@/lib/dto';
+import { ContactSearch, ContactLookupDetails, CurrentUserProfile } from '@/lib/dto';
 
 // Service classes (used in server actions)
 import { ContactService } from '@/services/contactService';
@@ -240,14 +243,14 @@ await mp.createTableRecords('Contact_Log', records, {
 ## Testing
 
 - **Framework**: Vitest with jsdom environment, `@testing-library/react` for hooks/components, v8 coverage
-- **Config**: `vitest.config.mts` (runner), `src/test-setup.ts` (env vars + jest-dom)
+- **Config**: `vitest.config.mts` (runner; two projects in one run — `src`, the app suite on jsdom, and `scripts`, the Node-only dev tooling from `scripts/vitest.config.mts`, outside the coverage denominator), `src/test-setup.ts` (env vars + jest-dom)
 - **Co-location**: Test files live next to source — `foo.ts` → `foo.test.ts`
 - **Critical**: Use `vi.hoisted()` for any mock variables referenced inside `vi.mock()` factories (hoisting causes `ReferenceError` otherwise)
 - **MPHelper mock**: Use mock class (`MPHelper: class { method = mockFn; }`), not `vi.fn().mockImplementation()`
 - **Singleton reset**: Reset `(ServiceClass as any).instance = undefined` in `beforeEach` to prevent state leakage
-- **Server action tests**: Mock `@/services/authorizationService` (`requireSecurityRole`/`hasSecurityRole`) and the service singletons. Only session-only subjects — `auth-wrapper`, `shared-actions/user`, `shared-actions/domain`, `user-menu/actions`, `sessionContextService` — still mock `@/lib/auth` + `next/headers`.
+- **Server action tests**: Mock `@/services/authorizationService` (`requireSecurityRole`/`hasSecurityRole`) and the service singletons. Only session-only subjects — `auth-wrapper`, `shared-actions/user`, `shared-actions/domain`, `user-menu/actions`, `sessionContextService`, `userService` — still mock `@/lib/auth` + `next/headers`.
 - **Coverage is gated, not advisory**: `vitest.config.mts` sets per-glob thresholds (`src/app/**`, `src/components/**/*.tsx`, `src/services/**`, `src/lib/**/*.ts`, `src/contexts/**`, and `src/proxy.ts` at 100%) plus a global backstop (98% statements / 95% branches / 97% functions / 98% lines). The global gate is what catches a newly added, entirely untested file. `src/components/ui/` and the generated `models/` are excluded from the denominator.
-- **CI**: `.github/workflows/test.yml` runs `npx vitest run --coverage` on Node 22 and uploads to Codecov, alongside a separate `lockfile` job
+- **CI**: `.github/workflows/test.yml` has four jobs on Node 22: `test` (`npx vitest run --coverage` — both Vitest projects — then Codecov upload), `lint` (`npm run lint` + `npx tsc --noEmit`), `build` (`npm run build` + `npm run build:check-prerender`) and `lockfile`
 - See **[Testing Reference](.claude/references/testing.md)** for all mock patterns, coverage data, and test inventory
 
 ## Reference Documents

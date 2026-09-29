@@ -12,6 +12,7 @@ src/components/
 │   ├── header.tsx              # App header, owns the Sidebar + UserMenu
 │   ├── sidebar.tsx             # Slide-out navigation
 │   ├── dynamic-breadcrumb.tsx  # Breadcrumb navigation
+│   ├── session-guard.tsx       # Client-side session watch → /signed-out
 │   └── index.ts                # Barrel exports
 ├── shared-actions/             # Cross-feature server actions (no components)
 │   ├── user.ts                 # getCurrentUserProfile
@@ -22,9 +23,12 @@ src/components/
 ├── contact-lookup/             # Contact search feature
 ├── contact-lookup-details/     # Contact details view
 ├── home-demos/                 # Dashboard demo tiles (access-gated)
-├── sign-in/                    # Sign-in page body (extracted from the route)
-└── user-menu/                  # User dropdown menu
+├── sign-in/                    # Sign-in page body + restart-loop counter (sign-in-attempts.ts)
+└── user-menu/                  # User dropdown menu + stand-alone SignOutButton
 ```
+
+Outside `src/components/`: `src/contexts/sign-out-broadcast.ts` (the cross-tab
+sign-out signal) and `src/lib/dto/user-profile.ts` (`CurrentUserProfile`).
 
 ## Route Inventory (`src/app/`)
 
@@ -35,19 +39,20 @@ Every file below has a co-located `*.test.tsx` / `*.test.ts`.
 | `layout.tsx` | Server | Root layout — `<html>`/`<body>` and `globals.css` only. No shell, no fonts, no metadata (those live in `(web)/layout.tsx`) |
 | `providers.tsx` | Client | `Providers` wraps children in `UserProvider`, forwarding the `profilePromise` prop. Named export, mounted by `server-providers.tsx` |
 | `server-providers.tsx` | Server | `ServerProviders` starts `getCurrentUserProfile()` during the server render and passes the un-awaited promise to `Providers`. Must sit below `AuthWrapper` |
-| `error.tsx` | Client | Error boundary for the routes OUTSIDE `(web)` — `/signin`, `/session-error`, `/auth-error`. Bare centred layout, offers retry **and** a plain link to `/signin` |
-| `global-error.tsx` | Client | Last-resort boundary for a throw in the root layout itself. Renders its own `<html>`/`<body>`, imports nothing from the app, styles inline (the CSP's `style-src` has `'unsafe-inline'` and no nonce) |
-| `(web)/layout.tsx` | Server | The authenticated shell: `AuthWrapper` → `ServerProviders` → `Header` (in a `<Suspense>` whose fallback is the fixed `HeaderSkeleton`) + `DynamicBreadcrumb`. Owns `metadata` and `viewport` |
-| `(web)/error.tsx` | Client | Error boundary for the shell. Deliberately INSIDE `(web)` so the Header — and therefore sign-out — keeps rendering around the error card |
+| `error.tsx` | Client | Root-segment boundary: the routes OUTSIDE `(web)` (`/signin`, `/session-error`, `/auth-error`, `/signed-out`) and anything the `(web)` shell itself throws outside its own boundary (e.g. `Header`). Bare centred layout, offers retry, a plain link to `/signin`, and a `SignOutButton` |
+| `global-error.tsx` | Client | Last-resort boundary for a throw in the root layout itself. Renders its own `<html>`/`<body>`, imports nothing from the app, styles inline (the CSP's `style-src` has `'unsafe-inline'` and no nonce). Next always prerenders it (`/_global-error`), so it carries no nonce and recovers through a plain link, not JS |
+| `(web)/layout.tsx` | Server | The authenticated shell: `AuthWrapper` → `ServerProviders` → `SessionGuard` → `Header` (in a `<Suspense>` whose fallback is the fixed `HeaderSkeleton`) + `DynamicBreadcrumb`. Owns `metadata` and `viewport` |
+| `(web)/error.tsx` | Client | Error boundary for the shell. Deliberately INSIDE `(web)` so the Header — and therefore sign-out — keeps rendering around the error card; the card has its own `SignOutButton` too |
 | `(web)/page.tsx` | Server | Dashboard. Synchronous, makes no MP call; mounts `ContactLookupDemoCard` in `<Suspense>` because `useUser()` suspends |
 | `(web)/home/page.tsx` | Server | Three-line legacy redirect to `/` |
 | `(web)/no-access/page.tsx` | Server | Static explanation for a signed-in user with no MP security role. Inside `(web)` so the header and sign-out still render. No auto-redirect, no retry |
-| `(web)/contactlookup/layout.tsx` | Server | Page-layer authorization gate over `/contactlookup` and `/contactlookup/[guid]`; `hasSecurityRole` → `redirect("/no-access")` |
+| `(web)/contactlookup/layout.tsx` | Server | UX redirect over `/contactlookup/**`: `hasSecurityRole` → `redirect("/no-access")`. **Not** an enforcement point for child pages — Next renders a child page as its own segment, so each page gates itself |
 | `(web)/contactlookup/page.tsx` | Client | Search page; renders `<ContactLookup />` |
-| `(web)/contactlookup/[guid]/page.tsx` | Server | Detail page. Awaits `params`, kicks off `getContactDetails` / `getContactLogsByContactId` as promises and `await`s `getMpTimezone()`, then streams them into `ContactLookupDetails` through `<Suspense>` |
+| `(web)/contactlookup/[guid]/page.tsx` | Server | Detail page. Calls `requireSecurityRole` itself first (the layout above does not protect it), awaits `params`, kicks off `getContactDetails` / `getContactLogsByContactId` as promises and `await`s `getMpTimezone()`, then streams them into `ContactLookupDetails` through `<Suspense>` |
 | `signin/page.tsx` | Server | `export const dynamic = "force-dynamic"` (F9 — a prerendered page has no CSP nonce and never hydrates) and renders `<SignIn />` |
 | `session-error/page.tsx` | Server | Recovery for a session with no `userGuid`. `force-dynamic`. Posts to `handleSignOut` from `user-menu/actions`. Outside `(web)` so `AuthWrapper` cannot loop |
 | `auth-error/page.tsx` | Server | Landing page for a failed MP OAuth callback. Maps a known `error` code to plain English; never renders `error_description` |
+| `signed-out/page.tsx` | Server | Where a tab lands when its session ends (`SessionGuard`, cross-tab sign-out). Public, `force-dynamic`, reads no session and never starts OAuth — only a plain link to `/signin` — so a live MP SSO session cannot silently sign the tab back in |
 | `api/auth/[...all]/route.ts` | Route handler | Deny-by-default allowlist in front of better-auth: `GET /get-session`, `GET /callback/ministry-platform`, `POST /sign-in/social`. Everything else 404s |
 
 Notes on route-file exports: App Router *requires* a default export from
@@ -66,10 +71,16 @@ named `GET`/`POST` as the framework requires.
 | `layout/header.tsx` | Client | Yes | Fixed top bar; owns `sidebarOpen` state, renders `Sidebar` and `UserMenu`. Only its avatar reads `useUser()` + `useAppSession()`, behind its own same-size `<Suspense>`, so the bar never suspends. Also exports `HeaderSkeleton`, the layout's pixel-identical fallback |
 | `layout/sidebar.tsx` | Client | Yes | Slide-out nav, `next/link` entries (a plain `<a>` reloads the document and the profile). Dashboard always shown; Contact Lookup appended, behind its own `<Suspense>`, only when `userProfile?.canAccessContactFeatures === true` (UX only, fails closed) |
 | `layout/dynamic-breadcrumb.tsx` | Client | Yes | Builds breadcrumbs from `usePathname()`, or from a `customSegments` prop |
-| `layout/index.ts` | - | - | Barrel exports: `AuthWrapper`, `Header`, `HeaderSkeleton`, `Sidebar`, `DynamicBreadcrumb` |
+| `layout/session-guard.tsx` | Client | Yes | Watches the client session; when it goes from present to none (sign-out in any tab, expiry) stops rendering the page and `location.replace("/signed-out")`. Re-checks on a cross-tab sign-out broadcast; clears the `/signin` restart counter once a session is seen |
+| `layout/index.ts` | - | - | Barrel exports: `AuthWrapper`, `Header`, `HeaderSkeleton`, `Sidebar`, `DynamicBreadcrumb`, `SessionGuard` |
 
 `Sidebar` is *not* mounted by `(web)/layout.tsx` — `Header` mounts it. Only
-`AuthWrapper`, `Header` and `DynamicBreadcrumb` are imported by the layout.
+`AuthWrapper`, `SessionGuard`, `Header` and `DynamicBreadcrumb` are imported by
+the layout.
+
+When the MP profile is missing (no `dp_Users` match, or the load failed and
+`UserProvider` resolved it to `null`), `Header` still renders the user menu
+with a no-profile label, so **Sign out** stays reachable.
 
 ### Feature Components
 
@@ -79,8 +90,8 @@ named `GET`/`POST` as the framework requires.
 | `contact-lookup/` | `contact-lookup.tsx`, `contact-lookup-search.tsx`, `contact-lookup-results.tsx` | Client | Yes (all three) | Yes |
 | `contact-lookup-details/` | `contact-lookup-details.tsx` | Client | Yes | Yes |
 | `home-demos/` | `contact-lookup-demo-card.tsx` | Client | Yes | No |
-| `sign-in/` | `sign-in.tsx` | Client | **No** | No |
-| `user-menu/` | `user-menu.tsx` | Client | Yes | Yes |
+| `sign-in/` | `sign-in.tsx`, `sign-in-attempts.ts` | Client | `sign-in-attempts` yes; `sign-in.tsx` via `app/signin/page.test.tsx` | No |
+| `user-menu/` | `user-menu.tsx`, `sign-out-button.tsx` | Client | Yes (both) | Yes |
 
 ### UI Components (shadcn/ui)
 
@@ -100,7 +111,7 @@ a `"use server"` directive.
 
 | Feature | Actions File | Functions |
 |---------|--------------|-----------|
-| contact-logs | `contact-logs/actions.ts` | `getContactLogTypes`, `createContactLog`, `updateContactLog`, `deleteContactLog`, `getContactLogsByContactId`, `getContactLogById` |
+| contact-logs | `contact-logs/actions.ts` | `getContactLogTypes`, `createContactLog`, `updateContactLog`, `deleteContactLog` |
 | contact-lookup | `contact-lookup/actions.ts` | `searchContacts` |
 | contact-lookup-details | `contact-lookup-details/actions.ts` | `getContactDetails`, `getContactLogsByContactId` |
 | user-menu | `user-menu/actions.ts` | `handleSignOut` |
@@ -111,24 +122,34 @@ What each one does:
 
 - **`getContactLogTypes`** — the `Contact_Log_Types` lookup list for the create/edit form.
 - **`createContactLog` / `updateContactLog`** — gate first, then delegate to
-  `ContactLogService`. Neither forwards `Made_By`; the service stamps it from the
-  authorization gate and strips anything the caller sent (F4). `updateContactLog`
-  also never forwards `Contact_ID`, so an edit cannot move a log to another contact.
-  IDs pass through `sanitizeNumericId` before they reach the service.
+  `ContactLogService`, which keeps only allowlisted fields. Neither forwards
+  `Made_By`: create stamps it from the authorization gate, and update omits it
+  entirely so the original author is kept (the editor is recorded through
+  `$userId` in `dp_Audit_Log`) (F4). `updateContactLog` also never forwards
+  `Contact_ID`, so an edit cannot move a log to another contact. IDs pass
+  through `sanitizeNumericId` before they reach the service.
 - **`deleteContactLog`** — gate, `sanitizeNumericId`, service.
-- **`getContactLogsByContactId` / `getContactLogById`** — gated reads.
-  `contact-lookup-details` has its own `getContactLogsByContactId` that additionally
-  joins the log-type name onto each row (one indexed lookup fetch, not one per log)
-  and returns `ContactLogDisplay[]`.
+- **Log reads** live in `contact-lookup-details`: its `getContactLogsByContactId`
+  is a gated read that joins the log-type name onto each row (one indexed lookup
+  fetch, not one per log) and returns `ContactLogDisplay[]`. (The unused
+  `contact-logs` read actions were removed on 2026-09-29.)
 - **`searchContacts`** — gate is deliberately OUTSIDE the `try`, so `UnauthorizedError`
   reaches the caller instead of being flattened into "Failed to search contacts".
 - **`getContactDetails`** — gated read by `Contact_GUID`.
-- **`handleSignOut`** — `auth.api.signOut`, then `redirect()` to MP's
-  `/oauth/connect/endsession` (RP-initiated logout). Touches no MP table.
+- **`handleSignOut`** — `auth.api.signOut` (clears this browser's cookies
+  first), then `redirect()` to MP's `/oauth/connect/endsession` with
+  `post_logout_redirect_uri`, `client_id` and, when this instance still has it,
+  `id_token_hint` (RP-initiated logout). Refuses an unset or unusable MP URL /
+  `BETTER_AUTH_URL` (`src/lib/env.ts`). Touches no MP table. Client code calls it
+  through `signOutEverywhere()` (`user-menu/sign-out-button.tsx`), which also
+  broadcasts the sign-out to other tabs.
 - **`getCurrentUserProfile`** — takes no parameters by design; the `User_GUID`
-  comes from the session, never the caller. Adds `canAccessContactFeatures` from
-  `AuthorizationService.hasSecurityRole` (the non-throwing form) so nav and
-  enforcement cannot disagree about policy.
+  comes from the session, never the caller. Returns the six-field
+  `CurrentUserProfile` DTO (`First_Name`, `Last_Name`, `Nickname`,
+  `Email_Address`, `Image_GUID`, `canAccessContactFeatures`) built field by
+  field — no IDs, GUID, phone, roles or groups reach the client.
+  `canAccessContactFeatures` comes from `AuthorizationService.hasSecurityRole`
+  (the non-throwing form) so nav and enforcement cannot disagree about policy.
 - **`getMpTimezone`** — the domain's IANA zone, for client-side `Intl` rendering
   of MP wall-clock values. Cached for the life of the server process.
 
@@ -156,7 +177,7 @@ Routes carrying the page-layer half of the gate:
 
 | Route file | Purpose |
 |---|---|
-| `src/app/(web)/contactlookup/layout.tsx` | Server gate over `/contactlookup` and `/contactlookup/[guid]`; `redirect("/no-access")` for a user with no MP security role. Uses the non-throwing `hasSecurityRole`, so "MP is down" still throws rather than reading as "you are not allowed" |
+| `src/app/(web)/contactlookup/layout.tsx` | UX redirect over `/contactlookup/**`: `redirect("/no-access")` for a user with no MP security role. Not an enforcement point — `[guid]/page.tsx` calls `requireSecurityRole` itself. Uses the non-throwing `hasSecurityRole`, so a failed `dp_User_Roles` read still throws rather than reading as "you are not allowed" — but a failed session or `User_ID` lookup reports `no_mp_user` and does land on `/no-access` |
 | `src/app/(web)/no-access/page.tsx` | Static explanation page, inside `(web)` so the header and sign-out still render |
 
 **Shared Actions Folder**: `src/components/shared-actions/` contains actions used
@@ -252,10 +273,6 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 
 - **`(web)/contactlookup/page.tsx` deep-imports** `@/components/contact-lookup/contact-lookup`
   instead of the barrel `@/components/contact-lookup`.
-- **Stale comment in `contact-logs.tsx`** (`formatDateTime`, ~line 65): "the app
-  has no error boundary". It does now — `(web)/error.tsx`, `error.tsx` and
-  `global-error.tsx` landed in `07a2bd9`. The defensive placeholder is still
-  correct, the justification is not.
 - **Mixed component declaration styles.** `contact-lookup/*` and
   `contact-lookup-details` use `export const X: React.FC<Props> = …`; everything
   else uses `export function X(…)`. Both are named exports, so both comply, but
@@ -269,7 +286,7 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 ## Quick Reference: Component Responsibilities
 
 ### contact-logs
-- **Purpose**: CRUD interface for contact log entries (631 lines, the largest component)
+- **Purpose**: CRUD interface for contact log entries (627 lines, the largest component)
 - **Features**: Create/edit dialogs, delete confirmation via `AlertDialog`, log-type select, `react-hook-form` + `zodResolver` validation
 - **Props**: `contactLogs`, `contactId`, `contactNickname`, `contactLastName`, `mpTimezone`, `onRefresh`
 - **Dependencies**: `./actions` → `ContactLogService`, React Hook Form, Zod
@@ -297,6 +314,11 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 - **Why it exists separately**: route segment config (`export const dynamic`) is
   IGNORED in a `"use client"` module, so the page had to become a Server
   Component and the client work had to move here
+- **Restart cap** (`sign-in-attempts.ts`): `/signin` starts OAuth on its own; a
+  per-tab `sessionStorage` counter allows `MAX_AUTOMATIC_SIGN_IN_ATTEMPTS` (2)
+  automatic starts per 2-minute window, then shows a "keeps restarting" message
+  with a `SignOutButton` instead of looping. Storage failures never block
+  sign-in.
 - **Features**: `sanitizeCallbackUrl` accepts only a same-origin relative path
   (F3 open redirect). It mirrors better-auth's server-side `isSafeRelativeURL` —
   refusing protocol-relative `//`, any backslash, control characters (the F3b
@@ -307,11 +329,17 @@ Verified by inspection of the tree on `docs/release-readiness-refresh`.
 
 ### user-menu
 - **Purpose**: User profile dropdown with sign-out
-- **Features**: Displays user name/email, implements OIDC logout flow
-- **Note**: `handleSignOut` implements RP-initiated logout for Ministry Platform OAuth.
-  The click handler calls `unstable_rethrow(err)` as its first statement in the
-  catch — `redirect()` is implemented as a thrown `NEXT_REDIRECT` signal, and
-  without the rethrow every successful sign-out would pop an error alert instead.
+- **Features**: Displays user name/email (or a "profile couldn't be loaded"
+  label — sign-out is offered either way), implements OIDC logout flow
+- **`SignOutButton` / `signOutEverywhere`** (`sign-out-button.tsx`): the one
+  sign-out path every control shares — the user menu, both error boundaries,
+  and `/signin` when sign-in keeps looping. `signOutEverywhere` runs
+  `handleSignOut`, then (in `finally`) posts on the cross-tab channel
+  (`src/contexts/sign-out-broadcast.ts`) so other tabs' `SessionGuard`s
+  re-check and leave for `/signed-out`. It calls `unstable_rethrow(err)` as the
+  first statement of its catch — `redirect()` is a thrown `NEXT_REDIRECT`
+  signal, and without the rethrow every successful sign-out would surface as an
+  error — and returns a message only for a genuine failure.
 
 ## Services Used
 

@@ -408,5 +408,93 @@ describe('TableService', () => {
         .join(' ');
       expect(loggedArgs).not.toContain('Confidential pastoral note');
     });
+
+    it('should log only the error name, not a message that embeds the response body', async () => {
+      // V8's JSON SyntaxError quotes the body it failed to parse.
+      (mockHttpClient.get as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new SyntaxError('Unexpected token J, "Jane Doe, 12 Main St" is not valid JSON')
+      );
+
+      await expect(tableService.getTableRecords('Contacts')).rejects.toThrow(SyntaxError);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Error fetching records from table Contacts:',
+        'SyntaxError'
+      );
+    });
+  });
+
+  describe('Table name validation', () => {
+    // encodeURIComponent('..') === '..', which the URL parser resolves to the
+    // API root, so the name must be a plain identifier before it is encoded.
+    it.each([
+      '..',
+      '../procs/api_Some_Proc',
+      'Contacts/..',
+      'Contacts?$top=1',
+      'Contacts#',
+      'Contacts\\x',
+      '%2e%2e',
+      'Con tacts',
+      '1Contacts',
+      '',
+      'a'.repeat(129),
+      42,
+      undefined,
+    ])('should refuse the table name %j in every method before any token or network work', async (bad) => {
+      const table = bad as unknown as string;
+      await expect(tableService.getTableRecords(table)).rejects.toThrow('Invalid table name');
+      await expect(tableService.createTableRecords(table, [])).rejects.toThrow('Invalid table name');
+      await expect(tableService.updateTableRecords(table, [])).rejects.toThrow('Invalid table name');
+      await expect(tableService.deleteTableRecords(table, [1])).rejects.toThrow('Invalid table name');
+
+      expect(mockClient.ensureValidToken).not.toHaveBeenCalled();
+      expect(mockHttpClient.get).not.toHaveBeenCalled();
+      expect(mockHttpClient.post).not.toHaveBeenCalled();
+      expect(mockHttpClient.put).not.toHaveBeenCalled();
+      expect(mockHttpClient.delete).not.toHaveBeenCalled();
+    });
+
+    it('should accept MP-style names with underscores and a dp_ prefix', async () => {
+      (mockHttpClient.get as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      await tableService.getTableRecords('dp_User_Roles');
+      await tableService.getTableRecords('_Custom1');
+
+      expect(mockHttpClient.get).toHaveBeenNthCalledWith(1, '/tables/dp_User_Roles', undefined);
+      expect(mockHttpClient.get).toHaveBeenNthCalledWith(2, '/tables/_Custom1', undefined);
+    });
+
+    it('should not echo a refused table name in the error or the log', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const error = await tableService
+        .getTableRecords('../tables/dp_API_Clients')
+        .catch((e: Error) => e);
+
+      expect((error as Error).message).toBe('Invalid table name');
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Delete ID validation', () => {
+    it.each([[[0]], [[1, -2]], [[1.5]], [['1 OR 1=1']], [[null]], ['1,2'], [undefined]])(
+      'should refuse ids %j before any token or network work',
+      async (ids) => {
+        await expect(
+          tableService.deleteTableRecords('Contact_Log', ids as unknown as number[])
+        ).rejects.toThrow(/Invalid record ID/);
+        expect(mockClient.ensureValidToken).not.toHaveBeenCalled();
+        expect(mockHttpClient.delete).not.toHaveBeenCalled();
+      }
+    );
+
+    it('should normalise digit-string ids to numbers', async () => {
+      (mockHttpClient.delete as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+
+      await tableService.deleteTableRecords('Contact_Log', ['12', 13] as unknown as number[]);
+
+      expect(mockHttpClient.delete).toHaveBeenCalledWith('/tables/Contact_Log', { id: [12, 13] });
+    });
   });
 });

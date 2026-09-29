@@ -1,3 +1,4 @@
+import "server-only";
 import { cache } from "react";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeNumericId } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
@@ -111,29 +112,6 @@ function parseRoleValue(raw: string | undefined): ParsedRoleValue {
 }
 
 /**
- * Per-REQUEST memoization of the `dp_User_Roles` read, keyed by `User_ID`.
- *
- * The gate runs at up to three layers per request (page/layout, server action,
- * service method), and each layer must be able to call it without knowing
- * whether another already did. React's `cache()` scopes the memo to a single
- * server request, so those three calls cost one MP read — and nothing is
- * carried across requests, which is what keeps a revoked role effective on the
- * user's very next request.
- *
- * Outside a React request scope (Vitest, a plain Node script) `cache()` is a
- * passthrough: React's implementation calls through when no cache dispatcher
- * is installed. Tests therefore see the uncached behavior, which is why the
- * "does not cache across calls" assertions below still hold.
- *
- * This is deliberately NOT a module-level or time-based cache. See
- * `.claude/references/auth.md` § Authorization.
- */
-const loadSecurityRoles = cache(
-  async (userId: number): Promise<string[]> =>
-    AuthorizationService.getInstance().readSecurityRolesFromMp(userId),
-);
-
-/**
  * AuthorizationService — decides whether the acting user may read from or
  * write to Ministry Platform through this app.
  *
@@ -184,16 +162,44 @@ export class AuthorizationService {
   }
 
   /**
-   * Reads the MP security role names held by a user, bypassing the per-request
-   * memo. Internal seam for {@link loadSecurityRoles} — callers should use
-   * {@link getSecurityRoles}.
+   * Per-REQUEST memoization of the `dp_User_Roles` read, keyed by `User_ID`.
    *
-   * @internal
+   * The gate runs at up to three layers per request (page/layout, server
+   * action, service method), and each layer must be able to call it without
+   * knowing whether another already did. React's `cache()` scopes the memo to a
+   * single React server render, so during an RSC render (a page or layout and
+   * the services it calls) those calls cost one MP read — and nothing is
+   * carried across requests, which is what keeps a revoked role effective on
+   * the user's very next request.
+   *
+   * It does NOT dedupe inside a server action. Next runs an action outside a
+   * React render, where `cache()` has no dispatcher and calls straight through,
+   * so an action that gates and then calls a gated service method reads the
+   * roles once per gate call. That costs an extra MP read, never a wrong
+   * answer.
+   *
+   * Outside a React request scope (Vitest, a plain Node script) `cache()` is
+   * likewise a passthrough, which is why the "does not cache across calls"
+   * assertions in the tests hold.
+   *
+   * This is deliberately NOT a module-level or time-based cache. See
+   * `.claude/references/auth.md` § Authorization.
    */
-  public async readSecurityRolesFromMp(userId: number): Promise<string[]> {
+  private static readonly loadSecurityRoles = cache(
+    async (userId: number): Promise<string[]> =>
+      AuthorizationService.getInstance().readSecurityRolesFromMp(userId),
+  );
+
+  /**
+   * Reads the MP security role names held by a user, bypassing the per-request
+   * memo. Private: the only entry point is {@link getSecurityRoles}, which
+   * validates the ID and fails closed. The ID is sanitized here as well, so the
+   * interpolation below is safe on its own rather than because of its caller.
+   */
+  private async readSecurityRolesFromMp(userId: number): Promise<string[]> {
     const records = await this.helper().getTableRecords<{ Role_Name: string | null }>({
       table: "dp_User_Roles",
-      filter: `User_ID = ${userId}`,
+      filter: `User_ID = ${sanitizeNumericId(userId, "acting MP User_ID")}`,
       select: "Role_ID_TABLE.Role_Name",
     });
 
@@ -224,7 +230,7 @@ export class AuthorizationService {
       );
     }
 
-    return loadSecurityRoles(safeUserId);
+    return AuthorizationService.loadSecurityRoles(safeUserId);
   }
 
   /**
@@ -232,9 +238,17 @@ export class AuthorizationService {
    * MP `User_ID` without logging a denial — use it to compute UI affordances
    * (e.g. `canAccessContactFeatures`), never as the enforcement point.
    *
-   * Infrastructure failures (MP unreachable, an unusable acting `User_ID`) are
-   * still thrown rather than reported as `permitted: false`, so a caller can
-   * never mistake "MP is down" for "this user is not allowed".
+   * A failed `dp_User_Roles` read and an unusable acting `User_ID` are thrown
+   * rather than reported as `permitted: false`, so for those a caller cannot
+   * mistake "MP is down" for "this user is not allowed".
+   *
+   * Known gap (2026-09-28 review, behaviour unchanged): a failure one step
+   * earlier is NOT distinguished. When the session lookup throws, or the MP
+   * `User_ID` could not be resolved at sign-in because MP was unreachable
+   * (`resolveMpUserId` in `src/lib/auth.ts` returns null, and caches that
+   * null for 30 s — 5 min for "no such user"), `SessionContextService` yields
+   * null and this reports `no_mp_user` — so the user sees "no access" rather
+   * than an error until the cache entry lapses. It still fails closed.
    */
   public async hasSecurityRole(
     ctx: AuthorizationContext,

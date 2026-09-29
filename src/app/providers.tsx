@@ -2,11 +2,11 @@
 
 import { UserProvider } from "@/contexts/user-context";
 import { ReactNode } from "react";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 interface ProvidersProps {
   /** Started server-side by `ServerProviders`; see `UserProvider`. */
-  profilePromise: Promise<MPUserProfile | null>;
+  profilePromise: Promise<CurrentUserProfile | null>;
   children: ReactNode;
 }
 

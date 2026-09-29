@@ -66,7 +66,8 @@ The rule: **strings with no zone marker are wall-clock**, strings/Dates with exp
 
 It rejects rather than guesses: an empty/whitespace-only string or a non-string non-`Date` throws
 `toMpSqlDatetime: value must be a non-empty string or Date`, and a string that matches neither the
-wall-clock shape nor `Date` parsing throws ``toMpSqlDatetime: unable to parse "<value>"``. Accepted
+wall-clock shape nor `Date` parsing throws `toMpSqlDatetime: value could not be parsed as a date`
+(the value is deliberately not echoed — it can be caller input). Accepted
 wall-clock shapes are `YYYY-MM-DD`, `YYYY-MM-DD HH:MM[:SS]` and `YYYY-MM-DDTHH:MM[:SS][.fff]`; missing
 components default to zero.
 
@@ -77,7 +78,8 @@ Use when you need a `Date` instant to do real arithmetic on a value MP returned 
 A wall-clock string is interpreted as MP-TZ (`"2026-05-17 12:00:00"` in `America/New_York` → the
 `2026-05-17T16:00:00.000Z` instant). A string carrying `Z` or an explicit `±HH:MM` offset skips the
 wall-clock path entirely and is parsed directly, without consulting the domain zone; if that parse
-yields an Invalid Date it throws ``parseMpDatetime: unable to parse "<value>"``.
+yields an Invalid Date it throws `parseMpDatetime: value could not be parsed as a date` (again
+without the value).
 
 ## Recipes
 

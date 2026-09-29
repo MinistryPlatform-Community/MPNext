@@ -4,10 +4,10 @@ import { render, screen } from "@testing-library/react";
 /**
  * /contactlookup layout tests — the page-layer half of the F1 fix.
  *
- * This layout is the only thing that keeps a signed-in user with no Ministry
- * Platform security role from *landing* on the contact pages. The actions and
- * services refuse them either way, but without this they would see a broken
- * screen of thrown server actions instead of an explanation.
+ * This layout redirects a signed-in user with no Ministry Platform security
+ * role to an explanation instead of a broken screen of thrown server actions.
+ * It is a UX redirect only, not what protects the child pages — each page,
+ * action and service gates itself (see "child pages gate themselves" below).
  *
  * Two properties are worth pinning, and neither is visible in the rendered DOM:
  *
@@ -20,12 +20,25 @@ import { render, screen } from "@testing-library/react";
  * The gate is mocked: nothing here may reach the production MP database.
  */
 
-const { mockHasSecurityRole, mockRedirect } = vi.hoisted(() => ({
+const {
+  mockHasSecurityRole,
+  mockRequireSecurityRole,
+  mockRedirect,
+  mockGetContactDetails,
+  mockGetContactLogsByContactId,
+  mockGetMpTimezone,
+  MockUnauthorizedError,
+} = vi.hoisted(() => ({
   mockHasSecurityRole: vi.fn(),
+  mockRequireSecurityRole: vi.fn(),
   // Mirror next/navigation's redirect(), which halts execution by throwing.
   mockRedirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
+  mockGetContactDetails: vi.fn(),
+  mockGetContactLogsByContactId: vi.fn(),
+  mockGetMpTimezone: vi.fn(),
+  MockUnauthorizedError: class UnauthorizedError extends Error {},
 }));
 
 vi.mock("next/navigation", () => ({
@@ -36,11 +49,30 @@ vi.mock("@/services/authorizationService", () => ({
   AuthorizationService: {
     getInstance: () => ({
       hasSecurityRole: mockHasSecurityRole,
+      requireSecurityRole: mockRequireSecurityRole,
     }),
   },
+  UnauthorizedError: MockUnauthorizedError,
+}));
+
+// The [guid] page's data sources, for the "child pages gate themselves" block.
+vi.mock("@/components/contact-lookup-details/actions", () => ({
+  getContactDetails: mockGetContactDetails,
+  getContactLogsByContactId: mockGetContactLogsByContactId,
+}));
+
+vi.mock("@/components/shared-actions/domain", () => ({
+  getMpTimezone: mockGetMpTimezone,
+}));
+
+vi.mock("@/components/contact-lookup-details", () => ({
+  ContactLookupDetails: () => <div data-testid="contact-lookup-details" />,
 }));
 
 import ContactLookupLayout from "./layout";
+import ContactLookupDetailPage from "./[guid]/page";
+
+const GUID = "ab12cd34-ef56-7890-abcd-ef1234567890";
 
 function permitted() {
   return { permitted: true, userId: 99, reason: null };
@@ -54,6 +86,10 @@ describe("/contactlookup layout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockHasSecurityRole.mockResolvedValue(permitted());
+    mockRequireSecurityRole.mockResolvedValue(99);
+    mockGetContactDetails.mockResolvedValue({ Contact_ID: 42 });
+    mockGetContactLogsByContactId.mockResolvedValue([]);
+    mockGetMpTimezone.mockResolvedValue("America/New_York");
   });
 
   it("renders children for a user who holds a security role", async () => {
@@ -101,19 +137,47 @@ describe("/contactlookup layout", () => {
     );
   });
 
-  it("never renders the child page when the gate refuses", async () => {
-    // React only renders `children` once this component returns, so a redirect
-    // here means the page component — and its server-action calls — never run.
-    // This is what covers the [guid] detail page's own data fetching.
-    const child = vi.fn(() => <div data-testid="gated-page" />);
-    mockHasSecurityRole.mockResolvedValueOnce(refused("no_security_role"));
+  /**
+   * The layout's redirect does NOT protect child pages. Next 16 renders the
+   * [guid] page as its own segment, independently of this layout, so the page
+   * runs — and its output can reach the RSC payload — even when the layout
+   * redirects (node_modules/next/dist/docs/01-app/02-guides/authentication.md,
+   * "Layouts and auth checks"). The old test here asserted "nothing rendered"
+   * after building the child element itself, which was always true and so
+   * could never fail.
+   *
+   * What is pinned instead: the layout redirects (above), and — separately,
+   * with the layout nowhere in the call — the detail page's OWN gate refuses a
+   * role-less user before any data call. Delete the page's gate and this fails.
+   */
+  describe("child pages gate themselves", () => {
+    it("the [guid] page refuses a role-less user on its own, before fetching", async () => {
+      mockRequireSecurityRole.mockRejectedValueOnce(
+        new MockUnauthorizedError("Not authorized")
+      );
 
-    await expect(
-      ContactLookupLayout({ children: child() })
-    ).rejects.toThrow("REDIRECT:/no-access");
+      await expect(
+        ContactLookupDetailPage({ params: Promise.resolve({ guid: GUID }) })
+      ).rejects.toThrow("REDIRECT:/no-access");
 
-    // The element was created but nothing was rendered from it.
-    expect(screen.queryByTestId("gated-page")).toBeNull();
+      expect(mockRequireSecurityRole).toHaveBeenCalledWith({
+        table: "Contacts",
+        operation: "read",
+      });
+      expect(mockGetContactDetails).not.toHaveBeenCalled();
+      expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
+      expect(mockGetMpTimezone).not.toHaveBeenCalled();
+    });
+
+    it("the [guid] page runs its data calls only once its gate permits", async () => {
+      await ContactLookupDetailPage({ params: Promise.resolve({ guid: GUID }) });
+
+      expect(mockRequireSecurityRole).toHaveBeenCalledTimes(1);
+      expect(mockGetContactDetails).toHaveBeenCalledWith(GUID);
+      expect(mockRequireSecurityRole.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGetContactDetails.mock.invocationCallOrder[0]
+      );
+    });
   });
 
   it("surfaces an MP failure instead of redirecting", async () => {

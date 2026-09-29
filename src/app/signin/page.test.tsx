@@ -45,6 +45,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: mockUseSearchParams,
 }));
 
+// Only rendered on the sign-in-loop error screen (covered in
+// src/components/sign-in/sign-in.test.tsx); stubbed so this suite never loads
+// the real sign-out server action or the server auth config behind it.
+vi.mock("@/components/user-menu/sign-out-button", () => ({
+  SignOutButton: () => <button type="button">Sign out</button>,
+}));
+
 import SignIn from "./page";
 
 /** Builds a stand-in for the ReadonlyURLSearchParams the page reads. */
@@ -57,6 +64,9 @@ describe("/signin page", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The page caps its automatic restarts per tab in sessionStorage; every
+    // test here is a fresh visit, so none may inherit another's count.
+    window.sessionStorage.clear();
     // The page navigates by assigning window.location.href; jsdom treats that
     // as a real navigation it cannot perform, so swap in a plain object we can
     // assert against.

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 /**
  * Error boundary for the routes outside the `(web)` group — `/signin`,
@@ -13,6 +13,15 @@ import { render, screen, fireEvent } from "@testing-library/react";
  * Same PII guarantee as the shell boundary: identifiers and shape only, never
  * `error.message`. See .claude/references/auth.md § Logging policy.
  */
+
+const { mockHandleSignOut } = vi.hoisted(() => ({
+  mockHandleSignOut: vi.fn(),
+}));
+
+// The real action reaches better-auth and MP's logout endpoint.
+vi.mock("@/components/user-menu/actions", () => ({
+  handleSignOut: mockHandleSignOut,
+}));
 
 import RootError from "./error";
 
@@ -59,6 +68,19 @@ describe("root error boundary", () => {
     // client-side navigation would run.
     const link = screen.getByRole("link", { name: /go to sign in/i });
     expect(link).toHaveAttribute("href", "/signin");
+  });
+
+  it("offers sign-out, because a signed-in user can land here too", async () => {
+    // This boundary also catches throws from the (web) shell above
+    // (web)/error.tsx — the header, the layout — where "Go to sign in" just
+    // bounces a still-valid session back into the same failure. Without a
+    // sign-out here a shared machine stayed signed in.
+    mockHandleSignOut.mockResolvedValue(undefined);
+    renderBoundary();
+
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
+
+    await waitFor(() => expect(mockHandleSignOut).toHaveBeenCalledTimes(1));
   });
 
   it("shows the digest when present and omits it otherwise", () => {

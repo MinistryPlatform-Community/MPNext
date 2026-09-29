@@ -428,3 +428,6 @@ FodyWeavers.xsd
 
 # Claude Code personal settings (shared permissions belong in .claude/settings.json)
 .claude/settings.local.json
+
+# Claude Code agent worktrees (each is a full checkout; never commit or lint them)
+.claude/worktrees/

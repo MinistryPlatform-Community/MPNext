@@ -45,6 +45,19 @@ describe('buildStaticSecurityHeaders', () => {
     expect(policy).toContain('geolocation=()');
   });
 
+  it('isolates the browsing-context group (COOP same-origin)', () => {
+    // Safe because sign-in/sign-out are full-page redirects, not popups.
+    expect(valueOf(buildStaticSecurityHeaders(false), 'Cross-Origin-Opener-Policy')).toBe(
+      'same-origin'
+    );
+  });
+
+  it('refuses cross-origin embedding of its responses (CORP same-origin)', () => {
+    expect(valueOf(buildStaticSecurityHeaders(false), 'Cross-Origin-Resource-Policy')).toBe(
+      'same-origin'
+    );
+  });
+
   it('sends HSTS in production', () => {
     const hsts = valueOf(buildStaticSecurityHeaders(true), 'Strict-Transport-Security');
 
@@ -96,6 +109,43 @@ describe('originOf', () => {
     // environment variable must narrow the policy, never 500 the whole app.
     expect(originOf(input)).toBeNull();
   });
+
+  it('reduces an MP URL with a path to its origin', () => {
+    expect(originOf('https://x.ministryplatform.com/path')).toBe('https://x.ministryplatform.com');
+  });
+
+  it('allows plain http (local development against a local server)', () => {
+    expect(originOf('http://localhost:3000/files')).toBe('http://localhost:3000');
+  });
+
+  it('normalizes case and drops userinfo, which are not part of an origin', () => {
+    expect(originOf('HTTPS://user:pw@MP.Example.COM:8443/x')).toBe('https://mp.example.com:8443');
+  });
+
+  it('accepts an IDN host, which the URL parser has already turned into punycode', () => {
+    expect(originOf('https://bücher.example/x')).toBe('https://xn--bcher-kva.example');
+  });
+
+  it.each([
+    // `*` in a CSP source is "any host": these would WIDEN img-src and
+    // form-action to every https origin.
+    ['a wildcard host', 'https://*'],
+    ['a wildcard subdomain', 'https://*.example.com'],
+    ['a percent-encoded wildcard (the parser decodes it to *)', 'https://%2A'],
+    // `;` ends the directive, so what follows is parsed as a new one.
+    ['a host that injects a directive', 'https://a;sandbox'],
+    ['a percent-encoded ;', 'https://a%3Bsandbox'],
+    // Non-http(s) schemes: `javascript:` has the opaque origin "null".
+    ['a javascript: URL', 'javascript:x'],
+    ['a data: URL', 'data:text/html,x'],
+    ['an ftp: URL', 'ftp://files.example.com'],
+    ['a ws: URL', 'ws://mp.example.com'],
+    // Not dangerous, but outside the allowed host charset — omitted rather
+    // than special-cased.
+    ['an IPv6 literal', 'https://[::1]:3000'],
+  ])('returns null for %s (%s)', (_label, input) => {
+    expect(originOf(input)).toBeNull();
+  });
 });
 
 describe('createNonce', () => {
@@ -136,7 +186,7 @@ describe('buildContentSecurityPolicy', () => {
     expect(directive(csp, 'object-src')).toBe("object-src 'none'");
     expect(directive(csp, 'frame-src')).toBe("frame-src 'none'");
     expect(directive(csp, 'frame-ancestors')).toBe("frame-ancestors 'none'");
-    expect(directive(csp, 'base-uri')).toBe("base-uri 'self'");
+    expect(directive(csp, 'base-uri')).toBe("base-uri 'none'");
     expect(directive(csp, 'font-src')).toBe("font-src 'self'");
   });
 

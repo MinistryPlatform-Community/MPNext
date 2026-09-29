@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { use } from "react";
 import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * Header tests.
@@ -73,21 +73,16 @@ function installJsdomPolyfills() {
   proto.scrollIntoView ??= () => {};
 }
 
-const profile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const profile: CurrentUserProfile = {
   First_Name: "Sam",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: null,
   Image_GUID: null,
-  roles: [],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
-function setUser(userProfile: MPUserProfile | null) {
+function setUser(userProfile: CurrentUserProfile | null) {
   mockUseUser.mockReturnValue({ userProfile, refreshUserProfile: vi.fn() });
 }
 
@@ -147,8 +142,11 @@ describe("Header", () => {
     });
   });
 
-  describe("while the profile is still loading", () => {
-    it("renders the shell with an inert avatar button", () => {
+  // `null` is what `useUser()` yields when MP has no profile for the user
+  // (`getCurrentUserProfile` returned undefined) AND — since UserProvider now
+  // catches the rejection — when the profile load failed outright.
+  describe("when there is no MP profile", () => {
+    it("renders the shell with an avatar button and no MP image", () => {
       setUser(null);
       render(<Header />);
 
@@ -160,14 +158,36 @@ describe("Header", () => {
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
     });
 
-    it("does not open a user menu, because there is no profile to show", () => {
+    it("still opens a menu that offers sign-out (security-no-signout-when-profile-fails)", async () => {
+      // This used to render a bare, menu-less avatar: a user whose profile
+      // failed had no sign-out control anywhere on screen.
       setUser(null);
+      setSession({ user: { name: "Sam Ortiz" } });
       render(<Header />);
 
       openMenu(avatarButton());
 
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-      expect(avatarButton()).not.toHaveAttribute("title");
+      const menu = await screen.findByRole("menu");
+      expect(
+        within(menu).getByText(/profile couldn.t be loaded/i)
+      ).toBeInTheDocument();
+      fireEvent.click(within(menu).getByRole("menuitem", { name: /sign out/i }));
+      await waitFor(() => expect(mockHandleSignOut).toHaveBeenCalledTimes(1));
+    });
+
+    it("offers sign-out even before the client session has loaded", async () => {
+      // The header only renders behind AuthWrapper, so a session exists even
+      // while `useAppSession()` is still null.
+      setUser(null);
+      setSession(null);
+      render(<Header />);
+
+      openMenu(avatarButton());
+
+      const menu = await screen.findByRole("menu");
+      expect(
+        within(menu).getByRole("menuitem", { name: /sign out/i })
+      ).toBeInTheDocument();
     });
 
     it("survives a session that exists before the profile does", () => {

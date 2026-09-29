@@ -231,7 +231,8 @@ describe('session lifetime settings', () => {
       cookieCache: {
         enabled: true,
         maxAge: SESSION_COOKIE_CACHE_MAX_AGE_SECONDS,
-        strategy: 'jwt',
+        // Encrypted, not just signed — see src/auth.oidc-hardening.test.ts.
+        strategy: 'jwe',
         refreshCache: false,
       },
     });
@@ -292,8 +293,24 @@ describe('clock walk through the real auth instance', () => {
     const otherInstance = betterAuth({ ...auth.options });
     const result = await walk(otherInstance, jar, 5 * MINUTE, 3 * DAY);
 
+    // With the `jwe` strategy the cookie is still honoured AT exactly `maxAge`
+    // (better-auth's check is `expiresAt < now`; the old `jwt` path was cut
+    // one instant earlier by jose's `exp <= now`), so the first refused step
+    // is the one after it. The precise bound is pinned below.
     expect(result.lastValid).toBeGreaterThan(0);
-    expect(result.firstInvalid).toBeLessThanOrEqual(SESSION_COOKIE_CACHE_MAX_AGE_SECONDS * 1000);
+    expect(result.lastValid).toBeLessThanOrEqual(SESSION_COOKIE_CACHE_MAX_AGE_SECONDS * 1000);
+    expect(result.firstInvalid).toBe(SESSION_COOKIE_CACHE_MAX_AGE_SECONDS * 1000 + 5 * MINUTE);
+  });
+
+  it('pins the serverless ceiling precisely: valid at exactly 1h, refused one second later', async () => {
+    const jar = await signIn(auth);
+    const otherInstance = betterAuth({ ...auth.options });
+    const maxAgeMs = SESSION_COOKIE_CACHE_MAX_AGE_SECONDS * 1000;
+
+    vi.setSystemTime(T0 + maxAgeMs);
+    expect(await getSession(otherInstance, jar)).toBe(mockOidc.sub);
+    vi.setSystemTime(T0 + maxAgeMs + 1000);
+    expect(await getSession(otherInstance, jar)).toBeNull();
   });
 });
 

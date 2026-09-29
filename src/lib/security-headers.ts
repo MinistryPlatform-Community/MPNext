@@ -49,9 +49,9 @@ export function buildStaticSecurityHeaders(
     // `DENY` rather than `SAMEORIGIN`: nothing in this app frames itself.
     { key: 'X-Frame-Options', value: 'DENY' },
 
-    // Stop content-type sniffing. Matters most for anything served back out of
-    // Ministry Platform (contact photos), where the upstream Content-Type is
-    // not something this app controls.
+    // Stop content-type sniffing on everything this app serves. (It does not
+    // reach MP contact photos: those load straight from MP's file server, so
+    // their headers are MP's, not ours.)
     { key: 'X-Content-Type-Options', value: 'nosniff' },
 
     // Send the full URL only to ourselves. Cross-origin navigations — notably
@@ -65,13 +65,25 @@ export function buildStaticSecurityHeaders(
       key: 'Permissions-Policy',
       value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
     },
+
+    // Put this app's windows in their own browsing-context group, so a page
+    // that opens or is opened by it cannot keep a `window.opener` handle
+    // across origins. Safe here: sign-in and sign-out are full-page
+    // redirects, never popups.
+    { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+
+    // No other origin may embed this app's responses (scripts, JSON, images)
+    // as subresources. Nothing cross-origin loads from this app; the browser
+    // loads MP photos FROM MP, which this header does not touch.
+    { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
   ];
 
-  // HSTS is deliberately production-only. Browsers ignore the header over
-  // plain http, so it would be inert in local dev either way — but a developer
-  // running `next start` against a local http build should not get their
-  // browser pinned to https for localhost, which is a genuinely annoying state
-  // to unpick.
+  // HSTS is gated on a PRODUCTION BUILD (`NODE_ENV === 'production'`, which
+  // `next build` bakes into routes-manifest.json), not on where it runs — so
+  // `next start` locally does send it. Browsers ignore HSTS over plain http,
+  // so a local http `next start` is unaffected; over https (e.g. a local TLS
+  // proxy) it WILL pin that host to https for two years. `next dev` never
+  // sends it.
   //
   // Two years, subdomains included. No `preload`: that is a one-way submission
   // to a browser-vendor list and is the deploying church's call, not this
@@ -87,19 +99,39 @@ export function buildStaticSecurityHeaders(
 }
 
 /**
- * Parses an origin out of a configured URL.
+ * A hostname that is safe to paste into a CSP source list: ASCII letters,
+ * digits, dots and hyphens only (the WHATWG URL parser has already
+ * lower-cased it and converted any IDN to punycode). Rules out `*` — which in
+ * a CSP source means "any host" — and `;`/space, which would end the source or
+ * the directive.
+ */
+const CSP_SAFE_HOSTNAME = /^[a-z0-9.-]+$/;
+
+/**
+ * Parses an origin out of a configured URL, for use as a CSP source.
  *
  * Returns null rather than throwing for anything unusable. This is called on
  * the request path in `src/proxy.ts`, where a malformed or missing environment
  * variable must degrade to a tighter policy — never take the whole app down.
+ *
+ * "Unusable" includes values that parse as URLs but would WIDEN or break the
+ * policy: a non-http(s) scheme (`javascript:` has the origin `"null"`), or a
+ * hostname outside `CSP_SAFE_HOSTNAME` — `https://*` (or `https://%2A`, which
+ * the parser decodes to `*`) would allow every https host, and
+ * `https://a;sandbox` would inject a directive. The port needs no check: the
+ * URL parser accepts only digits there.
  */
 export function originOf(raw: string | undefined | null): string | null {
   if (!raw) return null;
+  let url: URL;
   try {
-    return new URL(raw).origin;
+    url = new URL(raw);
   } catch {
     return null;
   }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (!CSP_SAFE_HOSTNAME.test(url.hostname)) return null;
+  return url.origin;
 }
 
 /**
@@ -190,25 +222,30 @@ export function buildContentSecurityPolicy({
     // it (2026-09-12): Radix's dialog pulls in react-remove-scroll, which locks
     // body scroll by INJECTING A <style> ELEMENT at runtime. That is an
     // element, not an attribute, so `style-src-attr` does not apply and it
-    // falls through to `style-src` — where a nonce cannot help, because the
-    // element is created by script long after the server chose the nonce.
-    // Under enforcement the browser blocked it and the dialog broke with
+    // falls through to `style-src`. That element carries no nonce as shipped,
+    // so under enforcement the browser blocked it and the dialog broke with
     // React error #441.
     //
     // A hash is not a workable alternative: the blocked content includes the
     // computed scrollbar width, so it varies by platform and zoom level. Two
     // different hashes showed up in a single page view.
     //
-    // `'unsafe-inline'` is therefore the honest answer, and it must appear
-    // WITHOUT a nonce — a nonce in the same directive makes CSP3 browsers
-    // ignore `'unsafe-inline'` entirely, which is the trap that produced the
-    // broken policy above. `style-src-attr` is gone as redundant: this covers
-    // attributes and elements alike.
+    // A nonce COULD cover it: react-style-singleton stamps whatever
+    // `get-nonce`'s `setNonce()` was given onto the <style> it creates, so
+    // calling `setNonce(nonce)` client-side (with the attributes still under
+    // `style-src-attr 'unsafe-inline'`) would work. Not done — accepted
+    // 2026-09-29 for simplicity, because the gain is small (below).
     //
-    // The security cost is real but small: inline STYLE injection can do
-    // limited data exfiltration via selectors, but not script execution. The
-    // control that matters, `script-src` with a nonce and `strict-dynamic`,
-    // is untouched.
+    // `'unsafe-inline'` must appear WITHOUT a nonce — a nonce in the same
+    // directive makes CSP3 browsers ignore `'unsafe-inline'` entirely, which
+    // is the trap that produced the broken policy above. `style-src-attr` is
+    // gone as redundant: this covers attributes and elements alike.
+    //
+    // The security cost is small: inline STYLE injection cannot execute
+    // script, and the usual CSS exfiltration channel (selector-triggered
+    // `url()` loads) is already shut by `img-src` and `font-src`, which allow
+    // no attacker origin. The control that matters, `script-src` with a nonce
+    // and `strict-dynamic`, is untouched.
     "style-src 'self' 'unsafe-inline'",
 
     // `data:` and `blob:` are next/image's placeholder and preview machinery.
@@ -226,7 +263,9 @@ export function buildContentSecurityPolicy({
     "frame-src 'none'",
 
     // Stops an injected <base> from re-pointing every relative URL on the page.
-    "base-uri 'self'",
+    // `'none'` rather than `'self'`: neither this app nor Next renders a
+    // <base> element, so there is no legitimate one to allow.
+    "base-uri 'none'",
 
     `form-action 'self'${formActionOrigin ? ` ${formActionOrigin}` : ''}`,
 

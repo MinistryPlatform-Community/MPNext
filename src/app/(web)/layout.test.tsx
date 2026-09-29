@@ -51,6 +51,9 @@ vi.mock("@/components/layout", () => ({
     mockBreadcrumb();
     return <nav data-testid="breadcrumb">Breadcrumb</nav>;
   },
+  SessionGuard: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="session-guard">{children}</div>
+  ),
 }));
 
 vi.mock("@/app/server-providers", () => ({
@@ -102,6 +105,19 @@ describe("WebLayout", () => {
 
     expect(mockProviders).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("providers")).toContainElement(screen.getByTestId("page"));
+  });
+
+  it("puts the whole shell — header and page — inside the client SessionGuard", async () => {
+    // SessionGuard drops the page and leaves for /signed-out when the session
+    // ends in the browser (sign-out in another tab, expiry). Anything rendered
+    // outside it would stay on screen after sign-out.
+    await renderLayout();
+
+    const sessionGuard = screen.getByTestId("session-guard");
+    expect(sessionGuard).toContainElement(screen.getByTestId("page"));
+    expect(sessionGuard).toContainElement(screen.getByTestId("header"));
+    // Below the server-side guard and the providers, not above them.
+    expect(screen.getByTestId("providers")).toContainElement(sessionGuard);
   });
 
   it("renders Header and DynamicBreadcrumb chrome", async () => {

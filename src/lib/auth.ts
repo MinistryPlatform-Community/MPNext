@@ -1,3 +1,7 @@
+// Build-time tripwire: importing this module (or the MP client / services,
+// which carry the same guard) from a "use client" file fails `next build`
+// instead of bundling the service-account code into browser JS.
+import "server-only";
 import { betterAuth, BetterAuthOptions } from "better-auth";
 import { genericOAuth } from "better-auth/plugins";
 import { customSession } from "better-auth/plugins";
@@ -6,8 +10,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isIP } from "node:net";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
-
-const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+import { getAuthBaseUrl, getMpBaseUrl } from "@/lib/env";
 
 /**
  * Custom fields added to the Better Auth `user` record.
@@ -17,9 +20,12 @@ const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
  * As of better-auth 1.6, `parseAdditionalUserInputFromProviderProfile` strips
  * any additional field declared with `input: false` BEFORE the user record is
  * created — so `input: false` silently drops `userGuid`, which breaks every MP
- * profile lookup (avatar, user menu, User_ID resolution). There is no
- * user-facing form that sets this field, so allowing input carries no practical
- * risk here. `src/auth.test.ts` guards this against future regressions.
+ * profile lookup (avatar, user menu, User_ID resolution). `input: true` is
+ * safe ONLY because `/update-user` — the one endpoint that would copy a
+ * caller-supplied `userGuid` onto the session user — is closed by
+ * `disabledAuthPaths` below (and by the route allowlist). There is no
+ * user-facing form that sets this field; re-opening that endpoint would turn
+ * this into an identity takeover. `src/auth.test.ts` guards both halves.
  *
  * `userGuid` is `required: true`: better-auth's `parseInputData` rejects user
  * creation with `400 userGuid is required` if the mapped profile lacks it, so
@@ -78,10 +84,34 @@ export function syntheticEmailForSub(sub: string): string {
  */
 export const USER_ID_CACHE_TTL_MS = 15 * 60 * 1000;
 
-// Process-wide cache of User_GUID → { User_ID, expiry }. Entries are dropped
-// lazily on the first read after expiry; growth is still bounded only by the
-// number of distinct users, as before.
-const userIdCache = new Map<string, { userId: number; expiresAt: number }>();
+/**
+ * Negative-cache windows for `resolveMpUserId`.
+ *
+ * customSession runs on EVERY `/get-session` (including `useSession()`'s
+ * window-focus refetches), so an uncached failure cost one MP query and one
+ * log line per request: an MP outage was amplified by every open tab, and a
+ * user with no `dp_Users` row re-queried MP on each call. A failure is now
+ * remembered as `userId: null`:
+ * - `USER_ID_FAILURE_CACHE_TTL_MS` (30 s) when the lookup THREW (MP down, a
+ *   token or network error). Short, so attribution comes back soon after MP
+ *   recovers.
+ * - `USER_ID_NOT_FOUND_CACHE_TTL_MS` (5 min) when MP answered and there is no
+ *   such login. That answer is authoritative and unlikely to change soon, but
+ *   it stays well below `USER_ID_CACHE_TTL_MS`.
+ * Either way the session itself is unaffected; the missing attribution
+ * surfaces as `mp.write.non_user` at write time.
+ */
+export const USER_ID_FAILURE_CACHE_TTL_MS = 30 * 1000;
+export const USER_ID_NOT_FOUND_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Process-wide cache of User_GUID → { User_ID (null for a cached failure),
+// expiry }. Entries are dropped lazily on the first read after expiry; growth
+// is still bounded only by the number of distinct users, as before.
+const userIdCache = new Map<string, { userId: number | null; expiresAt: number }>();
+
+function cacheUserId(userGuid: string, userId: number | null, ttlMs: number) {
+  userIdCache.set(userGuid, { userId, expiresAt: Date.now() + ttlMs });
+}
 
 async function resolveMpUserId(userGuid: string): Promise<number | null> {
   const cached = userIdCache.get(userGuid);
@@ -98,22 +128,49 @@ async function resolveMpUserId(userGuid: string): Promise<number | null> {
       top: 1,
     });
     if (record?.User_ID) {
-      userIdCache.set(userGuid, {
-        userId: record.User_ID,
-        expiresAt: Date.now() + USER_ID_CACHE_TTL_MS,
-      });
+      cacheUserId(userGuid, record.User_ID, USER_ID_CACHE_TTL_MS);
       return record.User_ID;
     }
+    cacheUserId(userGuid, null, USER_ID_NOT_FOUND_CACHE_TTL_MS);
     return null;
   } catch (err) {
     // Never block session creation on this — the NonUser Write warning at
-    // write time will surface the missing attribution.
-    console.error("[customSession] resolveMpUserId failed", {
-      userGuid,
-      err: err instanceof Error ? err.message : String(err),
-    });
+    // write time will surface the missing attribution. Identifiers only, per
+    // CLAUDE.md rule 12: never the GUID, and never `err.message` (an MP client
+    // error can carry the request URL, whose `$filter` contains the GUID).
+    console.error(
+      JSON.stringify({
+        event: "auth.session.user_id_unresolved",
+        message: "MP User_ID lookup failed; session continues with userId null",
+        reason: "lookup_failed",
+        errName: errorName(err),
+      }),
+    );
+    cacheUserId(userGuid, null, USER_ID_FAILURE_CACHE_TTL_MS);
     return null;
   }
+}
+
+/**
+ * Session-row fields `enrichSessionUser` withholds from the `/get-session`
+ * response (and from server-side `auth.api.getSession`). Nothing in `src/`
+ * reads them, and each is more than the page needs:
+ * - `token` — the raw session token. Useless without the cookie's HMAC today,
+ *   but a bearer credential the day a `bearer` plugin is added, which would
+ *   make the cookie's HttpOnly flag moot.
+ * - `ipAddress`, `userAgent` — request metadata better-auth records at
+ *   sign-in; not the page's business.
+ * better-auth still keeps them on the in-memory row and in the (encrypted)
+ * `session_data` cookie; this only stops them being handed to page JS.
+ */
+export const WITHHELD_SESSION_FIELDS = ["token", "ipAddress", "userAgent"] as const;
+
+type WithheldSessionField = (typeof WITHHELD_SESSION_FIELDS)[number];
+
+function withholdSessionFields<S extends object>(session: S): Omit<S, WithheldSessionField> {
+  const copy = { ...session } as Record<string, unknown>;
+  for (const field of WITHHELD_SESSION_FIELDS) delete copy[field];
+  return copy as Omit<S, WithheldSessionField>;
 }
 
 /**
@@ -122,19 +179,24 @@ async function resolveMpUserId(userGuid: string): Promise<number | null> {
  * Extracted from the `customSession` callback so it can be unit tested: the
  * better-auth plugin closes over its callback and never exposes it, so the only
  * other way to exercise this logic would be to drive a full `getSession()`
- * request through the whole auth stack. Behavior is identical to the inline
- * version it replaced.
+ * request through the whole auth stack.
+ *
+ * Adds `userId` (the MP User_ID used for write attribution) to the user and
+ * strips `WITHHELD_SESSION_FIELDS` from the session. It used to add
+ * `firstName`/`lastName` split from `name` too; nothing read them, and a
+ * profile missing a name part produced "undefined", so they were dropped.
  *
  * The MP profile is loaded separately — started server-side by
  * `ServerProviders` via getCurrentUserProfile() and read through UserProvider,
  * not carried in the session. The only server-side lookup here is User_ID, cached
  * in-memory for `USER_ID_CACHE_TTL_MS` per process, so it costs at most one MP
- * call per (user × container × 15 minutes).
+ * call per (user × container × 15 minutes); failures are negative-cached (see
+ * `USER_ID_FAILURE_CACHE_TTL_MS`).
  */
-export async function enrichSessionUser<
-  U extends { name?: string | null },
-  S,
->(user: U, session: S) {
+export async function enrichSessionUser<U extends object, S extends object>(
+  user: U,
+  session: S,
+) {
   const userGuid = (user as { userGuid?: string | null }).userGuid;
   const userId: number | null = userGuid
     ? await resolveMpUserId(userGuid)
@@ -142,11 +204,9 @@ export async function enrichSessionUser<
   return {
     user: {
       ...user,
-      firstName: user.name?.split(" ")[0] || "",
-      lastName: user.name?.split(" ").slice(1).join(" ") || "",
       userId,
     },
-    session,
+    session: withholdSessionFields(session),
   };
 }
 
@@ -254,23 +314,30 @@ const refuseIdTokenSignIn = createAuthMiddleware(async (ctx) => {
 });
 
 /**
- * Reads the `sub` claim from a compact JWS WITHOUT verifying it.
+ * Reads the claims from a compact JWS WITHOUT verifying its signature.
  *
- * Deliberately unverified, and safe to be: this is only used by `getUserInfo`
- * as a BINDING check between two tokens, never as a trust decision on its own.
- * By the time `getUserInfo` runs, genericOAuth's wrapper has already verified
- * the id_token against MP's JWKS, issuer and audience (plugins/generic-oauth/
- * index.mjs, `getUserInfo`). If discovery failed at boot there is no id_token
- * config, the `/sign-in/social` id_token mode is unavailable altogether
- * (`supportsIdTokenSignIn`), and the only remaining caller is the code-flow
- * callback, whose id_token came straight from MP's token endpoint in exchange
- * for our client secret — the same provenance as the access token.
+ * Deliberately unverified, and safe to be: `getUserInfo` uses these only for
+ * a BINDING check between two tokens (`sub`) and for claim checks jose skips
+ * (`exp` presence, `azp`), never as a trust decision on their own. By the time
+ * `getUserInfo` runs, genericOAuth's wrapper has already verified the id_token
+ * against MP's JWKS, issuer and audience (plugins/generic-oauth/index.mjs,
+ * `getUserInfo`). That is GUARANTEED, not assumed, by
+ * `requireIdTokenVerification: true` on the provider below: genericOAuth only
+ * builds its id_token verifier when discovery yields both `issuer` and
+ * `jwks_uri`, and without the option a partial discovery document left the
+ * provider live with verification silently skipped. With it, such a provider
+ * is skipped (sign-in 404s `PROVIDER_NOT_FOUND`, with an error log). A failed
+ * discovery fetch leaves no authorization endpoint, so that provider is
+ * skipped too (until `selfHealingAuth` rebuilds the instance and discovery
+ * succeeds). `src/auth.oidc-hardening.test.ts` pins both.
  *
  * Hand-rolled rather than `jose`'s `decodeJwt`: `jose` is only a transitive
  * dependency (via better-auth), and importing it directly would break silently
  * the day better-auth stops depending on it.
  */
-function readIdTokenSub(idToken: string): { decoded: true; sub: unknown } | { decoded: false } {
+function readIdTokenClaims(
+  idToken: string,
+): { decoded: true; claims: Record<string, unknown> } | { decoded: false } {
   const parts = idToken.split(".");
   if (parts.length !== 3) return { decoded: false };
   try {
@@ -278,10 +345,30 @@ function readIdTokenSub(idToken: string): { decoded: true; sub: unknown } | { de
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
       return { decoded: false };
     }
-    return { decoded: true, sub: (payload as { sub?: unknown }).sub };
+    return { decoded: true, claims: payload as Record<string, unknown> };
   } catch {
     return { decoded: false };
   }
+}
+
+/**
+ * OIDC Core §3.1.3.7 claim checks that better-auth's verifier does not make.
+ * `verifyIdToken` hands jose only `issuer` and `audience`, and jose checks
+ * `exp` only when it is PRESENT, so a token with no `exp` passed; and nothing
+ * checks `azp` when `aud` lists several audiences. Returns the refusal reason,
+ * or null when the claims are acceptable. Runs on an already-verified token
+ * (see `readIdTokenClaims`), so this narrows what a genuinely MP-signed token
+ * may look like; it is not the signature check.
+ */
+function idTokenClaimFailure(
+  claims: Record<string, unknown>,
+  clientId: string,
+): "missing_exp" | "expired" | "azp_mismatch" | null {
+  const { exp, aud, azp } = claims;
+  if (typeof exp !== "number" || !Number.isFinite(exp)) return "missing_exp";
+  if (exp * 1000 <= Date.now()) return "expired";
+  if (Array.isArray(aud) && azp !== clientId) return "azp_mismatch";
+  return null;
 }
 
 /**
@@ -300,6 +387,65 @@ function logSubBindingFailure(
       reason,
     }),
   );
+}
+
+/** Same logging rules as `logSubBindingFailure`: the reason, never the claims. */
+function logIdTokenClaimFailure(reason: "missing_exp" | "expired" | "azp_mismatch") {
+  console.error(
+    JSON.stringify({
+      event: "auth.userinfo.id_token_claims_invalid",
+      message: "MP id_token failed the app's claim checks; refusing sign-in",
+      reason,
+    }),
+  );
+}
+
+/**
+ * Logs why the userinfo request produced no usable profile. The HTTP status or
+ * the error's NAME only: never the response body (member PII), the access
+ * token, or `err.message` (which can echo the URL or body).
+ */
+function logUserinfoFetchFailure(
+  detail:
+    | { reason: "http_status"; status: number }
+    | { reason: "request_failed" | "invalid_json"; errName: string }
+    | { reason: "not_an_object" },
+) {
+  console.error(
+    JSON.stringify({
+      event: "auth.userinfo.fetch_failed",
+      message: "MP userinfo request produced no usable profile; refusing sign-in",
+      ...detail,
+    }),
+  );
+}
+
+/** `err.name` (e.g. "TimeoutError", "TypeError"), or the value's type. */
+function errorName(err: unknown): string {
+  // Duck-typed rather than `instanceof Error`: a DOMException (what an
+  // `AbortSignal.timeout` abort rejects with) is not an Error in every realm.
+  const name = (err as { name?: unknown } | null)?.name;
+  return typeof name === "string" ? name : typeof err;
+}
+
+/**
+ * Timeout for the userinfo request. It runs inside the OAuth callback, so a
+ * hung MP would otherwise hold the callback open until the platform's own
+ * request timeout. 10 s is well past MP's normal latency.
+ */
+export const USERINFO_TIMEOUT_MS = 10_000;
+
+/**
+ * The display name from whichever of `given_name` / `family_name` are
+ * non-empty strings, falling back to `name`, then "". Never interpolates a
+ * missing claim, which produced "undefined undefined".
+ */
+function profileDisplayName(profile: Record<string, unknown>): string {
+  const part = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const joined = [part(profile.given_name), part(profile.family_name)]
+    .filter(Boolean)
+    .join(" ");
+  return joined || part(profile.name);
 }
 
 /**
@@ -382,6 +528,16 @@ if (!process.env.VITEST) {
   assertAuthEnvironment(process.env);
 }
 
+// The two auth-critical URLs, validated once at module load (see
+// src/lib/env.ts): https (loopback http outside production only), no
+// credentials, query or fragment, no trailing slash, and BETTER_AUTH_URL an
+// origin. Unlike the secret guard these run under Vitest too; `test-setup.ts`
+// stubs valid values. An unset BETTER_AUTH_URL is refused rather than left to
+// better-auth, which would otherwise derive the base URL — and so the OAuth
+// redirect_uri and the trusted origins — from the request's Host header.
+const mpBaseUrl = getMpBaseUrl();
+const authBaseUrl = getAuthBaseUrl();
+
 /**
  * Client-IP resolution for better-auth's rate limiter (`/sign-in*` is 3
  * requests per 10 s per IP in production). By default better-auth trusts only
@@ -442,7 +598,7 @@ function isIpOrCidr(entry: string): boolean {
 
 /**
  * Session lifetime. The app is stateless (no database, no `secondaryStorage`):
- * the signed `session_token` + `session_data` cookies are the session, backed
+ * the signed `session_token` + encrypted `session_data` cookies are the session, backed
  * only by better-auth's per-process in-memory adapter. That rules out real
  * server-side revocation, so these settings instead put a HARD ceiling on how
  * long any session — including a copied or forged cookie pair — can live.
@@ -486,7 +642,7 @@ export const SESSION_EXPIRES_IN_SECONDS = 12 * 60 * 60;
 export const SESSION_COOKIE_CACHE_MAX_AGE_SECONDS = 60 * 60;
 
 const options = {
-  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
+  baseURL: authBaseUrl,
   secret: process.env.BETTER_AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   // Pinned explicitly so an env var cannot flip it: when this is left
   // undefined, better-auth sets `skipOriginCheck = isTest()`, i.e. a truthy
@@ -494,6 +650,16 @@ const options = {
   // (context/create-context.mjs). See `assertAuthEnvironment` above.
   advanced: {
     disableOriginCheck: false,
+    // `Secure` + `__Secure-` cookies in production, stated rather than
+    // inferred. better-auth derives this from the baseURL's scheme
+    // (cookies/index.mjs), and `getAuthBaseUrl` requires https for every real
+    // host, so this changes nothing today; it pins the behaviour if that
+    // derivation ever changes. Left to the derivation for a loopback http
+    // origin (dev, or a local/CI `next build` + `next start`), so
+    // `http://localhost` keeps working (browsers accept `Secure` cookies on
+    // localhost, but not every tool driving it does).
+    ...(process.env.NODE_ENV === "production" &&
+      authBaseUrl.startsWith("https:") && { useSecureCookies: true }),
     // See `parseIpAddressOptions` above.
     ipAddress: parseIpAddressOptions(process.env),
   },
@@ -525,7 +691,15 @@ const options = {
     cookieCache: {
       enabled: true,
       maxAge: SESSION_COOKIE_CACHE_MAX_AGE_SECONDS,
-      strategy: "jwt" as const,
+      // Encrypted (A256CBC-HS512 JWE keyed from BETTER_AUTH_SECRET), not just
+      // signed. With "jwt" the payload — name, real MP email, userGuid, IP,
+      // user agent, the raw session token — was readable by anything that
+      // sees Cookie headers: proxy/APM logs, HAR files, cookie-reading
+      // extensions. "jwe" is better-auth's own stateless default, which the
+      // explicit "jwt" used to override. Changing strategy invalidates every
+      // existing `session_data` cookie once (users fall back to the in-memory
+      // row, or sign in again). `src/auth.oidc-hardening.test.ts` guards it.
+      strategy: "jwe" as const,
       refreshCache: false,
     },
   },
@@ -585,6 +759,22 @@ const options = {
           // option was removed along with that revert, so setting it is now a
           // type error. Discovery still supplies the endpoints and the JWKS used
           // to verify ID tokens.
+          //
+          // Discovery runs ONCE per auth instance, with no retry. If that fetch
+          // fails, genericOAuth logs "Discovery fetch failed" and skips the
+          // provider, so sign-in fails CLOSED (`404 PROVIDER_NOT_FOUND`). (Before
+          // 1.7.3 the provider stayed live with no id_token verification; that
+          // fail-open mode is gone.) It no longer lasts until a restart:
+          // `selfHealingAuth` below rebuilds the instance — re-running
+          // discovery — on the next sign-in after a 30 s cooldown.
+          //
+          // Without this, a discovery document that returned the endpoints but
+          // omitted `jwks_uri` or `issuer` left the provider live with id_token
+          // verification silently OFF (genericOAuth builds its verifier only
+          // when both are present). With it, that provider is skipped with an
+          // error log instead. `readIdTokenClaims` relies on this guarantee;
+          // `src/auth.oidc-hardening.test.ts` fails if it is removed.
+          requireIdTokenVerification: true,
           clientId: process.env.OIDC_CLIENT_ID!,
           clientSecret: process.env.OIDC_CLIENT_SECRET!,
           scopes: [
@@ -592,10 +782,11 @@ const options = {
             "openid",
             "http://www.thinkministry.com/dataplatform/scopes/all",
           ],
-          // OAuth 2.1 makes PKCE the 1.7 default. MP's discovery document does
-          // advertise `code_challenge_methods_supported: ["plain", "S256"]`,
-          // so this can likely be flipped to `true` — but that is a separate,
-          // separately-testable change from the 1.7 migration itself.
+          // REQUIRED, not a pending follow-up: Ministry Platform does not
+          // support PKCE. better-auth 1.7 defaults `pkce` to true (OAuth 2.1),
+          // which MP does not accept, so this must stay explicitly false. (MP's discovery document does list
+          // `code_challenge_methods_supported`; that does not mean it works.)
+          // The consequence is spelled out in the nonce comment below.
           pkce: false,
           // Ministry Platform does not echo the `nonce` back in the id_token,
           // so better-auth's nonce binding must be switched off or NO ONE CAN
@@ -613,20 +804,28 @@ const options = {
           // id_token: kid, alg, iss and aud all matched; only `nonce` was
           // missing.
           //
-          // This looked intermittent, which sent the investigation sideways for
-          // a while. The reason is inverted from the obvious one: sign-in
-          // SUCCEEDED only when the boot-time discovery fetch had failed, since
-          // that leaves the id_token config undefined and skips verification
-          // altogether. A working discovery meant a broken sign-in.
+          // (It looked intermittent at the time because, before better-auth
+          // 1.7.3, a FAILED boot-time discovery left the provider live with no
+          // id_token config, which skipped verification and so let sign-in
+          // succeed. In 1.7.4 a failed discovery skips the provider entirely —
+          // sign-in 404s until `selfHealingAuth` rebuilds the instance — and
+          // `requireIdTokenVerification` above refuses a partial one.)
           //
           // What this does NOT give up: the id_token signature is still checked
           // against MP's JWKS, and the issuer and audience are still checked.
-          // What it does give up: binding the id_token to this particular
-          // authorization request. The residual risk is id_token replay/
-          // injection, mitigated by the OAuth `state` cookie check that still
-          // runs, and by this being a confidential client that exchanges the
-          // code with a client secret. Enabling PKCE (F8) would narrow it
-          // further and is the natural follow-up.
+          // What it gives up: binding the id_token to this particular
+          // authorization request. ACCEPTED RISK (F8), stated plainly: with MP
+          // omitting `nonce` and not supporting PKCE, NOTHING binds an
+          // authorization code to the browser that started the flow. The
+          // `state` cookie check does not help (an attacker who obtains a
+          // victim's code starts their own flow, with their own valid state,
+          // and injects the victim's code into it), and being a confidential
+          // client does not help either (the app redeems the injected code
+          // with its own secret) — authorization-code injection, RFC 9700
+          // §4.5, reproduced against a mock OIDC provider. The remaining
+          // defences keep codes out of an attacker's reach: a dedicated MP
+          // OIDC client with exact redirect URIs, `Referrer-Policy`, and no
+          // code-bearing URLs in logs.
           disableIdTokenNonceBinding: true,
           authorizationUrlParams: {
             realm: "realm",
@@ -656,36 +855,66 @@ const options = {
               logSubBindingFailure("missing_id_token");
               return null;
             }
-            const idTokenClaim = readIdTokenSub(tokens.idToken);
-            if (!idTokenClaim.decoded) {
+            const idToken = readIdTokenClaims(tokens.idToken);
+            if (!idToken.decoded) {
               logSubBindingFailure("undecodable_id_token");
               return null;
             }
-            const idTokenSub = idTokenClaim.sub;
+            const idTokenSub = idToken.claims.sub;
             if (typeof idTokenSub !== "string" || idTokenSub === "") {
               logSubBindingFailure("missing_sub");
               return null;
             }
-
-            // Fetch the OIDC profile to get the sub (User_GUID)
-            const response = await fetch(
-              `${mpBaseUrl}/oauth/connect/userinfo`,
-              {
-                headers: {
-                  Authorization: `Bearer ${tokens.accessToken}`,
-                },
-              },
+            // `exp` present and in the future; `azp` is us when `aud` is a
+            // list. See `idTokenClaimFailure`.
+            const claimFailure = idTokenClaimFailure(
+              idToken.claims,
+              process.env.OIDC_CLIENT_ID!,
             );
-
-            if (!response.ok) {
-              console.error(
-                "getUserInfo - Failed to fetch user info:",
-                response.status,
-              );
+            if (claimFailure) {
+              logIdTokenClaimFailure(claimFailure);
               return null;
             }
 
-            const profile = await response.json();
+            // Fetch the OIDC profile to get the sub (User_GUID). Every failure
+            // below returns null rather than throwing (see the `sub` comment
+            // for why): a network error or timeout rejects `fetch`, and a
+            // non-JSON 200 (a proxy's HTML error page) throws from `.json()`.
+            // `redirect: "error"`: userinfo never legitimately redirects, and a
+            // followed same-origin redirect would re-send the user's bearer
+            // token to wherever it pointed.
+            let profile: Record<string, unknown>;
+            try {
+              const response = await fetch(
+                `${mpBaseUrl}/oauth/connect/userinfo`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${tokens.accessToken}`,
+                  },
+                  signal: AbortSignal.timeout(USERINFO_TIMEOUT_MS),
+                  redirect: "error",
+                },
+              );
+              if (!response.ok) {
+                logUserinfoFetchFailure({ reason: "http_status", status: response.status });
+                return null;
+              }
+              let body: unknown;
+              try {
+                body = await response.json();
+              } catch (err) {
+                logUserinfoFetchFailure({ reason: "invalid_json", errName: errorName(err) });
+                return null;
+              }
+              if (typeof body !== "object" || body === null || Array.isArray(body)) {
+                logUserinfoFetchFailure({ reason: "not_an_object" });
+                return null;
+              }
+              profile = body as Record<string, unknown>;
+            } catch (err) {
+              logUserinfoFetchFailure({ reason: "request_failed", errName: errorName(err) });
+              return null;
+            }
 
             // `sub` is the MP User_GUID and the only identity this app trusts.
             // A profile without a valid one is unusable: better-auth would
@@ -743,10 +972,13 @@ const options = {
             // `accountLinking` comment above. MP's userinfo response may not
             // send `email_verified` at all, so default to false rather than
             // assume it. `src/auth.test.ts` guards this.
+            //
+            // `name` is built only from claims that are actually strings (see
+            // `profileDisplayName`); it is "" when MP sends none.
             return {
               sub,
               email: typeof profile.email === "string" ? profile.email : null,
-              name: `${profile.given_name} ${profile.family_name}`,
+              name: profileDisplayName(profile),
               image: undefined,
               emailVerified: profile.email_verified === true,
             };
@@ -852,6 +1084,172 @@ export function sharedInstance<T>(
   return (store[key] ??= create());
 }
 
-export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
+/** The genericOAuth provider id this app signs in with. */
+export const MP_PROVIDER_ID = "ministry-platform";
+
+/**
+ * Minimum time between two builds of the auth instance (the first build
+ * counts). Bounds discovery traffic to one fetch per 30 s per process while MP
+ * is down, however many users retry sign-in.
+ */
+export const DISCOVERY_REBUILD_COOLDOWN_MS = 30 * 1000;
+
+/**
+ * How long a sign-in request waits for an in-flight rebuild before going ahead
+ * with the current (provider-less) instance. genericOAuth's discovery fetch has
+ * no timeout of its own, so without this a hung MP would hold every sign-in
+ * request open; the rebuild itself carries on in the background.
+ */
+export const DISCOVERY_REBUILD_WAIT_MS = 10 * 1000;
+
+interface RebuildableAuth {
+  handler: (request: Request) => Promise<Response>;
+  $context: Promise<{ socialProviders: ReadonlyArray<{ id: string }> }>;
+}
+
+/**
+ * Only these requests need the MP provider; everything else (`/get-session`,
+ * `/sign-out`, ...) never triggers a rebuild, so an MP outage cannot slow page
+ * loads down. Paths are under better-auth's default `/api/auth` basePath.
+ */
+function needsProvider(request: Request): boolean {
+  // `Request.url` is always absolute, so this cannot throw.
+  const path = new URL(request.url).pathname.replace(/\/+$/, "");
+  return path === "/api/auth/sign-in/social" || path.startsWith("/api/auth/callback/");
+}
+
+async function hasProvider(instance: RebuildableAuth): Promise<boolean> {
+  try {
+    const ctx = await instance.$context;
+    return ctx.socialProviders.some((provider) => provider.id === MP_PROVIDER_ID);
+  } catch {
+    return false;
+  }
+}
+
+/** Identifiers only: never the discovery URL or the error message. */
+function logDiscoveryRebuild(
+  outcome: "recovered" | "provider_still_missing" | "create_failed",
+  errName?: string,
+) {
+  const log = outcome === "recovered" ? console.warn : console.error;
+  log(
+    JSON.stringify({
+      event: "auth.discovery.rebuild",
+      message:
+        outcome === "recovered"
+          ? "Rebuilt the auth instance; the MP OIDC provider is available again"
+          : "Rebuilt the auth instance; the MP OIDC provider is still unavailable",
+      providerId: MP_PROVIDER_ID,
+      outcome,
+      ...(errName && { errName }),
+    }),
+  );
+}
+
+/**
+ * Wraps `create` so a boot-time OIDC discovery failure heals without a
+ * restart.
+ *
+ * genericOAuth fetches MP's discovery document ONCE, while the auth context
+ * initializes, with no retry. If that fetch fails (or the document lacks
+ * `issuer`/`jwks_uri` — see `requireIdTokenVerification`), the provider is
+ * skipped and `/sign-in/social` returns `404 PROVIDER_NOT_FOUND` for the life
+ * of the instance: one transient MP blip at cold start used to disable sign-in
+ * until the process restarted. Fail-closed, but an outage.
+ *
+ * Now a sign-in or callback request that finds the provider missing builds a
+ * fresh instance — which runs discovery again — and swaps it in if (and only
+ * if) the new one has the provider:
+ * - single-flight: concurrent requests share one rebuild;
+ * - at most one build per `DISCOVERY_REBUILD_COOLDOWN_MS`, counting the first;
+ *   inside the cooldown the request just gets the 404, as before;
+ * - a request waits at most `DISCOVERY_REBUILD_WAIT_MS` for the rebuild;
+ * - an instance that HAS the provider is never rebuilt, so a healthy
+ *   instance's in-memory sessions and account rows (the `id_token_hint` for
+ *   sign-out) are never thrown away. Swapping out a provider-less instance
+ *   loses nothing: without the provider no OAuth callback could have stored a
+ *   session in it (and `session_data` cookies are keyed from the secret, not
+ *   the instance).
+ *
+ * Transparent to callers: the returned object delegates every property to the
+ * CURRENT instance at access time (`auth.api.getSession(...)`,
+ * `auth.$context`, ...), and its `handler` — what `toNextJsHandler` in the
+ * `/api/auth` route calls per request — does the check first. So never cache
+ * `auth.api` in a module-level variable; it would pin the first instance.
+ * In-process `auth.api.signInSocial` calls do not trigger a rebuild (nothing
+ * in `src/` makes one). `src/auth.discovery-rebuild.test.ts` pins all of this.
+ */
+export function selfHealingAuth<T extends RebuildableAuth>(
+  create: () => T,
+  {
+    cooldownMs = DISCOVERY_REBUILD_COOLDOWN_MS,
+    waitMs = DISCOVERY_REBUILD_WAIT_MS,
+  }: { cooldownMs?: number; waitMs?: number } = {},
+): T {
+  let current = create();
+  let builtAt = Date.now();
+  let rebuilding: Promise<void> | null = null;
+
+  async function rebuild(): Promise<void> {
+    builtAt = Date.now();
+    let candidate: T;
+    try {
+      candidate = create();
+    } catch (err) {
+      logDiscoveryRebuild("create_failed", errorName(err));
+      return;
+    }
+    if (await hasProvider(candidate)) {
+      current = candidate;
+      logDiscoveryRebuild("recovered");
+    } else {
+      logDiscoveryRebuild("provider_still_missing");
+    }
+  }
+
+  async function ensureProvider(): Promise<void> {
+    if (await hasProvider(current)) return;
+    if (!rebuilding) {
+      if (Date.now() - builtAt < cooldownMs) return;
+      rebuilding = rebuild().finally(() => {
+        rebuilding = null;
+      });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      rebuilding,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, waitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  const handler = async (request: Request): Promise<Response> => {
+    if (needsProvider(request)) await ensureProvider();
+    return current.handler(request);
+  };
+
+  // `handler`/`fetch` are real own properties of the target (so `vi.spyOn`
+  // and friends can redefine them); every other property reads through to the
+  // current instance.
+  const own: Pick<RebuildableAuth, "handler"> & { fetch: RebuildableAuth["handler"] } = {
+    handler,
+    fetch: handler,
+  };
+  return new Proxy(own, {
+    get(target, prop, receiver) {
+      if (Object.hasOwn(target, prop)) return Reflect.get(target, prop, receiver);
+      return Reflect.get(current, prop, current);
+    },
+    // `toNextJsHandler` checks `"handler" in auth` before calling it.
+    has(target, prop) {
+      return prop in target || prop in current;
+    },
+  }) as unknown as T;
+}
+
+export const auth = sharedInstance(SHARED_AUTH_KEY, () => selfHealingAuth(createAuth));
 
 export type Session = typeof auth.$Infer.Session;

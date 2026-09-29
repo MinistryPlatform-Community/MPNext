@@ -13,6 +13,10 @@ import { getIP, getIPFromHeader } from '@better-auth/core/utils/ip';
  * instance with no providers.
  */
 
+// Mock MP OIDC server (discovery with `issuer` + `jwks_uri`, a local JWKS);
+// any other fetch throws.
+await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
+
 vi.mock('@/lib/providers/ministry-platform', () => ({
   MPHelper: class {
     getTableRecords = vi.fn().mockResolvedValue([]);

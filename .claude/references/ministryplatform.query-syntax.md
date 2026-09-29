@@ -227,14 +227,27 @@ through a sanitizer from `src/lib/providers/ministry-platform/utils/filter-sanit
 
 What each one actually enforces:
 
-- **`sanitizeFilterValue`** doubles single quotes (`O'Brien` → `O''Brien`) and nothing else. It only makes
-  a value safe *inside* a single-quoted literal — it does not validate, so never use it unquoted.
-- **`sanitizeLikeValue`** escapes `\`, then `%` and `_` (the SQL LIKE wildcards), then doubles single
-  quotes. The escape character is a backslash, so the caller **must** append `ESCAPE '\'` or the escapes
-  are ignored and the wildcards stay live. In TypeScript that is written `ESCAPE '\\'`; see
-  `ContactService.contactSearch`, the one place in the app that builds a LIKE filter.
-- **`sanitizeGuid`** validates the canonical 8-4-4-4-12 hex shape, case-insensitively, for any UUID
-  variant (MP GUIDs are not all v4). It returns the value unchanged, so it doubles as a shape check —
+All three string helpers throw on a non-string (an array or object never gets stringified into the
+filter) and on any ASCII control character (C0 range and DEL — NUL, tab, newline, …). Errors name the
+kind of value, never the value.
+
+- **`sanitizeFilterValue`** doubles single quotes (`O'Brien` → `O''Brien`). It only makes a value safe
+  *inside* a single-quoted literal — it does not otherwise validate, so never use it unquoted. It also
+  throws on a non-ASCII single-quote look-alike (U+2018, U+2019, U+201B, U+02BC, U+FF07): doubling only
+  escapes U+0027, and whether anything between the API and SQL Server narrows a look-alike to `'` is
+  unknown, so an equality match fails closed.
+- **`sanitizeLikeValue`** escapes `\`, then the T-SQL LIKE metacharacters `%`, `_` and `[` (`[` opens a
+  character class such as `[0-9]` or `[^a]`; `]` and `^` mean nothing outside one), then doubles single
+  quotes — so the value is matched literally. Each quote look-alike becomes the `_` wildcard, which can
+  never be narrowed into a quote and lets `O’Brien` match `O'Brien` too. The escape character is a
+  backslash, so the caller **must** append `ESCAPE '\'` or the escapes are ignored and the wildcards stay
+  live. In TypeScript that is written `ESCAPE '\\'`; see `ContactService.contactSearch`, the one place in
+  the app that builds a LIKE filter. Length limits are the caller's job: `contactSearch` and the
+  `searchContacts` action cap terms at `CONTACT_SEARCH_MAX_LENGTH` (100, in `src/lib/dto/contacts.ts`),
+  since the term lands in five `LIKE '%…%'` clauses.
+- **`sanitizeGuid`** checks `typeof` first (a one-element array would otherwise stringify into a passing
+  value), then validates the canonical 8-4-4-4-12 hex shape, case-insensitively, for any UUID variant
+  (MP GUIDs are not all v4). It returns the value unchanged, so it doubles as a shape check —
   `src/lib/auth.ts` uses it that way on the OAuth `sub` claim.
 - **`sanitizeNumericId`** accepts a `number`, or a **digits-only** string, and returns a `number`. It
   rejects whitespace padding, signs, decimals, hex, exponent notation, the empty string, `NaN`,
@@ -249,8 +262,21 @@ the signature says `number`. `getContactLogById('1 OR 1=1')` used to build
 `.claude/docs/TestCoverage.md` §5.1. Guards of the form `if (!id || id <= 0)` do **not** catch this:
 a non-empty string is truthy and `'1 OR 1=1' <= 0` is false.
 
-Sanitize at the interpolation site (the service), and validate again at the action boundary so bad
-input fails before the authorization gate and the network call.
+Sanitize at the interpolation site (the service) — and for an ID written into a request body or an
+`id=` list (`updateTableRecords`, `deleteTableRecords`), in the service that builds it — so the service
+is safe whoever calls it. Validate again at the action boundary so bad input fails before the service
+and the network call. In both layers the **authorization gate runs first** and validation second, so a
+caller without a permitted role gets one answer ("not authorized") and learns nothing about which
+arguments the endpoint would have accepted.
+
+The **path** is guarded too, independently of the filter. Table and procedure names must be plain
+identifiers (`sanitizeIdentifier` in `services/guards.ts`: `^[A-Za-z_][A-Za-z0-9_]*$`, ≤ 128 chars;
+throws `Invalid <field>`), so `GET /tables/{table}` cannot be pointed at another endpoint. Below that,
+`HttpClient` refuses any endpoint that does not start with `/` or that contains `..`, `?`, `#`, `\`,
+`%2e`/`%2f`/`%5c` (any case) or a control character, and re-checks that the resolved URL stays under
+the MP base URL — throwing `Refusing unsafe MP API endpoint` (or `Invalid MP API base URL` when the
+base URL itself is unset or unparseable). Query parameters go in the params object, never appended to
+the endpoint string.
 
 ## See also
 

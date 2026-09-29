@@ -148,13 +148,32 @@ describe("AuthorizationService", () => {
       expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
     });
 
-    it("exposes the uncached MP read the memo is built on", async () => {
+    // The uncached read the memo is built on is private (2026-09-28 review: it
+    // was public and interpolated `User_ID = ${userId}` unsanitized). Reached
+    // through a cast here only to prove it is safe on its own, not just
+    // because getSecurityRoles validates first.
+    type WithRawRead = { readSecurityRolesFromMp(userId: unknown): Promise<string[]> };
+
+    it("the uncached MP read returns role names", async () => {
       mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Administrators" }]);
 
-      await expect(
-        AuthorizationService.getInstance().readSecurityRolesFromMp(99)
-      ).resolves.toEqual(["Administrators"]);
+      const svc = AuthorizationService.getInstance() as unknown as WithRawRead;
+      await expect(svc.readSecurityRolesFromMp(99)).resolves.toEqual(["Administrators"]);
+      expect(mockGetTableRecords).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: "User_ID = 99" })
+      );
     });
+
+    it.each(["5 OR 1=1", [5], 0, "1e3"])(
+      "the uncached MP read sanitizes its own ID (%j) before any MP call",
+      async (bad) => {
+        const svc = AuthorizationService.getInstance() as unknown as WithRawRead;
+        await expect(svc.readSecurityRolesFromMp(bad)).rejects.toThrow(
+          "Invalid acting MP User_ID"
+        );
+        expect(mockGetTableRecords).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe("hasSecurityRole (non-throwing form)", () => {

@@ -62,9 +62,9 @@ interface ContactLogsProps {
 const DATE_PLACEHOLDER = "—";
 
 function formatDateTime(dateString: string, timeZone: string): string {
-  // Rendered unguarded for every row, and the app has no error boundary, so an
-  // unparseable value must degrade to a placeholder rather than throw — a
-  // single bad datetime would otherwise take down the whole contact page.
+  // Rendered unguarded for every row, so an unparseable value must degrade to
+  // a placeholder rather than throw — a single bad datetime would otherwise
+  // replace the whole contact page with the `(web)/error.tsx` boundary.
   if (!dateString || !dateString.trim()) {
     return DATE_PLACEHOLDER;
   }
@@ -204,10 +204,6 @@ export function ContactLogs({
         Contact_Date: data.contactDate,
         Notes: data.notes,
         Contact_Log_Type_ID: selectedLogType?.Contact_Log_Type_ID || null,
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       };
 
       await createContactLog(contactLogData);

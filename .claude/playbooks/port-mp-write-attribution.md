@@ -136,7 +136,7 @@ customSession(
 
 **Notes:**
 - The field name on the session that already carries the OAuth subject varies. In the source repo it's `userGuid` (set by Better Auth's `genericOAuth` plugin via `mapProfileToUser`). In NextAuth it might be `user.sub` or `token.sub`. Use whichever your Phase 1 investigation surfaced.
-- If your session uses JWT cookie caching (Better Auth default, NextAuth with `strategy: "jwt"`), the resolved `userId` gets baked into the cookie and subsequent reads are free until the cookie expires.
+- Do not count on the cookie to carry the result. In Better Auth, `customSession` runs on **every** `/get-session` and its output is never written into the cookie cache (`session_data` holds only the base session and user), so the per-process cache above is what keeps this to one MP call per user. (Corrected 2026-09-29; this previously said the `userId` was baked into the cookie.) NextAuth with `strategy: "jwt"` differs: whatever the `jwt` callback returns is stored in the token.
 - If your auth library lets you hook at sign-in only (rather than every session read), prefer that — it's even cheaper. The cache is still worth keeping for cold-start cases.
 
 ## Phase 3 — Create `SessionContextService`

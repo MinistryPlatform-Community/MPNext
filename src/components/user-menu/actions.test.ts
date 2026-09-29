@@ -68,7 +68,28 @@ describe('handleSignOut', () => {
     delete process.env.MINISTRY_PLATFORM_BASE_URL;
     mockSignOut.mockResolvedValueOnce(undefined);
 
-    await expect(handleSignOut()).rejects.toThrow('MINISTRY_PLATFORM_BASE_URL is not configured');
+    await expect(handleSignOut()).rejects.toThrow('MINISTRY_PLATFORM_BASE_URL is not set');
+  });
+
+  it('should refuse an http:// MINISTRY_PLATFORM_BASE_URL without redirecting', async () => {
+    process.env.MINISTRY_PLATFORM_BASE_URL = 'http://mp.example.com';
+    mockSignOut.mockResolvedValueOnce(undefined);
+
+    await expect(handleSignOut()).rejects.toThrow('MINISTRY_PLATFORM_BASE_URL must use https://');
+    expect(mockSignOut).toHaveBeenCalled();
+    expect(mockRedirect).not.toHaveBeenCalled();
+  });
+
+  it('should normalize trailing slashes on both URLs', async () => {
+    process.env.MINISTRY_PLATFORM_BASE_URL = 'https://mp.example.com/';
+    process.env.BETTER_AUTH_URL = 'https://myapp.example.com/';
+    mockSignOut.mockResolvedValueOnce(undefined);
+
+    await handleSignOut();
+
+    const url = redirectedTo();
+    expect(url.origin + url.pathname).toBe('https://mp.example.com/oauth/connect/endsession');
+    expect(url.searchParams.get('post_logout_redirect_uri')).toBe('https://myapp.example.com');
   });
 
   it('should fall back to NEXTAUTH_URL when BETTER_AUTH_URL is unset', async () => {
@@ -88,7 +109,7 @@ describe('handleSignOut', () => {
     delete process.env.NEXTAUTH_URL;
     mockSignOut.mockResolvedValueOnce(undefined);
 
-    await expect(handleSignOut()).rejects.toThrow('BETTER_AUTH_URL is not configured');
+    await expect(handleSignOut()).rejects.toThrow('BETTER_AUTH_URL is not set');
     // The local session is still cleared before the configuration check.
     expect(mockSignOut).toHaveBeenCalled();
     expect(mockRedirect).not.toHaveBeenCalled();
