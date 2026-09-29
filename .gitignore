@@ -431,3 +431,6 @@ FodyWeavers.xsd
 
 # Claude Code agent worktrees (each is a full checkout; never commit or lint them)
 .claude/worktrees/
+
+# Playwright MCP snapshots/logs (hold real MP member data; never commit)
+.playwright-mcp/

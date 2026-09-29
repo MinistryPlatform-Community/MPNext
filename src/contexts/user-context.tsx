@@ -31,6 +31,16 @@ function profileLoadFailed(error: unknown): null {
   return null;
 }
 
+async function settleProfile(
+  profilePromise: PromiseLike<CurrentUserProfile | null>
+): Promise<CurrentUserProfile | null> {
+  try {
+    return await profilePromise;
+  } catch (error) {
+    return profileLoadFailed(error);
+  }
+}
+
 interface UserProviderProps {
   /**
    * The signed-in user's MP profile, started on the server by the `(web)`
@@ -58,8 +68,14 @@ export function UserProvider({ profilePromise, children }: UserProviderProps) {
   // signed-in user with no way to sign out ("Go to sign in" just bounced back
   // to the same failure). As `null` it renders the no-profile header, whose
   // menu still offers sign-out. Memoised so `use()` sees a stable promise.
+  //
+  // Not `profilePromise.catch(...)`: a promise streamed from a Server
+  // Component arrives as React Flight's `ReactPromise`, whose `then()` returns
+  // `undefined` instead of a new promise, so `.catch()` returned `undefined`
+  // and `use(undefined)` threw on every page. Awaiting it only relies on
+  // `then()` invoking its callbacks.
   const safeServerPromise = useMemo(
-    () => profilePromise.catch(profileLoadFailed),
+    () => settleProfile(profilePromise),
     [profilePromise]
   );
   const userProfilePromise = refreshedPromise ?? safeServerPromise;
