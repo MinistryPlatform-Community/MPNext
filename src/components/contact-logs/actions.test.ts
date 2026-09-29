@@ -21,7 +21,6 @@ const {
   mockCreateContactLog,
   mockUpdateContactLog,
   mockDeleteContactLog,
-  mockGetContactLogsByContactId,
   mockGetContactLogById,
   mockRequireSecurityRole,
 } = vi.hoisted(() => ({
@@ -29,7 +28,6 @@ const {
   mockCreateContactLog: vi.fn(),
   mockUpdateContactLog: vi.fn(),
   mockDeleteContactLog: vi.fn(),
-  mockGetContactLogsByContactId: vi.fn(),
   mockGetContactLogById: vi.fn(),
   mockRequireSecurityRole: vi.fn(),
 }));
@@ -41,7 +39,8 @@ vi.mock('@/services/contactLogService', () => ({
       createContactLog: mockCreateContactLog,
       updateContactLog: mockUpdateContactLog,
       deleteContactLog: mockDeleteContactLog,
-      getContactLogsByContactId: mockGetContactLogsByContactId,
+      // Only ever asserted NOT called: no action reads the target log to
+      // compare ownership.
       getContactLogById: mockGetContactLogById,
     }),
   },
@@ -64,13 +63,12 @@ vi.mock('@/services/authorizationService', () => {
   };
 });
 
+import * as actions from './actions';
 import {
   getContactLogTypes,
   createContactLog,
   updateContactLog,
   deleteContactLog,
-  getContactLogsByContactId,
-  getContactLogById,
 } from './actions';
 import { UnauthorizedError } from '@/services/authorizationService';
 
@@ -93,10 +91,6 @@ const validCreateInput = {
   Contact_Date: '2024-01-15T10:00:00Z',
   Notes: 'Test note',
   Contact_Log_Type_ID: 1,
-  Planned_Contact_ID: null,
-  Contact_Successful: null,
-  Original_Contact_Log_Entry: null,
-  Feedback_Entry_ID: null,
 };
 
 describe('contact-logs actions', () => {
@@ -429,81 +423,6 @@ describe('contact-logs actions', () => {
     });
   });
 
-  describe('getContactLogsByContactId', () => {
-    it('refuses a caller with no security role', async () => {
-      mockRequireSecurityRole.mockRejectedValueOnce(noRole());
-
-      await expect(getContactLogsByContactId(42)).rejects.toThrow(UnauthorizedError);
-      expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
-    });
-
-    it('should throw for invalid contactId', async () => {
-      await expect(getContactLogsByContactId(0)).rejects.toThrow(
-        'Invalid Contact ID'
-      );
-    });
-
-    it('returns logs to a role-holder, after the read gate passes', async () => {
-      const mockLogs = [{ Contact_Log_ID: 1, Contact_ID: 42 }];
-      mockGetContactLogsByContactId.mockResolvedValueOnce(mockLogs);
-
-      const result = await getContactLogsByContactId(42);
-
-      expect(result).toEqual(mockLogs);
-      expect(mockRequireSecurityRole).toHaveBeenCalledWith({
-        table: 'Contact_Log',
-        operation: 'read',
-      });
-    });
-
-    it('should wrap a non-Error rejection from the service', async () => {
-      mockGetContactLogsByContactId.mockRejectedValueOnce('boom');
-
-      await expect(getContactLogsByContactId(42)).rejects.toThrow(
-        'Failed to fetch contact logs'
-      );
-    });
-  });
-
-  describe('getContactLogById', () => {
-    it('refuses a caller with no security role', async () => {
-      mockRequireSecurityRole.mockRejectedValueOnce(noRole());
-
-      await expect(getContactLogById(1)).rejects.toThrow(UnauthorizedError);
-      expect(mockGetContactLogById).not.toHaveBeenCalled();
-    });
-
-    it('should throw for invalid contactLogId', async () => {
-      await expect(getContactLogById(0)).rejects.toThrow('Invalid Contact Log ID');
-    });
-
-    it('should return log when found', async () => {
-      const mockLog = { Contact_Log_ID: 1, Notes: 'Test' };
-      mockGetContactLogById.mockResolvedValueOnce(mockLog);
-
-      const result = await getContactLogById(1);
-
-      expect(result).toEqual(mockLog);
-      expect(mockRequireSecurityRole).toHaveBeenCalledWith({
-        table: 'Contact_Log',
-        operation: 'read',
-      });
-    });
-
-    it('should return null when not found', async () => {
-      mockGetContactLogById.mockResolvedValueOnce(null);
-
-      const result = await getContactLogById(999);
-      expect(result).toBeNull();
-    });
-
-    it('should wrap a non-Error rejection from the service', async () => {
-      mockGetContactLogById.mockRejectedValueOnce('boom');
-
-      await expect(getContactLogById(1)).rejects.toThrow('Failed to fetch contact log');
-    });
-  });
-
   describe('Authorization guards', () => {
     it('refuses every write for a session with no MP user behind it', async () => {
       mockRequireSecurityRole.mockRejectedValue(noMpUser());
@@ -518,37 +437,40 @@ describe('contact-logs actions', () => {
     });
 
     it('refuses every read for a session with no MP user behind it', async () => {
-      // F1: these three used to succeed for any session at all.
+      // F1: this used to succeed for any session at all.
       mockRequireSecurityRole.mockRejectedValue(noMpUser());
 
       await expect(getContactLogTypes()).rejects.toThrow(UnauthorizedError);
-      await expect(getContactLogsByContactId(42)).rejects.toThrow(UnauthorizedError);
-      await expect(getContactLogById(1)).rejects.toThrow(UnauthorizedError);
 
       expect(mockGetContactLogTypes).not.toHaveBeenCalled();
-      expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
-      expect(mockGetContactLogById).not.toHaveBeenCalled();
+    });
+
+    it('exports only the actions the contact-log UI calls', () => {
+      // Every export of a "use server" file is a callable POST endpoint. The
+      // unused getContactLogsByContactId / getContactLogById reads were removed
+      // (2026-09-28); this keeps them, or any other unused endpoint, from
+      // quietly coming back.
+      expect(Object.keys(actions).sort()).toEqual([
+        'createContactLog',
+        'deleteContactLog',
+        'getContactLogTypes',
+        'updateContactLog',
+      ]);
     });
 
     it('every exported action calls the gate — none is reachable on a session alone', async () => {
       // Guards against a new action (or a restored one) shipping ungated.
       mockGetContactLogTypes.mockResolvedValue([]);
-      mockGetContactLogsByContactId.mockResolvedValue([]);
-      mockGetContactLogById.mockResolvedValue(null);
       mockCreateContactLog.mockResolvedValue({ Contact_Log_ID: 1 });
       mockUpdateContactLog.mockResolvedValue({ Contact_Log_ID: 1 });
       mockDeleteContactLog.mockResolvedValue(undefined);
 
       await getContactLogTypes();
-      await getContactLogsByContactId(42);
-      await getContactLogById(1);
       await createContactLog(validCreateInput);
       await updateContactLog(1, { Notes: 'x' });
       await deleteContactLog(1);
 
       expect(mockRequireSecurityRole.mock.calls.map((c) => c[0])).toEqual([
-        { table: 'Contact_Log', operation: 'read' },
-        { table: 'Contact_Log', operation: 'read' },
         { table: 'Contact_Log', operation: 'read' },
         { table: 'Contact_Log', operation: 'create' },
         { table: 'Contact_Log', operation: 'update' },
@@ -565,20 +487,6 @@ describe('contact-logs actions', () => {
   // `!id` is false and `id <= 0` is false, so the guard was a no-op.
   describe('numeric ID validation at the action boundary', () => {
     const injectionPayloads = ['1 OR 1=1', '5; DROP', "1' OR '1'='1", '1 --', '', 'abc', '  7  '];
-
-    it.each(injectionPayloads)('getContactLogById rejects %j before reaching the service', async (payload) => {
-      await expect(getContactLogById(payload as unknown as number)).rejects.toThrow(
-        'Invalid Contact Log ID'
-      );
-      expect(mockGetContactLogById).not.toHaveBeenCalled();
-    });
-
-    it.each(injectionPayloads)('getContactLogsByContactId rejects %j before reaching the service', async (payload) => {
-      await expect(getContactLogsByContactId(payload as unknown as number)).rejects.toThrow(
-        'Invalid Contact ID'
-      );
-      expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
-    });
 
     it.each(injectionPayloads)('updateContactLog rejects %j before the service', async (payload) => {
       await expect(
@@ -606,11 +514,11 @@ describe('contact-logs actions', () => {
     });
 
     it('passes a digits-only ID through to the service as a number', async () => {
-      mockGetContactLogById.mockResolvedValueOnce({ Contact_Log_ID: 42 });
+      mockDeleteContactLog.mockResolvedValueOnce(undefined);
 
-      await getContactLogById('42' as unknown as number);
+      await deleteContactLog('42' as unknown as number);
 
-      expect(mockGetContactLogById).toHaveBeenCalledWith(42);
+      expect(mockDeleteContactLog).toHaveBeenCalledWith(42);
     });
   });
 
@@ -671,6 +579,55 @@ describe('contact-logs actions', () => {
 
       expect(logSpy).not.toHaveBeenCalled();
       expect(errorSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // 2026-09-28 review (log injection). A role-holder could send a
+  // `Contact_Date` containing a newline and a fake JSON event; the service used
+  // to echo it into the error message and this file logged that verbatim, so
+  // it landed as a separate, forged structured log line.
+  describe('Structured failure logging', () => {
+    let errorSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    const forged =
+      'x\n{"event":"mp.write.unauthorized","userId":1,"reason":"forged"}';
+
+    it.each([
+      ['getContactLogTypes', () => { mockGetContactLogTypes.mockRejectedValueOnce(new Error(forged)); return getContactLogTypes(); }],
+      ['createContactLog', () => { mockCreateContactLog.mockRejectedValueOnce(new Error(forged)); return createContactLog(validCreateInput); }],
+      ['updateContactLog', () => { mockUpdateContactLog.mockRejectedValueOnce(new Error(forged)); return updateContactLog(1, { Notes: 'x' }); }],
+      ['deleteContactLog', () => { mockDeleteContactLog.mockRejectedValueOnce(new Error(forged)); return deleteContactLog(1); }],
+    ])('%s logs one single-line JSON event, whatever the error says', async (action, run) => {
+      await expect(run()).rejects.toThrow();
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const args = errorSpy.mock.calls[0];
+      expect(args).toHaveLength(1);
+      const line = args[0] as string;
+      expect(line).not.toContain('\n');
+      expect(JSON.parse(line)).toEqual({
+        event: 'contact_log.action_failed',
+        action,
+        error: { name: 'Error', message: forged },
+      });
+    });
+
+    it('logs only the type of a non-Error rejection', async () => {
+      mockCreateContactLog.mockRejectedValueOnce('boom\n{"event":"x"}');
+
+      await expect(createContactLog(validCreateInput)).rejects.toThrow(
+        'Failed to create contact log'
+      );
+
+      expect(JSON.parse(errorSpy.mock.calls[0][0] as string)).toEqual({
+        event: 'contact_log.action_failed',
+        action: 'createContactLog',
+        error: { name: 'string' },
+      });
     });
   });
 });
