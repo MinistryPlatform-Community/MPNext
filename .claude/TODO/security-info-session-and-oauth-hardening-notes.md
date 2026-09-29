@@ -14,6 +14,6 @@
 
 - [ ] **A null `/get-session` has no `Cache-Control`, and stale cookies are never cleared.** customSession returns `ctx.json(null)` and drops the inner Set-Cookie deletions (`node_modules/better-auth/dist/plugins/custom-session/index.mjs:49-56`). Not exploitable (`AuthWrapper` still redirects). Fix: accept, or clear cookies in `AuthWrapper` when the session is null.
 
-- [ ] **`sessionContextService.ts:45` logs the whole error object.** Safe today; brittle if an error ever carries a response body. Fix: log `err.name`/`err.message` only.
+- [x] *(Fixed 2026-09-29: logs `errName` only, and rethrows Next control-flow errors via `unstable_rethrow`.)* **`sessionContextService.ts:45` logs the whole error object.** Safe today; brittle if an error ever carries a response body. Fix: log `err.name`/`err.message` only.
 
 - [ ] **Same secret, no domain separation.** `BETTER_AUTH_SECRET` is used raw as the HMAC key for `session_token` and as the HS256 JWT key (SHA-256/HKDF derivations for state and JWE). No signing oracle exists, so not exploitable. Captured in [security-auth-secret-fallback-and-test-flag.md](security-auth-secret-fallback-and-test-flag.md) (rotation note).

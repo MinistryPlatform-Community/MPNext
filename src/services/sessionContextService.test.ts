@@ -66,7 +66,33 @@ describe("SessionContextService", () => {
       mockGetSession.mockRejectedValueOnce(new Error("session boom"));
       const result = await SessionContextService.getInstance().getCurrentUserId();
       expect(result).toBeNull();
-      expect(errorSpy).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[SessionContextService] getSession failed",
+        { errName: "Error" },
+      );
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain("session boom");
+    });
+
+    it("logs a non-Error rejection by its type", async () => {
+      mockGetSession.mockRejectedValueOnce("boom");
+      const result = await SessionContextService.getInstance().getCurrentUserId();
+      expect(result).toBeNull();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[SessionContextService] getSession failed",
+        { errName: "string" },
+      );
+    });
+
+    it("rethrows Next.js control-flow errors instead of swallowing them", async () => {
+      // The shape Next throws when a route bails out of static rendering.
+      const bailout = Object.assign(new Error("Dynamic server usage"), {
+        digest: "DYNAMIC_SERVER_USAGE",
+      });
+      mockGetSession.mockRejectedValueOnce(bailout);
+      await expect(
+        SessionContextService.getInstance().getCurrentUserId(),
+      ).rejects.toBe(bailout);
+      expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it("does not warn on the pure-read path", async () => {

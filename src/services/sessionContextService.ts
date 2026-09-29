@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { unstable_rethrow } from "next/navigation";
 import { auth } from "@/lib/auth";
 
 /**
@@ -43,7 +44,14 @@ export class SessionContextService {
       )?.userId;
       return userId ?? null;
     } catch (err) {
-      console.error("[SessionContextService] getSession failed", err);
+      // Let Next's own control-flow errors (dynamic-rendering bailout during
+      // `next build`, redirect, notFound) through instead of logging them.
+      unstable_rethrow(err);
+      // Name only: an error object can carry a response body or the
+      // `$filter` of the `User_ID` lookup (the user's GUID).
+      console.error("[SessionContextService] getSession failed", {
+        errName: err instanceof Error ? err.name : typeof err,
+      });
       return null;
     }
   }
