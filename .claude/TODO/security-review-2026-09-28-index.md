@@ -22,75 +22,43 @@ None open. The remaining parts of the three partly fixed Medium items (sign-out 
 - `security-mp-logout-missing-id-token-hint` — `client_id` + `id_token_hint` sent; one shared `auth` per process (2026-09-29) so the hint is actually available; verified live against MP (no prompt). On another serverless instance MP prompts once — documented
 - `security-committed-claude-settings-sed` — `.claude/settings.local.json` untracked + gitignored; shared entries (no `sed:*`) moved to `.claude/settings.json`
 
-## Low–Medium
+## Fixed 2026-09-29 (branch `dev/security-review-2026-09-28`, wave 1 — child branches `security/a`…`security/g`)
 
-| Item | One-liner |
+TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md).
+
+- **MP HTTP client (a):** timeouts + `redirect: "error"` on every MP fetch; single-flight token refresh, token-response validation, 401 → refresh + one retry; `buildUrl` path guard; name-only error logging — `mp-fetch-timeouts-and-redirects`, `mp-token-cache-hardening`
+- **Provider services (b):** identifier/ID/GUID validation + per-segment encoding in File/Table/Procedure services; trusted sender for communications; procedure allowlist; `$ignorePermissions` dropped; codegen escaping — `file-service-path-traversal`, `info-provider-logging-and-codegen`
+- **Auth core (c):** `requireIdTokenVerification: true`; `exp`/`azp` checks; userinfo never throws (timeout, no redirects); `session_data` is JWE; `resolveMpUserId` negative cache + GUID-free logs; `token`/`ipAddress`/`userAgent` stripped from `/get-session` — `require-id-token-verification`, `id-token-claim-checks-weak`, `get-user-info-robustness`, `session-cookie-readable-jwt-strategy`, `resolve-mp-user-id-logs-guid-and-no-negative-cache`
+- **App services (d):** contact-log field allowlists; `Made_By` kept on update; `updateContact` allowlist; service-level ID sanitizing and caps; `getUserProfile` self-only; LIKE `[` escaping + 100-char search cap; no input echo in errors; unused actions removed — `contact-log-caller-fk-fields`, `contact-log-update-overwrites-author`, `contact-service-update-contact-mass-assignment`, `service-layer-input-validation-gaps`, `user-service-get-user-profile-ungated`, `sanitize-like-value-gaps`, `log-injection-from-caller-input`, `info-authorization-notes`
+- **HTTP boundary (e):** raw-header Content-Type check (NBSP); `/api` exact + anchored matcher; `no-store` on auth routes; COOP/CORP, `base-uri 'none'`, no `X-Powered-By`; `logging.serverFunctions: false`; image optimizer off; `originOf` validation — `sign-in-social-content-type-nbsp`, `proxy-public-path-and-matcher-loose`, `next-dev-logs-server-action-args`, `csp-origin-of-validation`, `header-hardening-gaps` (CSP reporting: decided none; `style-src` nonce: accepted)
+- **Auth UI (f):** `/auth-error` code allowlist; `/signin` error states + restart cap; sign-out always reachable; `global-error` works without JS; `[guid]` page self-gates; tabs leave protected pages when the session ends — `auth-error-page-content-spoofing`, `signin-page-swallows-errors`, `no-signout-when-profile-fails`, `prerendered-nonceless-pages`, `layout-gate-docs-and-test-misleading`
+- **CI / setup (g):** actions pinned by SHA + `permissions: contents: read` + Dependabot; lint + `tsc` CI job; `.env.local` written quoted/escaped, 0600, secret ≥ 32; setup uses `npm ci`, no `npm update`; dedicated OIDC client guidance — `ci-action-pinning-permissions`, `setup-env-file-writing`, `setup-runs-npm-update`, `shared-oidc-client-default`
+
+## Decisions (2026-09-29)
+
+| Item | Decision |
 |---|---|
+| [security-roles-matched-by-name](security-roles-matched-by-name.md), [security-mp-security-roles-parsing-fails-open](security-mp-security-roles-parsing-fails-open.md) | **Deferred** — keep name matching for now; document the limitation |
+| [security-unused-user-oauth-tokens-stored](security-unused-user-oauth-tokens-stored.md) (scope) | **Won't fix** — template repo; forks need the broad scope |
+| Signed-out page | **Implement** — a page that does not auto-start OAuth (wave 2) |
+| [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | **Rebuild the auth instance on `PROVIDER_NOT_FOUND`** (single-flight, 30 s cooldown). Static endpoints ruled out: incompatible with `requireIdTokenVerification` |
+| [security-shared-device-session-persistence](security-shared-device-session-persistence.md) remainder, sign-out revocation | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
+| CSP reporting | **None** — known gap |
 
-## Low
+## Open (wave 2 in progress)
 
-| Item | One-liner |
+| Item | Remaining |
 |---|---|
-| [security-unused-user-oauth-tokens-stored](security-unused-user-oauth-tokens-stored.md) | *Partly fixed 2026-09-28* (no `offline_access`, no account cookie, tokens stripped from memory). Remaining: narrow `scopes/all` (needs non-prod MP) |
-| [security-session-cookie-readable-jwt-strategy](security-session-cookie-readable-jwt-strategy.md) | `strategy: "jwt"` → PII readable in `session_data` cookie |
-| [security-auth-url-env-not-validated](security-auth-url-env-not-validated.md) | Unset `BETTER_AUTH_URL` → Host-derived redirect_uri; MP base URL may be `http://` |
-| [security-resolve-mp-user-id-logs-guid-and-no-negative-cache](security-resolve-mp-user-id-logs-guid-and-no-negative-cache.md) | Logs raw User_GUID; re-queries MP on every failed `/get-session` |
-| [security-shared-device-session-persistence](security-shared-device-session-persistence.md) | Persistent 7-day cookie; other tabs keep showing data after sign-out |
-| [security-no-signout-when-profile-fails](security-no-signout-when-profile-fails.md) | Profile load failure removes every sign-out control |
-| [security-auth-test-gaps](security-auth-test-gaps.md) | Origin checks off in all tests; no callback E2E; route mutants survive |
-| [security-require-id-token-verification](security-require-id-token-verification.md) | Partial discovery silently disables id_token verification |
-| [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | Boot-time discovery failure = sign-in down until restart; docs describe old behaviour |
-| [security-signin-page-swallows-errors](security-signin-page-swallows-errors.md) | Endless spinner on 429 / provider-missing; no auto-restart limit |
-| [security-get-user-info-robustness](security-get-user-info-robustness.md) | `getUserInfo` can throw; no timeout; "undefined undefined" names |
-| [security-auth-error-page-content-spoofing](security-auth-error-page-content-spoofing.md) | `/auth-error?error=` renders arbitrary text on the app's origin |
-| [security-mp-security-roles-parsing-fails-open](security-mp-security-roles-parsing-fails-open.md) | *Partly fixed 2026-09-28* (`","` now fails closed, legacy var honoured). Remaining: role names containing commas can't be listed |
-| [security-roles-matched-by-name](security-roles-matched-by-name.md) | Role names are editable text; match by Role_ID |
-| [security-layout-gate-docs-and-test-misleading](security-layout-gate-docs-and-test-misleading.md) | Docs say the layout gate protects child pages — false in Next 16 |
-| [security-contact-log-caller-fk-fields](security-contact-log-caller-fk-fields.md) | Caller can set `Feedback_Entry_ID`, `Original_Contact_Log_Entry`, etc. |
-| [security-contact-log-update-overwrites-author](security-contact-log-update-overwrites-author.md) | Any edit rewrites `Made_By`; docs contradict each other |
-| [security-sanitize-like-value-gaps](security-sanitize-like-value-gaps.md) | `[` not escaped; no type checks; no length cap |
-| [security-user-service-get-user-profile-ungated](security-user-service-get-user-profile-ungated.md) | *Latent:* service returns any user's profile for any GUID |
-| [security-contact-service-update-contact-mass-assignment](security-contact-service-update-contact-mass-assignment.md) | *Latent:* arbitrary columns; `fields.Contact_ID` overrides target |
-| [security-service-layer-input-validation-gaps](security-service-layer-input-validation-gaps.md) | *Latent:* unvalidated IDs/limits in services; public unsanitized role read |
-| [security-file-service-path-traversal](security-file-service-path-traversal.md) | *Latent (High if exposed):* `..` / unencoded paths aim the service bearer anywhere |
-| [security-dormant-provider-helpers](security-dormant-provider-helpers.md) | *Latent:* communications "from" anyone, any stored proc, `$ignorePermissions` |
-| [security-mp-token-cache-hardening](security-mp-token-cache-hardening.md) | No single-flight refresh; `Bearer undefined` cached; 401 doesn't invalidate |
-| [security-mp-fetch-timeouts-and-redirects](security-mp-fetch-timeouts-and-redirects.md) | No timeouts; 307 re-sends client secret cross-origin |
-| [security-next-dev-logs-server-action-args](security-next-dev-logs-server-action-args.md) | `next dev` prints pastoral notes / search terms from action args |
-| [security-setup-env-file-writing](security-setup-env-file-writing.md) | `$`/`#` in hand-typed secrets corrupt or truncate them; file 0644 |
-| [security-sign-in-social-content-type-nbsp](security-sign-in-social-content-type-nbsp.md) | Leading NBSP defeats the Content-Type invariant the filter relies on |
-| [security-proxy-public-path-and-matcher-loose](security-proxy-public-path-and-matcher-loose.md) | `/apifoo` public; unescaped/unanchored matcher exclusions |
-| [security-shared-oidc-client-default](security-shared-oidc-client-default.md) | Default reuses `TM.Widgets` with implicit/hybrid/ROPC flows enabled |
-| [security-setup-runs-npm-update](security-setup-runs-npm-update.md) | Setup pulls unreviewed better-auth minors; lockfile drift |
-| [security-ci-missing-lint-and-build](security-ci-missing-lint-and-build.md) | CI doesn't lint or build; docs say it does |
-| [security-f3b-advisory-fork-check-incomplete](security-f3b-advisory-fork-check-incomplete.md) | Advisory's grep misses a vulnerable fork layout |
-
-## Info
-
-| Item | One-liner |
-|---|---|
-| [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md) | `__Host-` prefix, state not one-time, memory adapter growth, stale cookies, … |
-| [security-id-token-claim-checks-weak](security-id-token-claim-checks-weak.md) | `exp` optional, `azp` unchecked |
-| [security-log-injection-from-caller-input](security-log-injection-from-caller-input.md) | Forged structured log lines via `Contact_Date` / callback params |
-| [security-client-data-overexposure](security-client-data-overexposure.md) | Roles, IDs, phone, full log rows, `session.token` sent to the browser |
-| [security-info-authorization-notes](security-info-authorization-notes.md) | MP-down reads as "no access"; role memo no-op in actions; unused exports |
-| [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | Disable unused `/_next/image`; bump `next` ≥ 16.3.6; GHSA-wxw3 dependency |
-| [security-csp-origin-of-validation](security-csp-origin-of-validation.md) | `originOf("https://*")` widens the CSP |
-| [security-header-hardening-gaps](security-header-hardening-gaps.md) | report-to, COOP, CORP, X-Powered-By, `no-store`, style nonce |
-| [security-prerendered-nonceless-pages](security-prerendered-nonceless-pages.md) | `/_global-error` is static and nonce-less too |
-| [security-ci-action-pinning-permissions](security-ci-action-pinning-permissions.md) | Pin actions by SHA; declare `permissions:` |
-| [security-no-server-only-guard](security-no-server-only-guard.md) | Add `server-only` tripwires |
-| [security-info-provider-logging-and-codegen](security-info-provider-logging-and-codegen.md) | Raw error objects logged; unescaped codegen |
-| [security-docs-drift](security-docs-drift.md) | Remaining doc/comment mismatches (CSP comment, customSession, …) |
-
-## Suggested order
-
-1. **Minutes, no code:** enable private vulnerability reporting + secret scanning/push protection; fix `.gitignore`.
-2. **MP admin work:** least-privilege service account and a dedicated OIDC client (Authorization Code only).
-3. **Small, high-leverage code:** cap `callbackURL`/body size; startup assertions for secret + URLs; `next.config.ts` → `logging.serverFunctions: false`, `images.unoptimized: true`, `poweredByHeader: false`; `requireIdTokenVerification: true`; fail-closed role parsing.
-4. **Session model decision:** `secondaryStorage` for real revocation, or short `expiresIn` + `disableSessionRefresh`; then correct the incident docs.
-5. The logout `id_token_hint`. (PKCE is out of scope: MP does not support it — see the accepted-risk note in [security-docs-drift](security-docs-drift.md).)
-6. Everything else, with its tests.
+| [security-auth-url-env-not-validated](security-auth-url-env-not-validated.md) | `src/lib/env.ts`; wire into auth, MP client, sign-out, CSP |
+| [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | Rebuild-on-failure |
+| [security-client-data-overexposure](security-client-data-overexposure.md) | `CurrentUserProfile` DTO for `getCurrentUserProfile` (session and log rows done) |
+| [security-dormant-provider-helpers](security-dormant-provider-helpers.md) | Thread trusted sender through `helper.ts`/`provider.ts` (until then `createCommunication`/`sendMessage`/`executeProcedure*` refuse every call); remove `$ignorePermissions` from types |
+| [security-auth-test-gaps](security-auth-test-gaps.md) | #1–#5, #8 (route/proxy gaps #6–#7 done) |
+| [security-ci-missing-lint-and-build](security-ci-missing-lint-and-build.md) | `npm run build` + prerender check (only `/_not-found`, `/_global-error` static); setup tests in `test:run` |
+| [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
+| [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
+| [security-shared-device-session-persistence](security-shared-device-session-persistence.md) | Signed-out page; rest accepted |
+| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-f3b-advisory-fork-check-incomplete](security-f3b-advisory-fork-check-incomplete.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), roles/scope decisions above | Docs sweep (runs last) |
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
 
