@@ -136,8 +136,9 @@ describe("sanitizeCallbackUrl", () => {
  * Error handling (security-signin-page-swallows-errors, 2026-09-28).
  *
  * Every failure used to be ignored: a `{ error }` from `signIn.social` (429
- * from the rate limiter, 404 PROVIDER_NOT_FOUND when OIDC discovery failed at
- * boot) or a failed `getSession()` left a spinner that never resolved, and
+ * from the rate limiter, 404 PROVIDER_NOT_FOUND when the provider was not
+ * registered — before issue #101, whenever OIDC discovery failed at boot) or a
+ * failed `getSession()` left a spinner that never resolved, and
  * nothing capped how often the page restarted OAuth by itself.
  */
 describe("SignIn error handling", () => {

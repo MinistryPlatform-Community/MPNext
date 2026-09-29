@@ -40,7 +40,11 @@ import Link from "next/link";
 // observed; anything not listed here — including a code from a future
 // better-auth version — falls back to the generic message below.
 const KNOWN_ERROR_MESSAGES: Record<string, string> = {
-  unable_to_get_user_info: "We couldn't read your Ministry Platform account.",
+  // Also what a Ministry Platform blip during the callback looks like (the
+  // id_token could not be verified, or userinfo did not answer), so the
+  // message invites a retry.
+  unable_to_get_user_info:
+    "We couldn't read your Ministry Platform account. Please try again in a moment.",
   account_not_linked:
     "This Ministry Platform account isn't linked to an existing sign-in here.",
   email_not_found:

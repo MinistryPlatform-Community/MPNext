@@ -104,8 +104,10 @@ function statusOf(error: unknown): number | undefined {
 
 /**
  * Maps a failed `signIn.social` to what the user is told. 429 is the rate
- * limiter; 404 / `PROVIDER_NOT_FOUND` means the MP provider never registered,
- * typically because OIDC discovery failed at boot.
+ * limiter; 404 / `PROVIDER_NOT_FOUND` means the MP provider is not
+ * registered. Since issue #101 that no longer follows from an MP outage (the
+ * provider is configured without boot-time discovery), so it now means a
+ * misconfiguration — but the page must still say so rather than spin.
  */
 function problemForSignInError(error: unknown): SignInProblem {
   const status = statusOf(error);

@@ -135,8 +135,22 @@ try {
 
   const drifted = missing.length || extra.length || changed.length;
 
+  // Write with the repo's existing newline style rather than forcing LF.
+  const writeCanonical = () => {
+    const usesCRLF = readFileSync(LOCKFILE, 'utf8').includes('\r\n');
+    writeFileSync(LOCKFILE, usesCRLF ? canonical.replace(/\n/g, '\r\n') : canonical);
+  };
+
   if (!drifted) {
-    if (committed !== canonical && !fix) {
+    if (committed !== canonical && fix) {
+      // Same tree, different metadata. `--fix` still writes it: adding a
+      // dependency that is already installed transitively (hoisted) changes
+      // only the root entry's `dependencies`, which `treeShape` skips, so
+      // without this the new dependency never reached the lockfile.
+      writeCanonical();
+      console.log('✓ package-lock.json tree already matched Linux resolution; npm metadata rewritten.');
+      console.log('  Review `git diff package-lock.json`, then commit it.');
+    } else if (committed !== canonical) {
       // Same tree, different metadata. Harmless for npm ci — say so and pass,
       // rather than crying wolf. `npm run deps:relock` normalizes it if desired.
       console.log('✓ package-lock.json tree matches Linux resolution — no drift.');
@@ -148,9 +162,7 @@ try {
   }
 
   if (fix) {
-    // Write with the repo's existing newline style rather than forcing LF.
-    const usesCRLF = readFileSync(LOCKFILE, 'utf8').includes('\r\n');
-    writeFileSync(LOCKFILE, usesCRLF ? canonical.replace(/\n/g, '\r\n') : canonical);
+    writeCanonical();
     console.log('✓ package-lock.json rewritten to match Linux resolution.');
     console.log('  Review `git diff package-lock.json`, then commit it.');
     process.exit(0);

@@ -5,10 +5,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * End-to-end guards for the 2026-09-28 OIDC hardening in src/lib/auth.ts:
- * - `requireIdTokenVerification: true` (review item
- *   security-require-id-token-verification): a discovery document missing
- *   `jwks_uri` or `issuer` must take the provider down, not leave it live with
- *   id_token verification silently off.
+ * - Fail-closed verification (review item
+ *   security-require-id-token-verification, now enforced by `verifyMpIdToken`
+ *   since issue #101): a discovery document missing `jwks_uri` or `issuer`
+ *   must refuse sign-in, never let an id_token through unverified.
  * - id_token `exp` / `azp` checks in `getUserInfo` (review item
  *   security-id-token-claim-checks-weak), through the real code flow with
  *   genuinely signed tokens that better-auth's own verifier ACCEPTS.
@@ -19,8 +19,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *   security-client-data-overexposure).
  *
  * Each test re-imports `@/lib/auth` (Vitest builds a fresh instance per
- * import, see `sharedInstance`) so discovery runs again against the mock's
- * current document. `fetch` THROWS for any URL the mock does not serve, so
+ * import, see `sharedInstance`), so the lazily cached verifier is rebuilt and
+ * discovery is fetched again from the mock's current document. `fetch` THROWS for any URL the mock does not serve, so
  * nothing here can reach a real Ministry Platform.
  */
 
@@ -167,14 +167,6 @@ function loggedEvents(): Array<Record<string, unknown>> {
   });
 }
 
-function loggedText(): string {
-  return vi
-    .mocked(console.error)
-    .mock.calls.flat()
-    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-    .join('\n');
-}
-
 beforeEach(() => {
   mockOidc.state.omit = [];
   mockOidc.state.claims = {};
@@ -186,27 +178,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('requireIdTokenVerification: a partial discovery document takes the provider down', () => {
+describe('a partial discovery document can never let an unverified id_token through', () => {
   it('control: full discovery — sign-in starts and completes', async () => {
     const auth = await freshAuth();
     const { location } = await codeFlow(auth);
     expect(location).not.toMatch(/error/);
   });
 
-  // If `requireIdTokenVerification` is removed, genericOAuth keeps the provider
-  // live with NO id_token verifier in both cases below, sign-in returns 200,
-  // and these tests fail.
+  // If `fetchIdTokenVerifier` accepted a document without these, there would be
+  // no key set or no issuer to check against, and these tests would sign in.
   it.each([['jwks_uri'], ['issuer']])(
-    'discovery without %s → sign-in refused with 404 PROVIDER_NOT_FOUND and an error log',
+    'discovery without %s → the callback refuses sign-in and logs which field was missing',
     async (missing) => {
       mockOidc.state.omit = [missing];
       const auth = await freshAuth();
 
-      const response = await startSignIn(auth);
+      const { location, jar } = await codeFlow(auth);
 
-      expect(response.status).toBe(404);
-      expect(await response.json()).toMatchObject({ code: 'PROVIDER_NOT_FOUND' });
-      expect(loggedText()).toContain('requires verified ID tokens');
+      expect(location).toMatch(/error=unable_to_get_user_info/);
+      expect([...jar.keys()].some((n) => n.endsWith('session_token'))).toBe(false);
+      expect(loggedEvents()).toContainEqual(
+        expect.objectContaining({ event: 'auth.oidc.discovery_failed', reason: 'invalid_document', field: missing }),
+      );
+      expect(loggedEvents()).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.id_token_unverified', reason: 'verifier_unavailable' }),
+      );
     },
   );
 });

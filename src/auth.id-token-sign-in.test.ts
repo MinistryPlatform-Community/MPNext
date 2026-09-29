@@ -3,6 +3,7 @@
 // which rejects jsdom-realm typed arrays.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { betterAuth } from 'better-auth';
+import { genericOAuth, type GenericOAuthConfig, type GenericOAuthOptions } from 'better-auth/plugins';
 
 /**
  * End-to-end guard for the `/sign-in/social` id_token token-substitution
@@ -10,11 +11,12 @@ import { betterAuth } from 'better-auth';
  *
  * better-auth's `/sign-in/social` has an id_token mode: given
  * `idToken: { token, accessToken }` it verifies the id_token (signature, iss,
- * aud) and then calls our `getUserInfo` with the CALLER'S access token. Because
- * `discoveryUrl` is set, that mode is live for the "ministry-platform"
+ * aud) and then calls our `getUserInfo` with the CALLER'S access token. While
+ * `discoveryUrl` was set, that mode was live for the "ministry-platform"
  * provider. Nothing bound the verified id_token's `sub` to the access token's
  * userinfo `sub`, so an attacker's own valid id_token plus a victim's access
- * token minted a session as the victim.
+ * token minted a session as the victim. Since issue #101 there is no
+ * `discoveryUrl`, so better-auth refuses the mode itself as well.
  *
  * These tests drive the REAL `auth` instance from src/lib/auth.ts against a
  * mock MP OIDC provider (discovery, JWKS and userinfo), with id_tokens really
@@ -24,12 +26,15 @@ import { betterAuth } from 'better-auth';
  * THROW for any URL the mock doesn't serve: nothing here can reach a real
  * Ministry Platform.
  *
- * Two layers are proven independently here:
+ * Three layers are proven independently here:
  * - `refuseIdTokenSignIn` (`hooks.before`) refuses the mode outright.
- * - With that hook removed, `getUserInfo`'s sub binding still refuses the
+ * - With that hook removed, better-auth refuses it (`ID_TOKEN_NOT_SUPPORTED`)
+ *   because the provider has no id_token config without `discoveryUrl`.
+ * - With the hook removed AND `discoveryUrl` re-added (the configuration that
+ *   made the mode live), `getUserInfo`'s sub binding still refuses the
  *   substituted token (while the victim's own matched pair still works, which
  *   proves the mode really is live and the refusal is the binding).
- * The third layer, the route's body filter, is covered in
+ * The fourth layer, the route's body filter, is covered in
  * src/app/api/auth/[...all]/route.test.ts.
  */
 
@@ -219,9 +224,45 @@ describe('refuseIdTokenSignIn (hooks.before) — primary control', () => {
   });
 });
 
-describe('getUserInfo sub binding — defence in depth, with the hook removed', () => {
+describe('with the hook removed, better-auth refuses the mode itself (no discoveryUrl, issue #101)', () => {
   // Same config, same plugins, same getUserInfo — only the user hook is gone.
   const authWithoutHook = betterAuth({ ...auth.options, hooks: {} });
+
+  it.each([
+    ['an attacker id_token paired with a victim access token', attackBody],
+    [
+      'even a matched id_token + access token pair (the mode is off, not just the attack)',
+      () => ({
+        provider: 'ministry-platform',
+        idToken: { token: mockOidc.signIdToken(mockOidc.subs.victim), accessToken: 'access-token-victim' },
+      }),
+    ],
+  ])('refuses %s with 404 ID_TOKEN_NOT_SUPPORTED', async (_label, body) => {
+    const response = await signInSocial(authWithoutHook, body());
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: 'ID_TOKEN_NOT_SUPPORTED' });
+    expect(sessionCookies(response)).toEqual([]);
+    expect(mockOidc.userinfoCalls).toEqual([]);
+  });
+});
+
+describe('getUserInfo sub binding — defence in depth, with the hook removed AND discoveryUrl re-added', () => {
+  // The configuration that made the mode live: `discoveryUrl` gives the
+  // provider an id_token config (and, with it, nonce binding and a mandatory
+  // verifier, which the old config also had to set).
+  const plugins = (auth.options.plugins ?? []).map((plugin) => {
+    if (plugin.id !== 'generic-oauth') return plugin;
+    const [config] = (plugin as unknown as { options: GenericOAuthOptions }).options.config;
+    const withDiscovery: GenericOAuthConfig = {
+      ...config,
+      discoveryUrl: 'https://test-mp.example.com/oauth/.well-known/openid-configuration',
+      requireIdTokenVerification: true,
+      disableIdTokenNonceBinding: true,
+    };
+    return genericOAuth({ config: [withDiscovery] });
+  });
+  const authWithoutHook = betterAuth({ ...auth.options, plugins, hooks: {} });
 
   it('refuses an attacker id_token paired with a victim access token', async () => {
     const response = await signInSocial(authWithoutHook, attackBody());

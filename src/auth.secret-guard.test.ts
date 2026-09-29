@@ -14,8 +14,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * IMPORTING `@/lib/auth` throws for each bad configuration — removing the
  * module-level call (or any single check) turns them red.
  *
- * `fetch` is stubbed to throw so the genericOAuth discovery fetch at init can
- * never leave the process.
+ * `fetch` is stubbed to throw so nothing can leave the process. (Building the
+ * instance makes no MP call anyway since issue #101 — see the normalized-values
+ * test below.)
  */
 
 vi.mock('@/lib/providers/ministry-platform', () => ({
@@ -166,11 +167,18 @@ describe('auth-critical URLs at module load', () => {
     setEnv({ BETTER_AUTH_URL: 'https://app.example.org/', MINISTRY_PLATFORM_BASE_URL: 'https://mp.example.org/api/' });
     const { auth } = await import('@/lib/auth');
     expect(auth.options.baseURL).toBe('https://app.example.org');
-    const fetchMock = vi.mocked(fetch);
+    const genericOAuth = (auth.options.plugins ?? []).find((p) => p.id === 'generic-oauth') as unknown as {
+      options: { config: Array<Record<string, unknown>> };
+    };
+    expect(genericOAuth.options.config[0]).toMatchObject({
+      authorizationUrl: 'https://mp.example.org/api/oauth/connect/authorize',
+      tokenUrl: 'https://mp.example.org/api/oauth/connect/token',
+      endSessionEndpoint: 'https://mp.example.org/api/oauth/connect/endsession',
+    });
+    // Building the instance makes no MP call (issue #101): discovery is only
+    // fetched when the first id_token needs verifying.
     await auth.$context;
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
-      'https://mp.example.org/api/oauth/.well-known/openid-configuration',
-    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it('pins Secure cookies in production, and leaves them to the baseURL scheme otherwise', async () => {

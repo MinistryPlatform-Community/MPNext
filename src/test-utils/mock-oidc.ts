@@ -6,8 +6,8 @@
  *
  * `installMockOidc()` replaces `globalThis.fetch` with a stub that THROWS for
  * any URL it does not serve, so nothing that uses it can reach a real Ministry
- * Platform. It must run before `@/lib/auth` is imported (genericOAuth fetches
- * discovery when the auth instance is built), i.e. inside `vi.hoisted`:
+ * Platform. Run it before `@/lib/auth` is imported, i.e. inside `vi.hoisted`,
+ * so no module ever captures the real `fetch`:
  *
  *   const oidc = await vi.hoisted(async () =>
  *     (await import('@/test-utils/mock-oidc')).installMockOidc());
@@ -25,8 +25,21 @@ export const MOCK_ISSUER = `${MOCK_MP_BASE}/oauth`;
 export const MOCK_CLIENT_ID = 'test-client-id';
 export const MOCK_SUB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
+/**
+ * How an MP endpoint behaves: `ok`; `reject` (a network error, like a refused
+ * connection); `http_500`; `hang` (accepts the request, never answers — it
+ * settles only when the caller's `AbortSignal` fires).
+ */
+export type MockEndpointMode = 'ok' | 'reject' | 'http_500' | 'hang';
+
 /** Everything a test may change between requests. `reset()` restores it. */
 export interface MockOidcState {
+  /** How the discovery endpoint behaves. */
+  discovery: MockEndpointMode;
+  /** How the JWKS endpoint behaves. */
+  jwks: MockEndpointMode;
+  /** When not `ok`, EVERY mock MP endpoint behaves this way (MP down). */
+  mp: MockEndpointMode;
   /** Keys to drop from the discovery document. */
   omitDiscovery: string[];
   /** Claim overrides for the next id_tokens (an `undefined` value drops the claim). */
@@ -49,6 +62,12 @@ export interface MockOidc {
   state: MockOidcState;
   /** Every request the mock served, in order. */
   calls: RecordedCall[];
+  /**
+   * An RS256 id_token signed by the key the JWKS publishes (or the foreign key
+   * when `state.foreignKey`), with the given claim overrides on top of
+   * `state.claims` (an `undefined` value drops the claim).
+   */
+  signIdToken(claims?: Record<string, unknown>): string;
   reset(): void;
 }
 
@@ -61,7 +80,16 @@ const json = (body: unknown) =>
   });
 
 function freshState(): MockOidcState {
-  return { omitDiscovery: [], claims: {}, foreignKey: false, userinfo: {} };
+  return { discovery: 'ok', jwks: 'ok', mp: 'ok', omitDiscovery: [], claims: {}, foreignKey: false, userinfo: {} };
+}
+
+/** A non-`ok` mode's response: rejects, 500s, or waits for the caller's abort. */
+function misbehave(mode: Exclude<MockEndpointMode, 'ok'>, signal: AbortSignal | null | undefined) {
+  if (mode === 'reject') return Promise.reject(new TypeError('fetch failed'));
+  if (mode === 'http_500') return Promise.resolve(new Response('error', { status: 500 }));
+  return new Promise<Response>((_, reject) => {
+    signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
 }
 
 export function installMockOidc(): MockOidc {
@@ -75,13 +103,14 @@ export function installMockOidc(): MockOidc {
     issuer: MOCK_ISSUER,
     state: freshState(),
     calls: [],
+    signIdToken: (claims) => signIdToken(claims),
     reset() {
       mock.state = freshState();
       mock.calls.length = 0;
     },
   };
 
-  function signIdToken(): string {
+  function signIdToken(overrides: Record<string, unknown> = {}): string {
     const now = Math.floor(Date.now() / 1000);
     const claims = JSON.parse(
       JSON.stringify({
@@ -91,6 +120,7 @@ export function installMockOidc(): MockOidc {
         iat: now,
         exp: now + 300,
         ...mock.state.claims,
+        ...overrides,
       }),
     ) as Record<string, unknown>;
     const input = `${b64({ alg: 'RS256', kid: 'test-key-1', typ: 'JWT' })}.${b64(claims)}`;
@@ -103,7 +133,10 @@ export function installMockOidc(): MockOidc {
     const { url, method } = request;
     mock.calls.push({ url, method, body: await request.clone().text() });
 
+    const servesUrl = url.startsWith(`${MOCK_ISSUER}/`);
+    if (servesUrl && mock.state.mp !== 'ok') return misbehave(mock.state.mp, request.signal);
     if (url === `${MOCK_ISSUER}/.well-known/openid-configuration`) {
+      if (mock.state.discovery !== 'ok') return misbehave(mock.state.discovery, request.signal);
       const doc: Record<string, unknown> = {
         issuer: MOCK_ISSUER,
         authorization_endpoint: `${MOCK_ISSUER}/connect/authorize`,
@@ -116,7 +149,10 @@ export function installMockOidc(): MockOidc {
       for (const key of mock.state.omitDiscovery) delete doc[key];
       return json(doc);
     }
-    if (url === `${MOCK_ISSUER}/.well-known/openid-configuration/jwks`) return json({ keys: [jwk] });
+    if (url === `${MOCK_ISSUER}/.well-known/openid-configuration/jwks`) {
+      if (mock.state.jwks !== 'ok') return misbehave(mock.state.jwks, request.signal);
+      return json({ keys: [jwk] });
+    }
     if (url === `${MOCK_ISSUER}/connect/token` && method === 'POST') {
       return json({
         access_token: 'mock-access-token',
