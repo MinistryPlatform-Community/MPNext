@@ -1,6 +1,7 @@
 'use server';
 
 import { auth } from "@/lib/auth";
+import { getAuthBaseUrl, getMpBaseUrl } from "@/lib/env";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -33,16 +34,12 @@ export async function handleSignOut() {
     body: { disableRedirect: true },
   });
 
-  const baseUrl = process.env.MINISTRY_PLATFORM_BASE_URL;
-  if (!baseUrl) {
-    throw new Error('MINISTRY_PLATFORM_BASE_URL is not configured');
-  }
-  // No localhost fallback: a post-logout redirect to the wrong origin either
-  // fails MP's registered-URI check or sends the user somewhere unexpected.
-  const appUrl = process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL;
-  if (!appUrl) {
-    throw new Error('BETTER_AUTH_URL is not configured');
-  }
+  // Both validated (see src/lib/env.ts); each throws on an unset or unusable
+  // value. No localhost fallback: a post-logout redirect to the wrong origin
+  // either fails MP's registered-URI check or sends the user somewhere
+  // unexpected.
+  const baseUrl = getMpBaseUrl();
+  const appUrl = getAuthBaseUrl();
   const clientId = process.env.OIDC_CLIENT_ID;
   if (!clientId) {
     throw new Error('OIDC_CLIENT_ID is not configured');

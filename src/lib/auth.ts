@@ -6,8 +6,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isIP } from "node:net";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
-
-const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+import { getAuthBaseUrl, getMpBaseUrl } from "@/lib/env";
 
 /**
  * Custom fields added to the Better Auth `user` record.
@@ -524,6 +523,16 @@ if (!process.env.VITEST) {
   assertAuthEnvironment(process.env);
 }
 
+// The two auth-critical URLs, validated once at module load (see
+// src/lib/env.ts): https (loopback http outside production only), no
+// credentials, query or fragment, no trailing slash, and BETTER_AUTH_URL an
+// origin. Unlike the secret guard these run under Vitest too; `test-setup.ts`
+// stubs valid values. An unset BETTER_AUTH_URL is refused rather than left to
+// better-auth, which would otherwise derive the base URL — and so the OAuth
+// redirect_uri and the trusted origins — from the request's Host header.
+const mpBaseUrl = getMpBaseUrl();
+const authBaseUrl = getAuthBaseUrl();
+
 /**
  * Client-IP resolution for better-auth's rate limiter (`/sign-in*` is 3
  * requests per 10 s per IP in production). By default better-auth trusts only
@@ -628,7 +637,7 @@ export const SESSION_EXPIRES_IN_SECONDS = 12 * 60 * 60;
 export const SESSION_COOKIE_CACHE_MAX_AGE_SECONDS = 60 * 60;
 
 const options = {
-  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
+  baseURL: authBaseUrl,
   secret: process.env.BETTER_AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   // Pinned explicitly so an env var cannot flip it: when this is left
   // undefined, better-auth sets `skipOriginCheck = isTest()`, i.e. a truthy
@@ -636,6 +645,14 @@ const options = {
   // (context/create-context.mjs). See `assertAuthEnvironment` above.
   advanced: {
     disableOriginCheck: false,
+    // `Secure` + `__Secure-` cookies in production, stated rather than
+    // inferred. better-auth derives this from the baseURL's scheme
+    // (cookies/index.mjs), which `getAuthBaseUrl` already forces to https in
+    // production, so this changes nothing today; it pins the behaviour if that
+    // derivation ever changes. Left to the derivation outside production, so
+    // `http://localhost` dev keeps working (browsers accept `Secure` cookies
+    // on localhost, but not every tool driving it does).
+    ...(process.env.NODE_ENV === "production" && { useSecureCookies: true }),
     // See `parseIpAddressOptions` above.
     ipAddress: parseIpAddressOptions(process.env),
   },

@@ -1,3 +1,4 @@
+import { getMpBaseUrl } from "@/lib/env";
 import { getClientCredentialsToken } from "./auth/client-credentials";
 import { errorName, HttpClient } from "./utils/http-client";
 
@@ -43,8 +44,9 @@ export class MinistryPlatformClient {
      * Initializes the HTTP client and sets up token management
      */
     constructor() {
-        // Get base URL from environment variable
-        this.baseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+        // Validated base URL (https, no credentials/query, no trailing slash);
+        // throws on an unset or unusable MINISTRY_PLATFORM_BASE_URL
+        this.baseUrl = getMpBaseUrl();
 
         // Create HTTP client with token getter function for automatic authentication,
         // and a 401 hook that drops the rejected token and fetches a fresh one
