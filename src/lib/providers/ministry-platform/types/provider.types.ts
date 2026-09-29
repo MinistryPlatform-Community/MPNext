@@ -61,6 +61,20 @@ export interface MessageInfo {
   StartDate?: string;
 }
 
+/**
+ * What a caller of `MPHelper.createCommunication` supplies: a
+ * {@link CommunicationInfo} without the author/from fields, which are stamped
+ * from the separate trusted `CommunicationSender` argument instead. Values for
+ * them left on the object are ignored.
+ */
+export type CommunicationContent = Omit<CommunicationInfo, 'AuthorUserId' | 'FromContactId'>;
+
+/**
+ * What a caller of `MPHelper.sendMessage` supplies: a {@link MessageInfo}
+ * without `FromAddress`, which comes from the trusted `MessageSender` argument.
+ */
+export type MessageContent = Omit<MessageInfo, 'FromAddress'>;
+
 export interface Communication {
   Communication_ID: number;
   Author_User_ID: number;
@@ -97,8 +111,11 @@ export interface GlobalFilterItem {
   Value: string;
 }
 
+/**
+ * `$ignorePermissions` is deliberately absent: requests already run as the
+ * admin-level service account, and `DomainService` never forwards it.
+ */
 export interface GlobalFilterParams {
-  $ignorePermissions?: boolean;
   $userId?: number;
 }
 

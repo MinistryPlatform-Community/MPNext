@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DomainService } from '@/lib/providers/ministry-platform/services/domain.service';
 import type { MinistryPlatformClient } from '@/lib/providers/ministry-platform/client';
 import type { HttpClient } from '@/lib/providers/ministry-platform/utils/http-client';
-import type { DomainInfo, GlobalFilterItem } from '@/lib/providers/ministry-platform/types';
+import type {
+  DomainInfo,
+  GlobalFilterItem,
+  GlobalFilterParams,
+} from '@/lib/providers/ministry-platform/types';
 
 /**
  * DomainService Tests
@@ -121,8 +125,10 @@ describe('DomainService', () => {
     it('should never forward $ignorePermissions, even when a caller sets it', async () => {
       (mockHttpClient.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockFilters);
 
-      await domainService.getGlobalFilters({ $ignorePermissions: true, $userId: 42 });
-      await domainService.getGlobalFilters({ $ignorePermissions: true });
+      // No longer part of GlobalFilterParams; a JS caller can still send it.
+      const smuggled = (params: object) => params as GlobalFilterParams;
+      await domainService.getGlobalFilters(smuggled({ $ignorePermissions: true, $userId: 42 }));
+      await domainService.getGlobalFilters(smuggled({ $ignorePermissions: true }));
 
       const calls = (mockHttpClient.get as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls[0]).toEqual(['/domain/filters', { $userId: 42 }]);
