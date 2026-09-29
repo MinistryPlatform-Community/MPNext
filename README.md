@@ -121,7 +121,7 @@ Run `npm run setup` for an interactive guided setup, or follow the [Manual Setup
 ```bash
 git clone https://github.com/MinistryPlatform-Community/MPNext.git
 cd MPNext
-npm install
+npm ci
 npm run setup
 ```
 
@@ -130,19 +130,17 @@ The interactive setup command will:
 2. Detect a template clone and offer to keep, reinitialize, or set a new git origin
 3. Check git status
 4. Create `.env.local` from `.env.example` (if needed)
-5. Prompt for missing environment variables — derives both `MINISTRY_PLATFORM_BASE_URL` and `NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL` from a single MP host input (avoiding the copy/paste mismatch risk in the [Manual Setup](#manual-setup) path), and offers to auto-generate `BETTER_AUTH_SECRET`
-6. Install dependencies (`npm install`)
-7. Apply non-breaking updates (`npm update`)
-8. Generate Ministry Platform types
-9. Run a production build to verify configuration
+5. Prompt for missing environment variables — derives both `MINISTRY_PLATFORM_BASE_URL` and `NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL` from a single MP host input (avoiding the copy/paste mismatch risk in the [Manual Setup](#manual-setup) path), and offers to auto-generate `BETTER_AUTH_SECRET` (a hand-entered one must be at least 32 characters). Values are quoted and escaped so Next loads them back exactly, and `.env.local` is written owner-only (`0600`)
+6. Install dependencies with `npm ci` — exactly the versions in `package-lock.json`; the lockfile is never rewritten
+7. Generate Ministry Platform types
+8. Run a production build to verify configuration
 
-> **If you intend to commit `package-lock.json` afterwards**, run `npm run deps:relock` first. The `npm update` in step 7 dedupes as a side effect, which on Windows produces a lockfile that fails CI on Linux — see [Known Issues](#known-issues).
+> **Setup never runs `npm install` or `npm update`.** An unreviewed `better-auth` minor has broken sign-in and identity in this repo before, and on Windows either command can rewrite the lockfile into one CI cannot install. Upgrade dependencies deliberately (the `/audit-deps` command, then the Better Auth Upgrade Checklist in [`.claude/references/auth.md`](.claude/references/auth.md)) and relock with `npm run deps:relock` — see [Known Issues](#known-issues).
 
 **Additional setup options:**
 ```bash
-npm run setup:check     # Validation only (no changes)
-npm run setup -- --clean       # Clean install (delete node_modules first)
-npm run setup -- --skip-install # Skip npm install/update
+npm run setup:check     # Validation only (no changes); checks the secret length as Next loads it
+npm run setup -- --skip-install # Skip the npm ci step
 npm run setup -- --verbose     # Extra output
 npm run setup -- --help        # Show all options
 ```
@@ -165,13 +163,10 @@ cd MPNext
 #### 2. Install Dependencies
 
 ```bash
-npm install
-npm update    # Apply non-breaking patch/minor updates (kept here to mirror the interactive setup flow)
+npm ci        # Installs exactly what package-lock.json pins (same as npm run setup)
 ```
 
-> **Note**: The interactive `npm run setup` flow runs `npm update` automatically. Running it here keeps the manual and automated flows aligned.
-
-> **Do not relock casually.** The commands above are fine for a fresh clone, but if you need to *regenerate* `package-lock.json`, use `npm run deps:relock` — a bare `npm install`/`npm dedupe` on Windows produces a lockfile that fails CI on Linux. See [Known Issues](#known-issues).
+> **Do not relock casually.** Don't use `npm install` or `npm update` here: `npm update` can pull an unreviewed `better-auth` minor, and on Windows a bare `npm install`/`npm update`/`npm dedupe` produces a lockfile that fails CI on Linux. If you need to *regenerate* `package-lock.json`, use `npm run deps:relock`. See [Known Issues](#known-issues).
 
 #### 3. Environment Configuration
 
@@ -184,18 +179,21 @@ cp .env.example .env.local
 Update `.env.local` with your configuration:
 
 ```env
-# Better Auth Configuration (used for end-user OAuth login)
-OIDC_CLIENT_ID=TM.Widgets
+# Better Auth Configuration (used ONLY for end-user OAuth login).
+# A dedicated MP API Client: Authorization Code flow only, exact redirect URIs.
+OIDC_CLIENT_ID=MPNext
 OIDC_CLIENT_SECRET=your_client_secret
 
-# Generate with: openssl rand -base64 32
+# At least 32 characters. Generate with: openssl rand -base64 32
+# If typed by hand, wrap it in double quotes and write each $ as \$.
 BETTER_AUTH_SECRET=your_generated_secret
 
 # Update for production
 BETTER_AUTH_URL=http://localhost:3000
 
-# MinistryPlatform API Configuration (used for server-side API access)
-MINISTRY_PLATFORM_CLIENT_ID=MPNext
+# MinistryPlatform API Configuration (used for server-side API access).
+# A SEPARATE MP API Client: Client Credentials flow only, least-privilege Client User.
+MINISTRY_PLATFORM_CLIENT_ID=MPNext.API
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 
@@ -221,23 +219,40 @@ CSP_ENFORCE=
 
 > **`CSP_ENFORCE` is inverted on purpose.** Anything other than the literal string `false` — including leaving it unset — enforces the policy. A typo therefore fails loud (too strict) rather than silent (no policy at all). Set it to `false` only to diagnose a violation.
 
-> **Note**: `OIDC_CLIENT_ID` and `MINISTRY_PLATFORM_CLIENT_ID` may be the same value or different. The example above uses the common pattern of sharing the `TM.Widgets` OAuth client for congregant-facing login and a scoped server-side client (`MPNext`) for API access. See the comments in `.env.example` for details.
+> **Use two dedicated API Clients.** `OIDC_CLIENT_ID` is the sign-in client (`MPNext` above: Authorization Code only). `MINISTRY_PLATFORM_CLIENT_ID` is the server-side data client (`MPNext.API` above: Client Credentials only). Do **not** reuse a shared client such as `TM.Widgets` for sign-in, and don't enable Implicit, Hybrid or Resource Owner flows on either client. Ministry Platform does not support PKCE, so a dedicated client with exact redirect URIs is the main defence against authorization-code injection — see the [Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md). Both are set up below, under [API Client Setup](#api-client-setup).
+
+> **Quoting values by hand.** Next's env loader treats an unquoted `#` as the start of a comment and expands `$NAME`, so an unquoted `Xy9$Qz7Lm#Kp2…` loads as `Xy9`. Wrap values that contain `$`, `#` or spaces in double quotes and write each `$` as `\$`. `npm run setup` does this for you, and `npm run setup:check` reports the length of `BETTER_AUTH_SECRET` as the app will actually load it.
 
 
 #### API Client Setup
 
-Before running the application, you must configure an OAuth 2.0 / OpenID Connect (OIDC) client in Ministry Platform.
+Before running the application, you must configure **two** API Clients in Ministry Platform: one OAuth 2.0 / OpenID Connect (OIDC) client for user sign-in, and one for the app's server-side data access.
 
 Log in to your Ministry Platform instance as an administrator and navigate to **Administration > API Clients**.
 
-Create a new API Client with the following configuration:
+##### 1. Sign-in client (`OIDC_CLIENT_ID`)
 
-##### Basic Settings
+Create a new API Client dedicated to MPNext sign-in. Do not reuse a shared client such as `TM.Widgets`.
+
 - **Client ID**: `MPNext` (or your custom client ID)
-- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local`)
+- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local` as `OIDC_CLIENT_SECRET`)
 - **Display Name**: `MPNext` (or your preferred name)
-- **Client User**: Create a scoped user or use API User
-- **Authentication Flow**: use the default: Authorization Code, Implicit, Hybrid, Client Credentials, or Resource Owner
+- **Authentication Flow**: **Authorization Code only.** Do not enable Implicit, Hybrid, Client Credentials or Resource Owner on this client. MPNext never refreshes the user's token (it doesn't request `offline_access`), so it doesn't need refresh tokens either.
+- **Redirect URIs** and **Post-Logout Redirect URIs**: exactly the entries below, for each environment. No wildcards and no extra entries.
+
+> **Why a dedicated client?** Ministry Platform does not support PKCE, and MP never returns the `nonce` claim. MPNext relies on this being a confidential client with a private secret and tightly registered redirect URIs — that's the main defence against authorization-code injection. A shared client, or one that allows implicit or hybrid flows, raises the risk described in the [Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md).
+
+##### 2. Data-access client (`MINISTRY_PLATFORM_CLIENT_ID`)
+
+Create a second API Client for the app's server-side calls (every MP read and write, including the security-role gate).
+
+- **Client ID**: `MPNext.API` (or your custom client ID)
+- **Client Secret**: Generate a secure secret (`MINISTRY_PLATFORM_CLIENT_SECRET`)
+- **Client User**: a dedicated, least-privilege MP user. Every server-side read and write runs with this user's permissions.
+- **Authentication Flow**: **Client Credentials only.**
+- **Redirect URIs**: none needed.
+
+The redirect URIs below belong on the **sign-in** client.
 
 ##### Redirect URIs (Required)
 Add these authorized redirect URIs where users will be sent after authentication - separate each entry by ending with a semi-colon(;):
@@ -470,7 +485,7 @@ MPNext/
 ├── docs/
 │   ├── OAUTH_LOGOUT_SETUP.md
 │   └── security/                         # Security advisories
-├── scripts/                              # setup.ts, check-lockfile.mjs
+├── scripts/                              # setup.ts (+ setup-env.ts, its .env.local writer), check-lockfile.mjs
 ├── public/                               # Static assets
 ├── coverage/                             # Test coverage reports
 ├── .env.example                          # Environment template
