@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { betterAuth } from 'better-auth';
 
 /**
- * Rate-limit IP resolution through the REAL auth options (TODO
+ * Rate-limit IP resolution through the REAL auth options (review item
  * security-auth-test-gaps #5). src/auth.ip-address.test.ts covers
  * `parseIpAddressOptions` and a bare better-auth instance; this suite proves
  * the app's own config wires `AUTH_IP_ADDRESS_HEADERS` / `AUTH_TRUSTED_PROXIES`

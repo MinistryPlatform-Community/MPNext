@@ -15,8 +15,7 @@ import type { ContactLogDisplay } from "@/lib/dto";
  *                                    close the dialog or signal a refresh as if
  *                                    it had succeeded
  *
- * See `.claude/TODO/contact-logs-component-untested.md` (the original gap) and
- * `.claude/references/testing.md`.
+ * See `.claude/references/testing.md`.
  */
 
 const {

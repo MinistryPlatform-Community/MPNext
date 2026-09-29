@@ -710,7 +710,7 @@ describe('ContactLogService', () => {
     });
   });
 
-  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`.
+  // Regression guard for the numeric-ID `$filter` injection fix.
   //
   // Every method here declares `number`, but that annotation is erased at
   // runtime and server actions compile to POST endpoints whose payload shape the

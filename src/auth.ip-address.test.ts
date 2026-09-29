@@ -4,7 +4,7 @@ import { betterAuth } from 'better-auth';
 import { getIP, getIPFromHeader } from '@better-auth/core/utils/ip';
 
 /**
- * Guard for TODO security-rate-limit-ip-resolution: which client IP
+ * Guard for review item security-rate-limit-ip-resolution: which client IP
  * better-auth's rate limiter keys on is host-specific, so it is configured by
  * `AUTH_IP_ADDRESS_HEADERS` / `AUTH_TRUSTED_PROXIES` (see
  * `parseIpAddressOptions` in src/lib/auth.ts). Without it, clients whose IP

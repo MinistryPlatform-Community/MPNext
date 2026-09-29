@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { betterAuth } from 'better-auth';
 
 /**
- * Server-side half of F3/F3b (TODO security-auth-test-gaps #1): better-auth's
+ * Server-side half of F3/F3b (review item security-auth-test-gaps #1): better-auth's
  * Origin / callbackURL check must be ON for the real `auth` instance.
  *
  * Vitest sets `NODE_ENV=test`, and better-auth derives

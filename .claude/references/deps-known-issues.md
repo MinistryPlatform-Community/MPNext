@@ -3,8 +3,8 @@
 State carried between `/audit-deps` runs so each audit starts from prior conclusions
 instead of re-deriving them. Every entry needs a date and a re-check trigger.
 
-Last audit: **2026-08-27** — report at `.claude/reports/deps-audit-2026-08-27.md`
-(prior: `deps-audit-2026-08-21-run2.md`, `deps-audit-2026-08-21.md`).
+Last full audit: **2026-08-27** (prior: 2026-08-21, twice). Per-run reports are local
+working files (`.claude/reports/`, gitignored); this file is the durable record.
 
 Advisory state re-verified **2026-09-12** (release docs pass — read-only, no
 upgrades applied): `npm audit` reports **0 vulnerabilities across 720 packages**

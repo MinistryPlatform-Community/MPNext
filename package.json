@@ -2,6 +2,15 @@
   "name": "mp-next",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MinistryPlatform-Community/MPNext.git"
+  },
+  "homepage": "https://github.com/MinistryPlatform-Community/MPNext#readme",
+  "bugs": {
+    "url": "https://github.com/MinistryPlatform-Community/MPNext/issues"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

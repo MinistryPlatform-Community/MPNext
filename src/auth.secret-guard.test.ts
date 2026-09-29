@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
- * Guard for `assertAuthEnvironment` in src/lib/auth.ts (TODO
+ * Guard for `assertAuthEnvironment` in src/lib/auth.ts (review item
  * security-auth-secret-fallback-and-test-flag).
  *
  * With no secret, better-auth 1.7.4 signs sessions with its PUBLIC default
@@ -132,7 +132,7 @@ describe('assertAuthEnvironment at module load', () => {
 });
 
 /**
- * TODO security-auth-url-env-not-validated: the two auth-critical URLs are
+ * Review item security-auth-url-env-not-validated: the two auth-critical URLs are
  * validated at module load (src/lib/env.ts has the per-value cases). Unlike the
  * secret guard these run under Vitest too, so no exemption is switched off.
  */

@@ -219,7 +219,7 @@ For each approved major, one at a time:
 
 ## Phase 9 — Report, persist, commit
 
-**Report** (in chat, and written to `.claude/reports/deps-audit-<YYYY-MM-DD>.md`):
+**Report** (in chat, and written to `.claude/reports/deps-audit-<YYYY-MM-DD>.md`, which is gitignored: a local working copy, never committed — the durable record is `deps-known-issues.md`):
 
 ```markdown
 # Dependency Audit — <date>
@@ -263,8 +263,8 @@ longer applies. Keep dates on everything.
 - Separate commits per tier so a bisect is meaningful:
   - `fix(deps): resolve <N> advisories via in-range updates`
   - `chore(deps): bump <pkg> <old> -> <new>` (one per major)
-  - `docs(deps): audit report <date>`
-- Include the report path and the verification results in the commit body.
+  - `docs(deps): update known issues <date>`
+- Include the report summary and the verification results in the commit body.
 - Sign off as configured in CLAUDE.md's commit conventions.
 - **Do not push and do not open a PR.** Tell the user the branch is ready.
 

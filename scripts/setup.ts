@@ -1095,9 +1095,10 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   const currentBaseUrl = currentEnv.get('MINISTRY_PLATFORM_BASE_URL') || '';
   let currentHost = '';
   if (currentBaseUrl) {
-    // Extract host from existing URL (e.g., https://mpi.ministryplatform.com/ministryplatformapi -> mpi.ministryplatform.com)
+    // Extract host from existing URL (e.g., https://your-instance.ministryplatform.com/ministryplatformapi -> your-instance.ministryplatform.com)
     const match = currentBaseUrl.match(/https?:\/\/([^/]+)/);
-    if (match) {
+    // The .env.example placeholder is not a real host; don't offer it as the default.
+    if (match && match[1] !== 'your-instance.ministryplatform.com') {
       currentHost = match[1];
     }
   }
@@ -1106,7 +1107,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   console.log(chalk.gray('  The OIDC, API, and File URLs will be derived from your MP host'));
 
   const mpHost = await input({
-    message: 'Enter your Ministry Platform host (e.g., mpi.ministryplatform.com):',
+    message: 'Enter your Ministry Platform host (e.g., your-instance.ministryplatform.com):',
     default: currentHost || undefined,
   });
 

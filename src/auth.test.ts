@@ -123,7 +123,7 @@ describe('Auth - enrichSessionUser', () => {
     });
 
     /**
-     * TODO security-client-data-overexposure: `/get-session` must not hand page
+     * Review item security-client-data-overexposure: `/get-session` must not hand page
      * JS the raw session token (a bearer credential if a `bearer` plugin is ever
      * added) or the recorded IP / user agent.
      */
@@ -274,7 +274,7 @@ describe('Auth - enrichSessionUser', () => {
     });
 
     /**
-     * TODO security-resolve-mp-user-id-logs-guid-and-no-negative-cache: the
+     * Review item security-resolve-mp-user-id-logs-guid-and-no-negative-cache: the
      * failure log is a structured event with no GUID, and never the error
      * message (an MP client error can carry the `$filter`, which holds the GUID).
      */
@@ -314,7 +314,7 @@ describe('Auth - enrichSessionUser', () => {
 });
 
 /**
- * Negative cache for `resolveMpUserId` (TODO
+ * Negative cache for `resolveMpUserId` (review item
  * security-resolve-mp-user-id-logs-guid-and-no-negative-cache). customSession
  * runs on every `/get-session`, so an uncached failure cost one MP query (and
  * one log line) per request. Fake `Date` only: the module-level cache compares
@@ -611,7 +611,7 @@ describe('Auth - OAuth Configuration', () => {
   });
 
   /**
-   * TODO security-get-user-info-robustness: `getUserInfo`'s contract is
+   * Review item security-get-user-info-robustness: `getUserInfo`'s contract is
    * "return null, never throw" (a throw is not caught by better-auth's callback
    * route), so every way the userinfo request can go wrong must come back as
    * null plus a structured log with no body and no token.
@@ -719,7 +719,7 @@ describe('Auth - OAuth Configuration', () => {
   });
 
   /**
-   * TODO security-id-token-claim-checks-weak: jose checks `exp` only when it
+   * Review item security-id-token-claim-checks-weak: jose checks `exp` only when it
    * is present, and nothing checks `azp` for a multi-audience token, so
    * `getUserInfo` does both (before spending a userinfo call).
    */
