@@ -136,17 +136,37 @@ describe('UserContext', () => {
       expect(screen.getByTestId('name')).toHaveTextContent('John');
     });
 
-    it('should propagate profile load error to ErrorBoundary', async () => {
+    it('should degrade a failed profile load to null instead of throwing to a boundary', async () => {
+      // The header — the shell's only sign-out control — reads this promise
+      // from ABOVE (web)/error.tsx. A rejection used to escape to the root
+      // boundary and take the whole shell (and sign-out) with it.
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       await renderWithProvider(
-        Promise.reject(new Error('Network error')),
+        Promise.reject(new Error('ConnectTimeoutError: pastoral note text')),
         <ProfileProbe />
       );
 
       await waitFor(() => {
-        expect(screen.getByTestId('err')).toHaveTextContent('Network error');
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
+      expect(screen.queryByTestId('err')).toBeNull();
+      // Logged by identifier and shape only — never the message.
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'Error' });
+      expect(JSON.stringify(spy.mock.calls)).not.toContain('pastoral');
+
+      spy.mockRestore();
+    });
+
+    it('should log a non-Error rejection by its type', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(Promise.reject('boom'), <ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'string' });
 
       spy.mockRestore();
     });
@@ -220,6 +240,31 @@ describe('UserContext', () => {
       });
 
       expect(screen.getByTestId('name')).toHaveTextContent('Jane');
+    });
+
+    it('should degrade a failed reload to null', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetCurrentUserProfile.mockRejectedValueOnce(new Error('MP down'));
+      const refreshRef: { current: (() => void) | null } = { current: null };
+
+      await renderWithProvider(
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        refreshRef.current?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(screen.queryByTestId('err')).toBeNull();
+
+      spy.mockRestore();
     });
 
     it('should normalize an undefined reloaded profile to null', async () => {

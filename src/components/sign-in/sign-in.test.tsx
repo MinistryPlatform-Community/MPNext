@@ -1,12 +1,28 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-// The module imports the auth client at load time; nothing here calls it, but
-// it must never be able to reach a real auth endpoint.
-vi.mock("@/lib/auth-client", () => ({
-  authClient: { getSession: vi.fn(), signIn: { social: vi.fn() } },
+const { mockGetSession, mockSignInSocial } = vi.hoisted(() => ({
+  mockGetSession: vi.fn(),
+  mockSignInSocial: vi.fn(),
 }));
 
-import { sanitizeCallbackUrl } from "./sign-in";
+// Mocked throughout: nothing here may reach a real auth endpoint.
+vi.mock("@/lib/auth-client", () => ({
+  authClient: { getSession: mockGetSession, signIn: { social: mockSignInSocial } },
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams("callbackUrl=%2Fcontactlookup"),
+}));
+
+// The real button calls the sign-out server action; its own behaviour is
+// covered in src/components/user-menu/sign-out-button.test.tsx.
+vi.mock("@/components/user-menu/sign-out-button", () => ({
+  SignOutButton: () => <button type="button">Sign out</button>,
+}));
+
+import { sanitizeCallbackUrl, SignIn } from "./sign-in";
+import { MAX_AUTOMATIC_SIGN_IN_ATTEMPTS } from "./sign-in-attempts";
 
 /**
  * Direct unit tests for the /signin open-redirect guard (F3).
@@ -112,6 +128,211 @@ describe("sanitizeCallbackUrl", () => {
       );
 
       expect(sanitizeCallbackUrl("/dashboard")).toBe("/");
+    });
+  });
+});
+
+/**
+ * Error handling (security-signin-page-swallows-errors, 2026-09-28).
+ *
+ * Every failure used to be ignored: a `{ error }` from `signIn.social` (429
+ * from the rate limiter, 404 PROVIDER_NOT_FOUND when OIDC discovery failed at
+ * boot) or a failed `getSession()` left a spinner that never resolved, and
+ * nothing capped how often the page restarted OAuth by itself.
+ */
+describe("SignIn error handling", () => {
+  let originalLocation: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.sessionStorage.clear();
+    originalLocation = Object.getOwnPropertyDescriptor(window, "location");
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { href: "http://localhost:3000/signin" },
+    });
+    mockGetSession.mockResolvedValue({ data: null, error: null });
+    mockSignInSocial.mockResolvedValue({ data: { url: "https://mp.example/oauth" }, error: null });
+  });
+
+  afterEach(() => {
+    if (originalLocation) Object.defineProperty(window, "location", originalLocation);
+  });
+
+  it("keeps the redirecting state while a successful sign-in navigates away", async () => {
+    render(<SignIn />);
+
+    await waitFor(() => expect(mockSignInSocial).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("heading", { name: /redirecting to sign in/i })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows a rate-limit message on a 429 and makes no further attempt", async () => {
+    mockSignInSocial.mockResolvedValue({
+      data: null,
+      error: { status: 429, statusText: "Too Many Requests" },
+    });
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /too many sign-in attempts/i })).toBeInTheDocument();
+    expect(screen.getByText(/wait a minute/i)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /redirecting/i })).toBeNull();
+    expect(mockSignInSocial).toHaveBeenCalledTimes(1);
+    expect(window.location.href).toBe("http://localhost:3000/signin");
+  });
+
+  it("shows a provider-unavailable message on a 404", async () => {
+    mockSignInSocial.mockResolvedValue({ data: null, error: { status: 404 } });
+
+    render(<SignIn />);
+
+    expect(
+      await screen.findByRole("heading", { name: /ministry platform sign-in is unavailable/i })
+    ).toBeInTheDocument();
+  });
+
+  it("recognises PROVIDER_NOT_FOUND by its code even without a status", async () => {
+    mockSignInSocial.mockResolvedValue({ data: null, error: { code: "PROVIDER_NOT_FOUND" } });
+
+    render(<SignIn />);
+
+    expect(
+      await screen.findByRole("heading", { name: /ministry platform sign-in is unavailable/i })
+    ).toBeInTheDocument();
+  });
+
+  it("shows a generic start failure for any other sign-in error", async () => {
+    mockSignInSocial.mockResolvedValue({ data: null, error: { status: 500 } });
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /sign-in couldn't start/i })).toBeInTheDocument();
+  });
+
+  it("treats a thrown signIn.social as a start failure, not a spinner", async () => {
+    mockSignInSocial.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /sign-in couldn't start/i })).toBeInTheDocument();
+  });
+
+  it("reports a failed session read instead of starting OAuth", async () => {
+    mockGetSession.mockResolvedValue({ data: null, error: { status: 500 } });
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /couldn't check your sign-in/i })).toBeInTheDocument();
+    expect(mockSignInSocial).not.toHaveBeenCalled();
+  });
+
+  it("reports a rate-limited session read as a rate limit", async () => {
+    mockGetSession.mockResolvedValue({ data: null, error: { status: 429 } });
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /too many sign-in attempts/i })).toBeInTheDocument();
+    expect(mockSignInSocial).not.toHaveBeenCalled();
+  });
+
+  it("reports a thrown session read", async () => {
+    mockGetSession.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<SignIn />);
+
+    expect(await screen.findByRole("heading", { name: /couldn't check your sign-in/i })).toBeInTheDocument();
+    expect(mockSignInSocial).not.toHaveBeenCalled();
+  });
+
+  it("tolerates an undefined result from either call", async () => {
+    mockGetSession.mockResolvedValue(undefined);
+    mockSignInSocial.mockResolvedValue(undefined);
+
+    render(<SignIn />);
+
+    await waitFor(() => expect(mockSignInSocial).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("retries on 'Try again' and clears the error once the retry succeeds", async () => {
+    mockSignInSocial
+      .mockResolvedValueOnce({ data: null, error: { status: 429 } })
+      .mockResolvedValueOnce({ data: { url: "https://mp.example/oauth" }, error: null });
+
+    render(<SignIn />);
+    fireEvent.click(await screen.findByRole("button", { name: /try again/i }));
+
+    await waitFor(() => expect(mockSignInSocial).toHaveBeenCalledTimes(2));
+    expect(mockGetSession).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { name: /redirecting to sign in/i })).toBeInTheDocument();
+  });
+
+  describe("automatic restart cap", () => {
+    it(`stops after ${MAX_AUTOMATIC_SIGN_IN_ATTEMPTS} automatic OAuth starts in one tab`, async () => {
+      // Each render is one more return to /signin in the same tab — what a
+      // session that can't be read back produces.
+      for (let i = 1; i <= MAX_AUTOMATIC_SIGN_IN_ATTEMPTS; i++) {
+        const { unmount } = render(<SignIn />);
+        await waitFor(() => expect(mockSignInSocial).toHaveBeenCalledTimes(i));
+        unmount();
+      }
+
+      render(<SignIn />);
+
+      expect(await screen.findByRole("heading", { name: /sign-in isn't completing/i })).toBeInTheDocument();
+      expect(mockSignInSocial).toHaveBeenCalledTimes(MAX_AUTOMATIC_SIGN_IN_ATTEMPTS);
+      // The loop screen offers a way out: sign out (clears the stuck cookie),
+      // and a link to the stable help page.
+      expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /more help/i })).toHaveAttribute(
+        "href",
+        "/auth-error?error=signin_loop"
+      );
+    });
+
+    it("counts the already-signed-in bounce too", async () => {
+      mockGetSession.mockResolvedValue({ data: { user: { id: "ba-1" } }, error: null });
+
+      for (let i = 0; i < MAX_AUTOMATIC_SIGN_IN_ATTEMPTS; i++) {
+        const { unmount } = render(<SignIn />);
+        await waitFor(() => expect(window.location.href).toBe("/contactlookup"));
+        window.location.href = "http://localhost:3000/signin";
+        unmount();
+      }
+
+      render(<SignIn />);
+
+      expect(await screen.findByRole("heading", { name: /sign-in isn't completing/i })).toBeInTheDocument();
+      expect(window.location.href).toBe("http://localhost:3000/signin");
+    });
+
+    it("lets the user start again by hand once the cap has stopped the loop", async () => {
+      for (let i = 1; i <= MAX_AUTOMATIC_SIGN_IN_ATTEMPTS; i++) {
+        const { unmount } = render(<SignIn />);
+        await waitFor(() => expect(mockSignInSocial).toHaveBeenCalledTimes(i));
+        unmount();
+      }
+      render(<SignIn />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /try again/i }));
+
+      await waitFor(() =>
+        expect(mockSignInSocial).toHaveBeenCalledTimes(MAX_AUTOMATIC_SIGN_IN_ATTEMPTS + 1)
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("does not show the Sign out control for non-loop errors", async () => {
+      mockSignInSocial.mockResolvedValue({ data: null, error: { status: 429 } });
+
+      render(<SignIn />);
+
+      await screen.findByRole("alert");
+      expect(screen.queryByRole("button", { name: /sign out/i })).toBeNull();
+      expect(screen.queryByRole("link", { name: /more help/i })).toBeNull();
     });
   });
 });

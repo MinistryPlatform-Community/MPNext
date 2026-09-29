@@ -7,6 +7,7 @@ import {
   Header,
   HeaderSkeleton,
   DynamicBreadcrumb,
+  SessionGuard,
 } from "@/components/layout";
 
 const geistSans = Geist({
@@ -39,23 +40,31 @@ export default async function WebLayout({
   return (
     <AuthWrapper>
       <ServerProviders>
-        <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
-          {/*
-            Header should never suspend — only its avatar reads the MP profile,
-            behind its own boundary. This is a safety net, and its fallback must
-            be the fixed header skeleton: an in-flow placeholder here pushed all
-            of <main> down 64px (on top of its mt-16) on every page load.
-          */}
-          <Suspense fallback={<HeaderSkeleton />}>
-            <Header />
-          </Suspense>
-          <main className="flex-1 mt-16">
-            <div className="px-4 py-3 border-b bg-muted/30">
-              <DynamicBreadcrumb />
-            </div>
-            {children}
-          </main>
-        </div>
+        {/*
+          AuthWrapper checks the session once, server-side. SessionGuard keeps
+          checking in the browser and leaves for /signin (dropping the page)
+          when the session ends — sign-out in another tab, or expiry — so
+          member data doesn't stay on screen on a shared machine.
+        */}
+        <SessionGuard>
+          <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
+            {/*
+              Header should never suspend — only its avatar reads the MP profile,
+              behind its own boundary. This is a safety net, and its fallback must
+              be the fixed header skeleton: an in-flow placeholder here pushed all
+              of <main> down 64px (on top of its mt-16) on every page load.
+            */}
+            <Suspense fallback={<HeaderSkeleton />}>
+              <Header />
+            </Suspense>
+            <main className="flex-1 mt-16">
+              <div className="px-4 py-3 border-b bg-muted/30">
+                <DynamicBreadcrumb />
+              </div>
+              {children}
+            </main>
+          </div>
+        </SessionGuard>
       </ServerProviders>
     </AuthWrapper>
   );

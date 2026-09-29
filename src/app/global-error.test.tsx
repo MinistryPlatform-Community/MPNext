@@ -82,7 +82,7 @@ describe("global error boundary", () => {
     expect(appImports).toEqual([]);
   });
 
-  it("renders the failure heading and a retry control", () => {
+  it("renders the failure heading and, once hydrated, a retry control", () => {
     const { retry } = renderBoundary();
 
     expect(
@@ -91,6 +91,35 @@ describe("global error boundary", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * security-prerendered-nonceless-pages: Next prerenders this boundary
+   * (`/_global-error`, the static 500 page). A prerender has no request and so
+   * no CSP nonce, so under the enforced nonce-based script-src the static copy
+   * never hydrates — its old "Try again" button did nothing. The static markup
+   * must therefore carry a recovery control that works without JavaScript, and
+   * must not carry a button that needs it.
+   */
+  describe("without JavaScript (the prerendered, nonce-less copy)", () => {
+    const staticMarkup = () =>
+      renderToStaticMarkup(<GlobalError error={new Error("boom")} retry={vi.fn()} />);
+
+    it("offers a plain link that reloads the app", () => {
+      const markup = staticMarkup();
+
+      expect(markup).toMatch(/<a[^>]+href="\/"[^>]*>Reload the app<\/a>/);
+    });
+
+    it("does not render a retry button that could never work", () => {
+      expect(staticMarkup()).not.toContain("<button");
+    });
+
+    it("keeps the no-JS link after hydration too", () => {
+      renderBoundary();
+
+      expect(screen.getByRole("link", { name: /reload the app/i })).toHaveAttribute("href", "/");
+    });
   });
 
   it("logs identifiers and shape only, tagged with the global boundary", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 /**
  * Error boundary for the authenticated shell.
@@ -17,6 +17,15 @@ import { render, screen, fireEvent } from "@testing-library/react";
  *    stale-named prop would render fine and silently do nothing, which is the
  *    failure mode this guards.
  */
+
+const { mockHandleSignOut } = vi.hoisted(() => ({
+  mockHandleSignOut: vi.fn(),
+}));
+
+// The real action reaches better-auth and MP's logout endpoint.
+vi.mock("@/components/user-menu/actions", () => ({
+  handleSignOut: mockHandleSignOut,
+}));
 
 import WebError from "./error";
 
@@ -55,6 +64,15 @@ describe("(web) error boundary", () => {
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
 
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers sign-out on the card itself, as its own text advises", async () => {
+    mockHandleSignOut.mockResolvedValue(undefined);
+    renderBoundary();
+
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
+
+    await waitFor(() => expect(mockHandleSignOut).toHaveBeenCalledTimes(1));
   });
 
   it("shows the digest as a reference code so it can be matched to server logs", () => {
