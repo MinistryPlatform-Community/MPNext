@@ -12,11 +12,12 @@ import { genericOAuth, type GenericOAuthConfig, type GenericOAuthOptions } from 
  *   state is refused before the code is ever redeemed;
  * - the code exchange (no PKCE verifier, since MP does not support PKCE);
  * - id_token verification against the mock JWKS (foreign key, wrong iss/aud,
- *   expired) and the app's userinfo sub binding;
+ *   expired) — done by the app's own `verifyMpIdToken` since issue #101 —
+ *   and the app's userinfo sub binding;
  * - session minting (cookies set, `/get-session` resolves the MP identity);
  * - sign-out effectiveness on the same instance;
- * - `pkce: false` and `disableIdTokenNonceBinding: true`, pinned in config
- *   and behaviourally.
+ * - `pkce: false` and no `discoveryUrl` (so no nonce), pinned in config and
+ *   behaviourally.
  *
  * The mock OIDC server (src/test-utils/mock-oidc.ts) signs real RS256
  * id_tokens with a key its JWKS publishes. `fetch` THROWS for any URL it does
@@ -78,6 +79,17 @@ function loggedText(): string {
     .join('\n');
 }
 
+/** The structured (JSON) events written to console.error. */
+function loggedEvents(): Array<Record<string, unknown>> {
+  return vi.mocked(console.error).mock.calls.flatMap(([line]) => {
+    try {
+      return [JSON.parse(String(line)) as Record<string, unknown>];
+    } catch {
+      return [];
+    }
+  });
+}
+
 /** Asserts a refused callback: redirected to our error page with `code`, no session. */
 function expectRefused(response: Response, code: string) {
   expect(response.status).toBe(302);
@@ -127,7 +139,8 @@ describe('sign-in start: the authorize request', () => {
     // pkce: false — MP does not support PKCE.
     expect(q.has('code_challenge')).toBe(false);
     expect(q.has('code_challenge_method')).toBe(false);
-    // disableIdTokenNonceBinding: true — MP does not echo `nonce`.
+    // No nonce: MP does not echo one, and with no `discoveryUrl` the provider
+    // has no id_token config, so better-auth sends none.
     expect(q.has('nonce')).toBe(false);
 
     // The state rides in an encrypted, HttpOnly, 10-minute cookie.
@@ -266,19 +279,21 @@ describe('callback: state validation', () => {
 });
 
 describe('callback: id_token verification (the verified path)', () => {
-  it.each<[string, () => void]>([
-    ['signed by a key the JWKS does not publish', () => (oidc.state.foreignKey = true)],
-    ['issued by another issuer', () => (oidc.state.claims = { iss: 'https://evil.example/oauth' })],
-    ['issued for another client', () => (oidc.state.claims = { aud: 'another-client' })],
-    ['already expired', () => (oidc.state.claims = { exp: Math.floor(T0 / 1000) - 60 })],
-  ])('refuses an id_token %s, before userinfo is ever called', async (_label, arrange) => {
+  it.each<[string, () => void, Record<string, unknown>]>([
+    ['signed by a key the JWKS does not publish', () => (oidc.state.foreignKey = true), { code: 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' }],
+    ['issued by another issuer', () => (oidc.state.claims = { iss: 'https://evil.example/oauth' }), { code: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'iss' }],
+    ['issued for another client', () => (oidc.state.claims = { aud: 'another-client' }), { code: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'aud' }],
+    ['already expired', () => (oidc.state.claims = { exp: Math.floor(T0 / 1000) - 60 }), { code: 'ERR_JWT_EXPIRED' }],
+  ])('refuses an id_token %s, before userinfo is ever called', async (_label, arrange, logged) => {
     arrange();
     const { response, jar } = await codeFlow(auth, ORIGIN);
 
     expectRefused(response, 'unable_to_get_user_info');
     expect(hasSessionCookie(jar)).toBe(false);
     expect(userinfoCalls()).toEqual([]);
-    expect(loggedText()).toContain('id_token failed verification');
+    expect(loggedEvents()).toContainEqual(
+      expect.objectContaining({ event: 'auth.userinfo.id_token_unverified', reason: 'verification_failed', ...logged }),
+    );
   });
 
   it('refuses a verified id_token whose sub differs from the userinfo sub (sub binding)', async () => {
@@ -300,32 +315,35 @@ describe('callback: id_token verification (the verified path)', () => {
 });
 
 describe('provider config pins (MP supports neither PKCE nor nonce echo)', () => {
-  it('pins pkce: false and disableIdTokenNonceBinding: true', () => {
+  it('pins pkce: false, and no discoveryUrl (issue #101)', () => {
     const config = getMpProviderConfig();
     expect(config.pkce).toBe(false);
-    expect(config.disableIdTokenNonceBinding).toBe(true);
+    expect(config).not.toHaveProperty('discoveryUrl');
   });
 
-  it('the live provider verifies id_tokens (issuer + JWKS config) but does not require a nonce', async () => {
+  it('the live provider has no id_token config of its own (getUserInfo verifies) and requires no nonce', async () => {
     const providers = (await (await auth.$context).socialProviders) as Array<{
       id: string;
       issuer?: string;
-      idToken?: { issuer: string; audience: string };
+      idToken?: unknown;
       requiresIdTokenNonce: boolean;
     }>;
     const mp = providers.find((p) => p.id === 'ministry-platform');
-    expect(mp?.issuer).toBe(MOCK_ISSUER);
-    expect(mp?.idToken).toMatchObject({ issuer: MOCK_ISSUER, audience: MOCK_CLIENT_ID });
+    expect(mp).toBeDefined();
+    expect(mp?.idToken).toBeUndefined();
+    expect(mp?.issuer).toBeUndefined();
     expect(mp?.requiresIdTokenNonce).toBe(false);
   });
 
-  it('negative control: with nonce binding on, the same MP-shaped id_token (no nonce) cannot sign in', async () => {
-    const withNonce = withProviderConfig({ disableIdTokenNonceBinding: false });
-    const { authorizeUrl } = await startSignIn(withNonce, ORIGIN);
+  it('negative control: re-adding discoveryUrl switches nonce binding on, and the MP-shaped id_token (no nonce) cannot sign in', async () => {
+    const withDiscovery = withProviderConfig({ discoveryUrl: `${MOCK_ISSUER}/.well-known/openid-configuration` });
+    const { authorizeUrl } = await startSignIn(withDiscovery, ORIGIN);
     expect(authorizeUrl.searchParams.has('nonce')).toBe(true);
 
-    const { response } = await codeFlow(withNonce, ORIGIN);
+    const { response } = await codeFlow(withDiscovery, ORIGIN);
     expectRefused(response, 'unable_to_get_user_info');
+    // better-auth's own nonce refusal, not ours.
+    expect(loggedText()).toContain('id_token failed verification');
   });
 
   it('negative control: with pkce on, a code_challenge is sent (which MP would reject)', async () => {

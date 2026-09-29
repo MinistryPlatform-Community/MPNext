@@ -17,44 +17,18 @@ import { NextRequest } from "next/server";
  * importing the real `@/lib/auth` module must never reach Ministry Platform.
  */
 
-// A minimal stub of MP's OIDC discovery document. genericOAuth's plugin
-// `init` fetches this eagerly when `@/lib/auth` is constructed (at import
-// time, before any test body runs), so the stub has to be installed inside
-// `vi.hoisted()` — the only thing that runs before the `import "./route"`
-// below actually executes and triggers that construction. Without it,
-// discovery fails (no real network in tests, correctly per CLAUDE.md), the
-// "ministry-platform" provider is never registered, and even an ALLOWED
-// `POST /sign-in/social` would 404 for the wrong reason (no such provider),
-// masking whether the allowlist wrapper itself delegates correctly.
+// `fetch` THROWS for every URL. Importing `@/lib/auth` and starting sign-in
+// make no MP call (issue #101: the provider has explicit endpoints, and
+// discovery is only fetched when a callback needs to verify an id_token), so
+// the "ministry-platform" provider is registered without any stub, and nothing
+// here can reach a real Ministry Platform (CLAUDE.md). Installed in
+// `vi.hoisted()` so it is in place before `import "./route"` builds the auth
+// instance.
 const { mockGetTableRecords } = vi.hoisted(() => {
-  const realFetch = globalThis.fetch;
-  const stubbedFetch: typeof fetch = (input, init) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.href
-          : input.url;
-    if (url.endsWith("/oauth/.well-known/openid-configuration")) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            issuer: "https://test-mp.example.com",
-            authorization_endpoint:
-              "https://test-mp.example.com/oauth/connect/authorize",
-            token_endpoint: "https://test-mp.example.com/oauth/connect/token",
-            // Required: requireIdTokenVerification skips the provider
-            // without it. Never fetched by these tests.
-            jwks_uri:
-              "https://test-mp.example.com/oauth/.well-known/openid-configuration/jwks",
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
-    }
-    return realFetch(input, init);
-  };
-  globalThis.fetch = stubbedFetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = input instanceof Request ? input.url : String(input);
+    throw new Error(`Blocked unexpected fetch in test: ${url}`);
+  }) as typeof fetch;
   return {
     mockGetTableRecords: vi.fn(),
   };

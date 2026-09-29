@@ -1,4 +1,8 @@
+// @vitest-environment node
+// (node, not jsdom: `getUserInfo` verifies the id_token with `jose` over
+// WebCrypto, which rejects jsdom-realm typed arrays.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { parseAdditionalUserInputFromProviderProfile } from 'better-auth/db';
 import type {
   GenericOAuthConfig,
@@ -13,9 +17,9 @@ const { mockGetTableRecords } = vi.hoisted(() => ({
 }));
 
 // Mock MP OIDC server (discovery with `issuer` + `jwks_uri`, a local JWKS), so
-// the instance under test is built on the VERIFIED id_token path, not with the
-// provider skipped by a failed discovery fetch. Any other fetch throws.
-await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
+// `getUserInfo`'s own id_token verification (issue #101) runs against real
+// RS256 signatures. Any other fetch throws.
+const oidc = await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
 
 // MPHelper is mocked as a class (not vi.fn().mockImplementation) so `new MPHelper()`
 // inside resolveMpUserId picks up the stubbed method — see .claude/references/testing.md.
@@ -36,19 +40,33 @@ import {
 } from '@/lib/auth';
 
 /**
- * An UNSIGNED compact JWT carrying the given payload. `getUserInfo` reads
- * `sub`, `exp`, `aud` and `azp` from the id_token without verifying it
- * (genericOAuth's wrapper verifies the signature before calling it — see
- * `readIdTokenClaims` in src/lib/auth.ts), so calling the configured
- * `getUserInfo` directly needs no real signature. `exp` defaults to five
- * minutes from now, since `getUserInfo` refuses a token without one; pass
- * `exp: undefined` to omit it. src/auth.id-token-sign-in.test.ts covers the
- * signed, end-to-end path.
+ * A genuinely signed MP id_token (RS256, by the key the mock JWKS publishes),
+ * for calling the configured `getUserInfo` directly: since issue #101 it
+ * verifies the signature, `iss` and `aud` itself. Defaults to the mock issuer,
+ * our client id, the mock `sub`, `iat` now and `exp` five minutes out; the
+ * given claims override them, and an `undefined` value drops the claim.
  */
-function fakeIdToken(payload: Record<string, unknown>): string {
-  const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
-  const claims = { exp: Math.floor(Date.now() / 1000) + 300, ...payload };
-  return `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc(claims)}.sig`;
+function signedIdToken(claims: Record<string, unknown>): string {
+  return oidc.signIdToken(claims);
+}
+
+// Captured before any test spies on `fetch`, so `stubUserinfo` can always
+// hand everything but userinfo to the mock MP.
+const mockMpFetch = globalThis.fetch;
+const USERINFO_URL = `${process.env.MINISTRY_PLATFORM_BASE_URL}/oauth/connect/userinfo`;
+
+/**
+ * Replaces ONLY the userinfo response; discovery and the JWKS still come from
+ * the mock MP, because `getUserInfo` verifies the id_token before it calls
+ * userinfo. Returns a mock of just the userinfo calls, as `(url, init)`.
+ */
+function stubUserinfo(respond: () => Response | Promise<Response>) {
+  const userinfo = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => respond());
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    return url === USERINFO_URL ? userinfo(url, init) : mockMpFetch(input, init);
+  });
+  return userinfo;
 }
 
 /**
@@ -443,10 +461,39 @@ describe('Auth - OAuth Configuration', () => {
     // 2.1), so this must stay explicitly false (accepted risk F8 — see the
     // nonce comment in src/lib/auth.ts).
     expect(config.pkce).toBe(false);
-    // A partial discovery document must not silently disable id_token
-    // verification. Behavioural guard: src/auth.oidc-hardening.test.ts.
-    expect(config.requireIdTokenVerification).toBe(true);
     expect(config.authorizationUrlParams).toEqual({ realm: 'realm' });
+  });
+
+  /**
+   * Issue #101: explicit endpoints, no `discoveryUrl`. With discovery,
+   * genericOAuth fetched it once at boot with no timeout or retry, and one MP
+   * blip left sign-in 404ing (or every request hanging) until something rebuilt
+   * the instance. The id_token is verified in `getUserInfo` instead.
+   */
+  it('configures explicit MP endpoints and no discoveryUrl (issue #101)', () => {
+    const config = getMpProviderConfig();
+    const oauth = `${process.env.MINISTRY_PLATFORM_BASE_URL}/oauth`;
+
+    expect(config).not.toHaveProperty('discoveryUrl');
+    // Meaningless without discovery (genericOAuth throws for it at init).
+    expect(config).not.toHaveProperty('requireIdTokenVerification');
+    expect(config.authorizationUrl).toBe(`${oauth}/connect/authorize`);
+    expect(config.tokenUrl).toBe(`${oauth}/connect/token`);
+    // Without it, sign-out loses the MP end-session URL and its id_token_hint.
+    expect(config.endSessionEndpoint).toBe(`${oauth}/connect/endsession`);
+  });
+
+  it('keys the account subject on the profile sub (the MP User_GUID)', async () => {
+    const config = getMpProviderConfig();
+    const tokens = {} as OAuth2Tokens;
+    const guid = 'ab12cd34-ef56-7890-abcd-ef1234599001';
+
+    expect(
+      await config.accountSubject!({ tokens, profile: { sub: guid, id: 'not-this', emailVerified: false } }),
+    ).toBe(guid);
+    // Never `id`, which getUserInfo does not return (the default resolver's
+    // fallback for a provider not recognised as OIDC from discovery).
+    expect(await config.accountSubject!({ tokens, profile: { id: 'not-this', emailVerified: false } })).toBe('');
   });
 
   /**
@@ -483,18 +530,16 @@ describe('Auth - OAuth Configuration', () => {
   /**
    * Regression guard for the better-auth 1.7 generic-OAuth rewrite.
    *
-   * MP's discovery document advertises `id_token_signing_alg_values_supported`,
-   * so better-auth treats this provider as OIDC and its default
-   * `accountSubject` resolver reads `profile.sub` off the raw profile returned
-   * by `getUserInfo`. Before 1.7 the resolver fell back to `profile.id`; that
-   * fallback is gone, so returning only `id` (the pre-1.7 shape) resolves the
-   * account subject to "" and breaks account identity for every user.
+   * The configured `accountSubject` resolver reads `profile.sub` off the raw
+   * profile returned by `getUserInfo`. Returning only `id` (the pre-1.7 shape)
+   * resolves the account subject to "" and breaks account identity for every
+   * user.
    */
   it('returns sub (not id) from getUserInfo (better-auth 1.7 guard)', async () => {
     const config = getMpProviderConfig();
     const guid = 'ab12cd34-ef56-7890-abcd-ef1234567890';
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetchSpy = stubUserinfo(() =>
       new Response(
         JSON.stringify({
           sub: guid,
@@ -509,7 +554,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
-      idToken: fakeIdToken({ sub: guid }),
+      idToken: signedIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -542,7 +587,7 @@ describe('Auth - OAuth Configuration', () => {
     const config = getMpProviderConfig();
     const guid = 'ab12cd34-ef56-7890-abcd-ef1234598001';
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    stubUserinfo(() =>
       new Response(
         JSON.stringify({
           sub: guid,
@@ -557,7 +602,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
-      idToken: fakeIdToken({ sub: guid }),
+      idToken: signedIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: false });
@@ -567,7 +612,7 @@ describe('Auth - OAuth Configuration', () => {
     const config = getMpProviderConfig();
     const guid = 'ab12cd34-ef56-7890-abcd-ef1234598002';
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    stubUserinfo(() =>
       new Response(
         JSON.stringify({
           sub: guid,
@@ -582,7 +627,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
-      idToken: fakeIdToken({ sub: guid }),
+      idToken: signedIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: true });
@@ -590,7 +635,7 @@ describe('Auth - OAuth Configuration', () => {
 
   it('returns null from getUserInfo when the userinfo request fails', async () => {
     const config = getMpProviderConfig();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    stubUserinfo(() =>
       new Response(null, { status: 401 }),
     );
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -598,7 +643,7 @@ describe('Auth - OAuth Configuration', () => {
     await expect(
       config.getUserInfo!({
         accessToken: 'bad-token',
-        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598003' }),
+        idToken: signedIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598003' }),
       } as OAuth2Tokens),
     ).resolves.toBeNull();
     expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -619,7 +664,7 @@ describe('Auth - OAuth Configuration', () => {
   describe('userinfo request robustness', () => {
     const guid = 'ab12cd34-ef56-7890-abcd-ef1234596001';
     const tokens = () =>
-      ({ accessToken: 'secret-access-token', idToken: fakeIdToken({ sub: guid }) }) as OAuth2Tokens;
+      ({ accessToken: 'secret-access-token', idToken: signedIdToken({ sub: guid }) }) as OAuth2Tokens;
 
     function loggedEvent(spy: { mock: { calls: unknown[][] } }) {
       expect(spy.mock.calls).toHaveLength(1);
@@ -632,7 +677,7 @@ describe('Auth - OAuth Configuration', () => {
       const config = getMpProviderConfig();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-      vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeout);
+      stubUserinfo(() => Promise.reject(timeout));
 
       await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
       expect(loggedEvent(errorSpy)).toEqual({
@@ -646,7 +691,7 @@ describe('Auth - OAuth Configuration', () => {
     it('returns null when fetch rejects with a non-Error value', async () => {
       const config = getMpProviderConfig();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.spyOn(globalThis, 'fetch').mockRejectedValue('boom');
+      stubUserinfo(() => Promise.reject('boom'));
 
       await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
       expect(loggedEvent(errorSpy)).toMatchObject({ reason: 'request_failed', errName: 'string' });
@@ -655,7 +700,7 @@ describe('Auth - OAuth Configuration', () => {
     it('returns null for a non-JSON 200 (a proxy HTML error page), without logging the body', async () => {
       const config = getMpProviderConfig();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      stubUserinfo(() =>
         new Response('<html>Gateway says hi to member@example.com</html>', {
           status: 200,
           headers: { 'Content-Type': 'text/html' },
@@ -675,7 +720,7 @@ describe('Auth - OAuth Configuration', () => {
     ])('returns null when the JSON body is %s (not an object)', async (_label, body) => {
       const config = getMpProviderConfig();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      stubUserinfo(() =>
         new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }),
       );
 
@@ -687,16 +732,18 @@ describe('Auth - OAuth Configuration', () => {
       expect(USERINFO_TIMEOUT_MS).toBe(10_000);
       const config = getMpProviderConfig();
       const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      const fetchSpy = stubUserinfo(() =>
         new Response(JSON.stringify({ sub: guid }), { status: 200 }),
       );
 
       await config.getUserInfo!(tokens());
 
-      expect(timeoutSpy).toHaveBeenCalledWith(USERINFO_TIMEOUT_MS);
+      // (The discovery and JWKS requests set their own, shorter, timeouts.)
+      const call = timeoutSpy.mock.calls.findIndex(([ms]) => ms === USERINFO_TIMEOUT_MS);
+      expect(call).toBeGreaterThanOrEqual(0);
       const init = fetchSpy.mock.calls[0][1]!;
       expect(init.redirect).toBe('error');
-      expect(init.signal).toBe(timeoutSpy.mock.results[0].value);
+      expect(init.signal).toBe(timeoutSpy.mock.results[call].value);
     });
 
     it.each([
@@ -707,7 +754,7 @@ describe('Auth - OAuth Configuration', () => {
       ['whitespace parts', { given_name: '  Pat ', family_name: ' ' }, 'Pat'],
     ])('builds the display name from string claims only (%s)', async (_label, claims, expected) => {
       const config = getMpProviderConfig();
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      stubUserinfo(() =>
         new Response(JSON.stringify({ sub: guid, ...claims }), { status: 200 }),
       );
 
@@ -721,14 +768,15 @@ describe('Auth - OAuth Configuration', () => {
   /**
    * Review item security-id-token-claim-checks-weak: jose checks `exp` only when it
    * is present, and nothing checks `azp` for a multi-audience token, so
-   * `getUserInfo` does both (before spending a userinfo call).
+   * `getUserInfo` does both (before spending a userinfo call). Every token here
+   * is genuinely signed, so the refusal is the claim check, not the signature.
    */
   describe('id_token claim checks', () => {
     const guid = 'ab12cd34-ef56-7890-abcd-ef1234595001';
     const clientId = process.env.OIDC_CLIENT_ID!;
 
     function mockUserinfo() {
-      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      return stubUserinfo(() =>
         new Response(JSON.stringify({ sub: guid, given_name: 'Pat', family_name: 'Doe' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -736,10 +784,33 @@ describe('Auth - OAuth Configuration', () => {
       );
     }
 
+    // jose (in `verifyMpIdToken`) refuses these itself, before the app's checks.
+    it.each([
+      ['a non-numeric exp', { exp: 'tomorrow' }, { code: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'exp' }],
+      ['an exp in the past', { exp: Math.floor(Date.now() / 1000) - 1 }, { code: 'ERR_JWT_EXPIRED' }],
+    ])('jose refuses an id_token with %s, before calling userinfo', async (_label, claims, logged) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo();
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'access-token',
+          idToken: signedIdToken({ sub: guid, ...claims }),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(errorSpy.mock.calls[0][0]))).toMatchObject({
+        event: 'auth.userinfo.id_token_unverified',
+        reason: 'verification_failed',
+        ...logged,
+      });
+    });
+
     it.each([
       ['no exp', { exp: undefined }, 'missing_exp'],
-      ['a non-numeric exp', { exp: 'tomorrow' }, 'missing_exp'],
-      ['an exp in the past', { exp: Math.floor(Date.now() / 1000) - 1 }, 'expired'],
       ['aud: [other, ours] with azp: other', { aud: ['other-client', clientId], azp: 'other-client' }, 'azp_mismatch'],
       ['aud: [other, ours] with no azp', { aud: ['other-client', clientId] }, 'azp_mismatch'],
     ])('refuses an id_token with %s, before calling userinfo', async (_label, claims, reason) => {
@@ -750,7 +821,7 @@ describe('Auth - OAuth Configuration', () => {
       await expect(
         config.getUserInfo!({
           accessToken: 'access-token',
-          idToken: fakeIdToken({ sub: guid, ...claims }),
+          idToken: signedIdToken({ sub: guid, ...claims }),
         } as OAuth2Tokens),
       ).resolves.toBeNull();
 
@@ -773,7 +844,7 @@ describe('Auth - OAuth Configuration', () => {
       await expect(
         config.getUserInfo!({
           accessToken: 'access-token',
-          idToken: fakeIdToken({ sub: guid, ...claims }),
+          idToken: signedIdToken({ sub: guid, ...claims }),
         } as OAuth2Tokens),
       ).resolves.toMatchObject({ sub: guid });
     });
@@ -867,7 +938,7 @@ describe('Auth - OAuth Configuration', () => {
   ])('returns null from getUserInfo when sub is %s (refuses sign-in)', async (_label, subClaim) => {
     const config = getMpProviderConfig();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    stubUserinfo(() =>
       new Response(
         JSON.stringify({
           ...subClaim,
@@ -884,7 +955,7 @@ describe('Auth - OAuth Configuration', () => {
         accessToken: 'access-token',
         // A valid id_token, so the refusal is provably the userinfo `sub`
         // check and not the id_token binding check that runs before it.
-        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598004' }),
+        idToken: signedIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598004' }),
       } as OAuth2Tokens),
     ).resolves.toBeNull();
     expect(errorSpy).toHaveBeenCalledWith(
@@ -894,18 +965,19 @@ describe('Auth - OAuth Configuration', () => {
 
   /**
    * Token-substitution guard (defence in depth behind `refuseIdTokenSignIn`).
-   * `/sign-in/social`'s id_token mode calls `getUserInfo` with a
+   * `/sign-in/social`'s id_token mode called `getUserInfo` with a
    * CALLER-SUPPLIED access token; the userinfo `sub` it yields must match the
    * verified id_token's `sub`, or an attacker's id_token plus a victim's access
    * token signs in as the victim. Every refusal returns null (never throws) and
-   * logs `auth.userinfo.sub_mismatch` with a reason — never the GUIDs or token
-   * contents themselves.
+   * logs a reason (`auth.userinfo.sub_mismatch`, or
+   * `auth.userinfo.id_token_unverified` for a token that fails verification) —
+   * never the GUIDs or token contents themselves.
    */
   describe('id_token sub binding', () => {
     const userinfoSub = 'ab12cd34-ef56-7890-abcd-ef1234597001';
 
     function mockUserinfo(sub: string) {
-      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      return stubUserinfo(() =>
         new Response(
           JSON.stringify({ sub, given_name: 'Pat', family_name: 'Doe' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -930,7 +1002,7 @@ describe('Auth - OAuth Configuration', () => {
 
       const profile = await config.getUserInfo!({
         accessToken: 'access-token',
-        idToken: fakeIdToken({ sub: userinfoSub }),
+        idToken: signedIdToken({ sub: userinfoSub }),
       } as OAuth2Tokens);
 
       expect(profile).toMatchObject({ sub: userinfoSub });
@@ -942,7 +1014,7 @@ describe('Auth - OAuth Configuration', () => {
 
       const profile = await config.getUserInfo!({
         accessToken: 'access-token',
-        idToken: fakeIdToken({ sub: userinfoSub.toUpperCase() }),
+        idToken: signedIdToken({ sub: userinfoSub.toUpperCase() }),
       } as OAuth2Tokens);
 
       // The userinfo sub is what is returned, unchanged.
@@ -958,7 +1030,7 @@ describe('Auth - OAuth Configuration', () => {
       await expect(
         config.getUserInfo!({
           accessToken: 'victim-access-token',
-          idToken: fakeIdToken({ sub: attackerSub }),
+          idToken: signedIdToken({ sub: attackerSub }),
         } as OAuth2Tokens),
       ).resolves.toBeNull();
 
@@ -972,8 +1044,10 @@ describe('Auth - OAuth Configuration', () => {
       expect(logged).not.toContain('victim-access-token');
     });
 
+    // Signed and verified, so the refusal is the app's check: jose type-checks
+    // `sub` only when asked to match a given subject.
     it.each([
-      ['missing', {}],
+      ['missing', { sub: undefined }],
       ['empty', { sub: '' }],
       ['non-string', { sub: 12345 }],
     ])('refuses an id_token whose sub is %s, before calling userinfo', async (_label, payload) => {
@@ -984,7 +1058,7 @@ describe('Auth - OAuth Configuration', () => {
       await expect(
         config.getUserInfo!({
           accessToken: 'access-token',
-          idToken: fakeIdToken(payload),
+          idToken: signedIdToken(payload),
         } as OAuth2Tokens),
       ).resolves.toBeNull();
 
@@ -994,16 +1068,26 @@ describe('Auth - OAuth Configuration', () => {
       );
     });
 
+    /** An HS256 token (HMAC of `payload` under `secret`) naming the mock JWKS key's `kid`. */
+    const hs256 = (payload: string, secret: string) => {
+      const input = `${Buffer.from(JSON.stringify({ alg: 'HS256', kid: 'test-key-1', typ: 'JWT' })).toString('base64url')}.${Buffer.from(payload).toString('base64url')}`;
+      return `${input}.${createHmac('sha256', secret).update(input).digest('base64url')}`;
+    };
+    const unsigned = (claims: Record<string, unknown>) =>
+      `${Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url')}.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.`;
+
     it.each([
-      ['not three segments', 'only.two'],
-      ['a five-segment JWE', 'a.b.c.d.e'],
-      ['a payload that is not JSON', `x.${Buffer.from('not json').toString('base64url')}.y`],
-      ['a payload that is a JSON array', `x.${Buffer.from('["sub"]').toString('base64url')}.y`],
-      ['a payload that is JSON null', `x.${Buffer.from('null').toString('base64url')}.y`],
-    ])('refuses an undecodable id_token (%s), before calling userinfo', async (_label, idToken) => {
+      ['not three segments', 'only.two', 'ERR_JWS_INVALID'],
+      ['a five-segment JWE', 'a.b.c.d.e', 'ERR_JWS_INVALID'],
+      ['a header that is not JSON', `x.${Buffer.from('{}').toString('base64url')}.y`, 'ERR_JWS_INVALID'],
+      // Algorithm confusion: the client secret is not a verification key here.
+      ['HS256 signed with the client secret', () => hs256(JSON.stringify({ iss: oidc.issuer, aud: process.env.OIDC_CLIENT_ID, sub: userinfoSub, exp: 4102444800 }), process.env.OIDC_CLIENT_SECRET ?? 'secret'), 'ERR_JOSE_ALG_NOT_ALLOWED'],
+      ['unsigned (alg: none)', () => unsigned({ iss: oidc.issuer, aud: process.env.OIDC_CLIENT_ID, sub: userinfoSub, exp: 4102444800 }), 'ERR_JOSE_ALG_NOT_ALLOWED'],
+    ])('refuses a malformed or unverifiable id_token (%s), before calling userinfo', async (_label, token, code) => {
       const config = getMpProviderConfig();
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const fetchSpy = mockUserinfo(userinfoSub);
+      const idToken = typeof token === 'function' ? token() : token;
 
       await expect(
         config.getUserInfo!({ accessToken: 'access-token', idToken } as OAuth2Tokens),
@@ -1011,8 +1095,10 @@ describe('Auth - OAuth Configuration', () => {
 
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
-        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'undecodable_id_token' }),
+        expect.objectContaining({ event: 'auth.userinfo.id_token_unverified', reason: 'verification_failed', code }),
       );
+      // Identifiers only: the token never reaches the log.
+      expect(errorSpy.mock.calls.flat().join(' ')).not.toContain(idToken);
     });
 
     /**

@@ -30,6 +30,12 @@ With `discoveryUrl` set, better-auth 1.7 enables an ID-token mode on
 exchange, and it took the identity from a caller-supplied access token without
 checking it against the ID token.
 
+> **Update 2026-09-29 (issue #101):** current `main` no longer sets
+> `discoveryUrl` (explicit endpoints; the id_token is verified in `getUserInfo`),
+> so better-auth refuses this mode itself with `404 ID_TOKEN_NOT_SUPPORTED`. The
+> F12 fix (`cf5a824`) is kept and still answers first. A fork that still sets
+> `discoveryUrl` is affected exactly as described here.
+
 **What exploiting it required:**
 
 1. An ID token issued to this app's own OIDC client. MPNext exchanges codes

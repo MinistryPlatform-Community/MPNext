@@ -399,7 +399,7 @@ When deploying to production:
 5. Enable HTTPS/SSL certificates
 6. Test the complete authentication flow in production environment
 
-> `next build` loads the auth module while collecting page data, so better-auth makes its read-only OIDC discovery `GET` to `MINISTRY_PLATFORM_BASE_URL` during the build. With a real `.env.local` that contacts your real MP discovery endpoint; if it fails, the build logs "Discovery fetch failed" and carries on (CI builds against an unresolvable `mp.invalid` URL on purpose).
+> `next build` loads the auth module while collecting page data, but building the auth instance makes no network call: the Ministry Platform provider has explicit endpoints, and OIDC discovery is fetched only when the first sign-in callback verifies an id_token (issue #101). So a build, a cold start or an MP outage never stops `/signin` from starting sign-in; if MP is down at the callback, that one sign-in fails with a "try again" message and the next one works.
 
 ## Project Structure
 

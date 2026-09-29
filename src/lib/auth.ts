@@ -8,6 +8,7 @@ import { customSession } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isIP } from "node:net";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 import { getAuthBaseUrl, getMpBaseUrl } from "@/lib/env";
@@ -276,13 +277,19 @@ export const disabledAuthPaths = [
  * `idToken: { token, accessToken }` it signs the caller in directly: it
  * verifies the id_token (signature, iss, aud), then calls our `getUserInfo`
  * with the CALLER-SUPPLIED `accessToken` (node_modules/better-auth/dist/api/
- * routes/sign-in.mjs). Because `discoveryUrl` is set, genericOAuth builds an
- * id_token config for this provider, which switches that mode ON
+ * routes/sign-in.mjs). While `discoveryUrl` was set, genericOAuth built an
+ * id_token config for this provider, which switched that mode ON
  * (`supportsIdTokenSignIn`), and genericOAuth offers no option to turn it off.
  * Nothing in better-auth binds the verified id_token to the access token, so
  * an attacker's own valid id_token plus ANY other user's MP access token
  * minted a session as that other user. Reproduced end to end against a mock
  * OIDC server.
+ *
+ * Since issue #101 the provider has no `discoveryUrl` and so no id_token
+ * config, and better-auth refuses the mode itself (`404
+ * ID_TOKEN_NOT_SUPPORTED`). That is a side effect of configuration, not a
+ * control — re-adding `discoveryUrl` would switch the mode straight back on —
+ * so this hook stays the primary one and answers first.
  *
  * `hooks.before` runs for every endpoint on both paths — HTTP requests and
  * in-process `auth.api.signInSocial` calls — so refusing here covers callers
@@ -314,61 +321,164 @@ const refuseIdTokenSignIn = createAuthMiddleware(async (ctx) => {
 });
 
 /**
- * Reads the claims from a compact JWS WITHOUT verifying its signature.
- *
- * Deliberately unverified, and safe to be: `getUserInfo` uses these only for
- * a BINDING check between two tokens (`sub`) and for claim checks jose skips
- * (`exp` presence, `azp`), never as a trust decision on their own. By the time
- * `getUserInfo` runs, genericOAuth's wrapper has already verified the id_token
- * against MP's JWKS, issuer and audience (plugins/generic-oauth/index.mjs,
- * `getUserInfo`). That is GUARANTEED, not assumed, by
- * `requireIdTokenVerification: true` on the provider below: genericOAuth only
- * builds its id_token verifier when discovery yields both `issuer` and
- * `jwks_uri`, and without the option a partial discovery document left the
- * provider live with verification silently skipped. With it, such a provider
- * is skipped (sign-in 404s `PROVIDER_NOT_FOUND`, with an error log). A failed
- * discovery fetch leaves no authorization endpoint, so that provider is
- * skipped too (until `selfHealingAuth` rebuilds the instance and discovery
- * succeeds). `src/auth.oidc-hardening.test.ts` pins both.
- *
- * Hand-rolled rather than `jose`'s `decodeJwt`: `jose` is only a transitive
- * dependency (via better-auth), and importing it directly would break silently
- * the day better-auth stops depending on it.
+ * Timeout for the discovery request behind `lazyIdTokenVerifier`, and for the
+ * JWKS request jose makes from it. Both run inside the OAuth callback, so a
+ * hung MP holds that one callback for at most this long — never the process.
  */
-function readIdTokenClaims(
-  idToken: string,
-): { decoded: true; claims: Record<string, unknown> } | { decoded: false } {
-  const parts = idToken.split(".");
-  if (parts.length !== 3) return { decoded: false };
+export const OIDC_DISCOVERY_TIMEOUT_MS = 5_000;
+
+/**
+ * The only id_token signing algorithm accepted. MP advertises exactly this
+ * (`id_token_signing_alg_values_supported: ["RS256"]`, checked against a live
+ * MP 2026-09-29). Pinned rather than read from discovery, so nothing in a
+ * token header or a discovery document can widen what is accepted. If MP ever
+ * signs with another algorithm, sign-in fails loudly — `auth.userinfo.
+ * id_token_unverified` with `code: "ERR_JOSE_ALG_NOT_ALLOWED"` — and it has to
+ * be added here.
+ */
+export const ID_TOKEN_ALGORITHMS = ["RS256"];
+
+/** What `getUserInfo` verifies MP's id_tokens against. */
+export interface IdTokenVerifier {
+  issuer: string;
+  jwks: JWTVerifyGetKey;
+}
+
+type DiscoveryFailure =
+  | { reason: "http_status"; status: number }
+  | { reason: "request_failed" | "invalid_json"; errName: string }
+  | { reason: "invalid_document"; field: "body" | "issuer" | "jwks_uri" };
+
+/** Identifiers only: the reason, a status or an error NAME, never the body or URL. */
+function logDiscoveryFailure(detail: DiscoveryFailure) {
+  console.error(
+    JSON.stringify({
+      event: "auth.oidc.discovery_failed",
+      message:
+        "MP OIDC discovery document unavailable; sign-in fails until it loads (retried on the next sign-in)",
+      ...detail,
+    }),
+  );
+}
+
+async function fetchIdTokenVerifier(
+  discoveryUrl: string,
+  timeoutMs: number,
+): Promise<IdTokenVerifier> {
+  const fail = (detail: DiscoveryFailure): never => {
+    logDiscoveryFailure(detail);
+    throw new Error(`OIDC discovery failed: ${detail.reason}`);
+  };
+  let response: Response;
   try {
-    const payload: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
-    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-      return { decoded: false };
-    }
-    return { decoded: true, claims: payload as Record<string, unknown> };
-  } catch {
-    return { decoded: false };
+    // `redirect: "error"`: MP serves discovery directly; a redirect is either
+    // a misconfiguration or someone steering us to a different key set.
+    response = await fetch(discoveryUrl, {
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "error",
+    });
+  } catch (err) {
+    return fail({ reason: "request_failed", errName: errorName(err) });
   }
+  if (!response.ok) return fail({ reason: "http_status", status: response.status });
+  let doc: unknown;
+  try {
+    doc = await response.json();
+  } catch (err) {
+    return fail({ reason: "invalid_json", errName: errorName(err) });
+  }
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+    return fail({ reason: "invalid_document", field: "body" });
+  }
+  const { issuer, jwks_uri: jwksUri } = doc as Record<string, unknown>;
+  if (typeof issuer !== "string" || !URL.canParse(issuer)) {
+    return fail({ reason: "invalid_document", field: "issuer" });
+  }
+  if (typeof jwksUri !== "string" || !URL.canParse(jwksUri, discoveryUrl)) {
+    return fail({ reason: "invalid_document", field: "jwks_uri" });
+  }
+  return {
+    issuer,
+    // jose caches the key set, re-fetches it (at most once per 30 s) when a
+    // token names an unknown `kid` (key rotation), and refuses a redirected
+    // or non-200 response.
+    jwks: createRemoteJWKSet(new URL(jwksUri, discoveryUrl), { timeoutDuration: timeoutMs }),
+  };
 }
 
 /**
- * OIDC Core §3.1.3.7 claim checks that better-auth's verifier does not make.
- * `verifyIdToken` hands jose only `issuer` and `audience`, and jose checks
- * `exp` only when it is PRESENT, so a token with no `exp` passed; and nothing
- * checks `azp` when `aud` lists several audiences. Returns the refusal reason,
- * or null when the claims are acceptable. Runs on an already-verified token
- * (see `readIdTokenClaims`), so this narrows what a genuinely MP-signed token
- * may look like; it is not the signature check.
+ * Returns a loader for the id_token verifier (issuer + JWKS) described by the
+ * OIDC discovery document at `discoveryUrl`, fetched on first use rather than
+ * when the auth instance is built (issue #101).
+ *
+ * - Lazy: nothing is fetched until the first OAuth callback needs to verify an
+ *   id_token, so building the auth instance, `next build`, cold starts and
+ *   every session check make no MP call at all.
+ * - Cached on success for the life of the process — the trust model genericOAuth
+ *   had when it fetched discovery at boot. Key rotation is jose's job (above).
+ * - Single-flight: concurrent callbacks share one in-flight fetch.
+ * - Never caches a failure: a failed fetch is logged (`auth.oidc.discovery_failed`),
+ *   that sign-in is refused, and the next callback tries again. A blip lasts
+ *   exactly as long as MP is actually down.
+ * - Fails closed: a document without a usable `issuer` or `jwks_uri` is a
+ *   failure, never a verifier that skips a check.
+ *
+ * Exported so tests can build an isolated loader; the app uses the one
+ * module-level instance `loadMpIdTokenVerifier`.
+ */
+export function lazyIdTokenVerifier(
+  discoveryUrl: string,
+  { timeoutMs = OIDC_DISCOVERY_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): () => Promise<IdTokenVerifier> {
+  let pending: Promise<IdTokenVerifier> | null = null;
+  return () =>
+    (pending ??= fetchIdTokenVerifier(discoveryUrl, timeoutMs).catch((err: unknown) => {
+      pending = null;
+      throw err;
+    }));
+}
+
+/**
+ * OIDC Core §3.1.3.7 claim checks jose's `jwtVerify` does not make on its
+ * own: it checks `exp` only when it is PRESENT (an expired one is already
+ * refused there, as `ERR_JWT_EXPIRED`), so a token with no `exp` would pass;
+ * and nothing checks `azp` when `aud` lists several audiences. Returns the
+ * refusal reason, or null when the claims are acceptable. Runs on an
+ * already-verified token (see `verifyMpIdToken`), so this narrows what a
+ * genuinely MP-signed token may look like; it is not the signature check.
  */
 function idTokenClaimFailure(
   claims: Record<string, unknown>,
   clientId: string,
-): "missing_exp" | "expired" | "azp_mismatch" | null {
+): "missing_exp" | "azp_mismatch" | null {
   const { exp, aud, azp } = claims;
-  if (typeof exp !== "number" || !Number.isFinite(exp)) return "missing_exp";
-  if (exp * 1000 <= Date.now()) return "expired";
+  // (jose has already refused a present-but-non-numeric `exp`.)
+  if (typeof exp !== "number") return "missing_exp";
   if (Array.isArray(aud) && azp !== clientId) return "azp_mismatch";
   return null;
+}
+
+/**
+ * Logs why `getUserInfo` refused an id_token it could not verify.
+ * `verifier_unavailable`: discovery did not load (its own
+ * `auth.oidc.discovery_failed` line says why). `verification_failed`: jose
+ * refused the token or could not fetch the key set; `code` is jose's error
+ * code (e.g. `ERR_JWS_SIGNATURE_VERIFICATION_FAILED`, `ERR_JWT_EXPIRED`,
+ * `ERR_JWKS_TIMEOUT`) and `claim` the claim name for a claim failure. All
+ * identifiers: never the token, its claims, or `err.message`.
+ */
+function logIdTokenUnverified(
+  detail:
+    | { reason: "verifier_unavailable" }
+    | { reason: "verification_failed"; code?: string; claim?: string; errName: string },
+) {
+  console.error(
+    JSON.stringify({
+      event: "auth.userinfo.id_token_unverified",
+      message: "MP id_token could not be verified; refusing sign-in",
+      ...detail,
+    }),
+  );
 }
 
 /**
@@ -377,7 +487,7 @@ function idTokenClaimFailure(
  * GUIDs themselves (same precedent as `auth.userinfo.invalid_sub`).
  */
 function logSubBindingFailure(
-  reason: "missing_id_token" | "undecodable_id_token" | "missing_sub" | "mismatch",
+  reason: "missing_id_token" | "missing_sub" | "mismatch",
 ) {
   console.error(
     JSON.stringify({
@@ -390,7 +500,7 @@ function logSubBindingFailure(
 }
 
 /** Same logging rules as `logSubBindingFailure`: the reason, never the claims. */
-function logIdTokenClaimFailure(reason: "missing_exp" | "expired" | "azp_mismatch") {
+function logIdTokenClaimFailure(reason: "missing_exp" | "azp_mismatch") {
   console.error(
     JSON.stringify({
       event: "auth.userinfo.id_token_claims_invalid",
@@ -537,6 +647,81 @@ if (!process.env.VITEST) {
 // redirect_uri and the trusted origins — from the request's Host header.
 const mpBaseUrl = getMpBaseUrl();
 const authBaseUrl = getAuthBaseUrl();
+
+/** The genericOAuth provider id this app signs in with. */
+export const MP_PROVIDER_ID = "ministry-platform";
+
+/**
+ * Ministry Platform's OIDC endpoints, configured explicitly instead of read
+ * from the discovery document at boot (issue #101).
+ *
+ * With `discoveryUrl` set, genericOAuth fetched discovery ONCE, inside the auth
+ * context's `init`, with no timeout and no retry, and every auth request — and
+ * every in-process `auth.api.*` call, i.e. every page's session check — awaits
+ * that `init`. A failed fetch dropped the provider for the life of the
+ * instance (`/sign-in/social` 404'd `PROVIDER_NOT_FOUND` until something
+ * rebuilt it); a hung one stalled every request for undici's ~300 s headers
+ * timeout. With these set and no `discoveryUrl`, building the auth instance
+ * makes no network call, so the provider always registers.
+ *
+ * These are IdentityServer's fixed `connect/*` paths under MP's `/oauth`
+ * (checked against a live MP discovery document 2026-09-29). The JWKS URL is
+ * deliberately NOT pinned: it is not the same on every IdentityServer (a live
+ * MP serves `/oauth/.well-known/jwks`; the IdentityServer default is
+ * `/oauth/.well-known/openid-configuration/jwks`), so it and the issuer still
+ * come from discovery — fetched lazily, when the first id_token needs
+ * verifying (`loadMpIdTokenVerifier`).
+ */
+const mpOidc = {
+  discovery: `${mpBaseUrl}/oauth/.well-known/openid-configuration`,
+  authorization: `${mpBaseUrl}/oauth/connect/authorize`,
+  token: `${mpBaseUrl}/oauth/connect/token`,
+  userinfo: `${mpBaseUrl}/oauth/connect/userinfo`,
+  endSession: `${mpBaseUrl}/oauth/connect/endsession`,
+};
+
+const loadMpIdTokenVerifier = lazyIdTokenVerifier(mpOidc.discovery);
+
+/**
+ * Verifies an MP id_token — RS256 signature against MP's JWKS, `iss` against
+ * the discovered issuer, `aud` against our client id, plus `exp`/`nbf` when
+ * present — and returns its claims, or null (logged) when it cannot be
+ * verified.
+ *
+ * This is the check genericOAuth used to make itself when discovery ran at
+ * boot (`verifyProviderIdToken`, the same jose `jwtVerify` call), moved here
+ * because without `discoveryUrl` the provider has no id_token config and
+ * better-auth verifies nothing. `getUserInfo` is the one place every sign-in
+ * path reaches with the token response in hand, so this is where it runs.
+ * Neither a nonce nor PKCE is checked: MP supports neither (accepted risk F8,
+ * see `pkce` below).
+ */
+async function verifyMpIdToken(idToken: string): Promise<JWTPayload | null> {
+  let verifier: IdTokenVerifier;
+  try {
+    verifier = await loadMpIdTokenVerifier();
+  } catch {
+    logIdTokenUnverified({ reason: "verifier_unavailable" });
+    return null;
+  }
+  try {
+    const { payload } = await jwtVerify(idToken, verifier.jwks, {
+      issuer: verifier.issuer,
+      audience: process.env.OIDC_CLIENT_ID!,
+      algorithms: ID_TOKEN_ALGORITHMS,
+    });
+    return payload;
+  } catch (err) {
+    const { code, claim } = (err ?? {}) as { code?: unknown; claim?: unknown };
+    logIdTokenUnverified({
+      reason: "verification_failed",
+      ...(typeof code === "string" && { code }),
+      ...(typeof claim === "string" && { claim }),
+      errName: errorName(err),
+    });
+    return null;
+  }
+}
 
 /**
  * Client-IP resolution for better-auth's rate limiter (`/sign-in*` is 3
@@ -748,33 +933,36 @@ const options = {
     genericOAuth({
       config: [
         {
-          providerId: "ministry-platform",
-          discoveryUrl: `${mpBaseUrl}/oauth/.well-known/openid-configuration`,
-          // No issuer pinning here, deliberately. better-auth 1.7.0–1.7.2 keyed
-          // accounts on (issuer, accountId) and refused to initialize a discovery
-          // provider whose issuer it could not resolve, so this config carried an
-          // explicit `accountIssuer`. 1.7.3 reverted both halves: accounts are
-          // identified by (providerId, accountId) again as in 1.6 (#11153), and a
-          // discovery failure no longer takes down the auth API (#10978). The
-          // option was removed along with that revert, so setting it is now a
-          // type error. Discovery still supplies the endpoints and the JWKS used
-          // to verify ID tokens.
+          providerId: MP_PROVIDER_ID,
+          // NO `discoveryUrl`, deliberately (issue #101): see `mpOidc` above.
+          // Setting it would bring back the boot-time fetch that took sign-in
+          // down on an MP blip, AND give the provider an id_token config, which
+          // re-opens `/sign-in/social`'s id_token mode (see
+          // `refuseIdTokenSignIn`). The id_token is verified in `getUserInfo`
+          // instead (`verifyMpIdToken`). `src/auth.test.ts` and
+          // `src/auth.code-flow.test.ts` fail if it comes back, and
+          // `src/auth.oidc-discovery.test.ts` pins why.
           //
-          // Discovery runs ONCE per auth instance, with no retry. If that fetch
-          // fails, genericOAuth logs "Discovery fetch failed" and skips the
-          // provider, so sign-in fails CLOSED (`404 PROVIDER_NOT_FOUND`). (Before
-          // 1.7.3 the provider stayed live with no id_token verification; that
-          // fail-open mode is gone.) It no longer lasts until a restart:
-          // `selfHealingAuth` below rebuilds the instance — re-running
-          // discovery — on the next sign-in after a 30 s cooldown.
-          //
-          // Without this, a discovery document that returned the endpoints but
-          // omitted `jwks_uri` or `issuer` left the provider live with id_token
-          // verification silently OFF (genericOAuth builds its verifier only
-          // when both are present). With it, that provider is skipped with an
-          // error log instead. `readIdTokenClaims` relies on this guarantee;
-          // `src/auth.oidc-hardening.test.ts` fails if it is removed.
-          requireIdTokenVerification: true,
+          // No issuer pinning either. better-auth 1.7.0–1.7.2 keyed accounts on
+          // (issuer, accountId), so this config once carried an explicit
+          // `accountIssuer`; 1.7.3 reverted that (accounts are (providerId,
+          // accountId) again, #11153) and removed the option. Without discovery
+          // the provider has no `issuer`, so better-auth's RFC 9207 callback
+          // `iss` check is skipped — moot for MP, whose discovery document does
+          // not advertise `authorization_response_iss_parameter_supported` (it
+          // sends no `iss`), and a single-provider app has no mix-up to defend.
+          authorizationUrl: mpOidc.authorization,
+          tokenUrl: mpOidc.token,
+          // Required for RP-initiated logout: without it better-auth builds no
+          // MP end-session URL, and sign-out loses the `id_token_hint` that
+          // lets MP end its own session without a "log out?" prompt.
+          endSessionEndpoint: mpOidc.endSession,
+          // The account subject is the MP User_GUID. genericOAuth's default
+          // resolver reads `profile.sub` only for a provider it recognised as
+          // OIDC from a discovery document, and `profile.id` otherwise — which
+          // `getUserInfo` never returns, so the default would key every
+          // account on "". `getUserInfo` has already validated `sub`.
+          accountSubject: ({ profile }) => (typeof profile.sub === "string" ? profile.sub : ""),
           clientId: process.env.OIDC_CLIENT_ID!,
           clientSecret: process.env.OIDC_CLIENT_SECRET!,
           scopes: [
@@ -788,28 +976,17 @@ const options = {
           // `code_challenge_methods_supported`; that does not mean it works.)
           // The consequence is spelled out in the nonce comment below.
           pkce: false,
-          // Ministry Platform does not echo the `nonce` back in the id_token,
-          // so better-auth's nonce binding must be switched off or NO ONE CAN
-          // SIGN IN.
-          //
-          // better-auth 1.7 turns nonce binding on automatically for any
-          // provider whose discovery document yields an id_token config
-          // (`requiresIdTokenNonce`), sends a `nonce` on the authorize request,
-          // and then requires the claim to come back:
-          // `nonceMatches()` returns false when the claim is absent
-          // (`typeof claimNonce !== "string"`). MP omits it, so verification
-          // failed every time with `unable_to_get_user_info` and the log line
-          // "id_token failed verification against the discovery JWKS or
-          // expected nonce". Verified 2026-09-12 by decoding a real MP
-          // id_token: kid, alg, iss and aud all matched; only `nonce` was
-          // missing.
-          //
-          // (It looked intermittent at the time because, before better-auth
-          // 1.7.3, a FAILED boot-time discovery left the provider live with no
-          // id_token config, which skipped verification and so let sign-in
-          // succeed. In 1.7.4 a failed discovery skips the provider entirely —
-          // sign-in 404s until `selfHealingAuth` rebuilds the instance — and
-          // `requireIdTokenVerification` above refuses a partial one.)
+          // No nonce either: Ministry Platform does not echo the `nonce` back
+          // in the id_token. With no `discoveryUrl` the provider has no
+          // id_token config, so better-auth neither sends a `nonce` nor
+          // requires one (`requiresIdTokenNonce` is false), and
+          // `verifyMpIdToken` checks none. (While discovery was configured,
+          // better-auth 1.7 switched nonce binding on automatically and every
+          // MP sign-in failed with `unable_to_get_user_info` until
+          // `disableIdTokenNonceBinding: true` was set — verified 2026-09-12
+          // by decoding a real MP id_token: kid, alg, iss and aud all matched;
+          // only `nonce` was missing. `src/auth.code-flow.test.ts` keeps that
+          // negative control.)
           //
           // What this does NOT give up: the id_token signature is still checked
           // against MP's JWKS, and the issuer and audience are still checked.
@@ -826,49 +1003,45 @@ const options = {
           // defences keep codes out of an attacker's reach: a dedicated MP
           // OIDC client with exact redirect URIs, `Referrer-Policy`, and no
           // code-bearing URLs in logs.
-          disableIdTokenNonceBinding: true,
           authorizationUrlParams: {
             realm: "realm",
           },
           getUserInfo: async (tokens) => {
-            // Bind the access token to the (already verified) id_token: the
-            // userinfo `sub` must equal the id_token `sub`. Defence in depth
-            // behind `refuseIdTokenSignIn` — `/sign-in/social`'s id_token mode
-            // calls this with a CALLER-SUPPLIED access token, so without this
-            // check an attacker's id_token plus a victim's access token signed
-            // in as the victim. Every refusal returns null, never throws (see
-            // the `sub` comment below for why).
+            // Verify the id_token (`verifyMpIdToken`: signature, iss, aud),
+            // then bind the access token to it: the userinfo `sub` must equal
+            // the verified id_token `sub`. The binding is defence in depth for
+            // any path that hands this function a CALLER-SUPPLIED access token
+            // — `/sign-in/social`'s id_token mode did, so an attacker's
+            // id_token plus a victim's access token signed in as the victim
+            // (see `refuseIdTokenSignIn`). Every refusal returns null, never
+            // throws (see the `sub` comment below for why).
             //
             // A MISSING id_token fails closed too, deliberately. Every
             // legitimate caller supplies one: the code-flow callback requests
             // the `openid` scope, for which OIDC Core §3.1.3.3 requires an
             // id_token in the token response (MP sends one — the nonce comment
-            // above records decoding a real one), and the id_token mode cannot
-            // run without one. So an absent id_token means an unexpected code
-            // path handing us an access token with nothing to bind it to; a
-            // future better-auth path of that shape should be refused, not
-            // trusted. The cost, if MP ever stopped sending id_tokens, is a
-            // loud sign-in outage logged as `reason: "missing_id_token"`, not a
-            // silent takeover. Checked before the userinfo fetch so a refused
-            // request never spends an MP call.
+            // above records decoding a real one). So an absent id_token means
+            // an unexpected code path handing us an access token with nothing
+            // to verify or bind; a future better-auth path of that shape should
+            // be refused, not trusted. The cost, if MP ever stopped sending
+            // id_tokens, is a loud sign-in outage logged as
+            // `reason: "missing_id_token"`, not a silent takeover. Checked
+            // before any fetch so a refused request never spends an MP call.
             if (typeof tokens.idToken !== "string" || tokens.idToken === "") {
               logSubBindingFailure("missing_id_token");
               return null;
             }
-            const idToken = readIdTokenClaims(tokens.idToken);
-            if (!idToken.decoded) {
-              logSubBindingFailure("undecodable_id_token");
-              return null;
-            }
-            const idTokenSub = idToken.claims.sub;
+            const claims = await verifyMpIdToken(tokens.idToken);
+            if (!claims) return null;
+            const idTokenSub = claims.sub;
             if (typeof idTokenSub !== "string" || idTokenSub === "") {
               logSubBindingFailure("missing_sub");
               return null;
             }
-            // `exp` present and in the future; `azp` is us when `aud` is a
-            // list. See `idTokenClaimFailure`.
+            // `exp` present (jose has already refused an expired one); `azp`
+            // is us when `aud` is a list. See `idTokenClaimFailure`.
             const claimFailure = idTokenClaimFailure(
-              idToken.claims,
+              claims,
               process.env.OIDC_CLIENT_ID!,
             );
             if (claimFailure) {
@@ -886,7 +1059,7 @@ const options = {
             let profile: Record<string, unknown>;
             try {
               const response = await fetch(
-                `${mpBaseUrl}/oauth/connect/userinfo`,
+                mpOidc.userinfo,
                 {
                   headers: {
                     Authorization: `Bearer ${tokens.accessToken}`,
@@ -952,13 +1125,11 @@ const options = {
               return null;
             }
 
-            // `sub` (not `id`) is what better-auth 1.7 reads for the account
-            // subject. MP's discovery document advertises
-            // `id_token_signing_alg_values_supported`, so the provider is
-            // treated as OIDC and the default `accountSubject` resolver reads
-            // `profile.sub` from this raw profile. Returning only `id` (the
-            // pre-1.7 shape) resolves the subject to "" and breaks account
-            // identity. `src/auth.test.ts` guards this.
+            // `sub` (not `id`) is what the account subject is keyed on: the
+            // `accountSubject` resolver above reads `profile.sub` from this raw
+            // profile. Returning only `id` (the pre-1.7 shape) resolves the
+            // subject to "" and breaks account identity. `src/auth.test.ts`
+            // guards this.
             //
             // `email` here is the REAL MP address, kept on the raw profile so
             // `mapProfileToUser` can move it into `mpEmail`. It does not reach
@@ -1084,172 +1255,6 @@ export function sharedInstance<T>(
   return (store[key] ??= create());
 }
 
-/** The genericOAuth provider id this app signs in with. */
-export const MP_PROVIDER_ID = "ministry-platform";
-
-/**
- * Minimum time between two builds of the auth instance (the first build
- * counts). Bounds discovery traffic to one fetch per 30 s per process while MP
- * is down, however many users retry sign-in.
- */
-export const DISCOVERY_REBUILD_COOLDOWN_MS = 30 * 1000;
-
-/**
- * How long a sign-in request waits for an in-flight rebuild before going ahead
- * with the current (provider-less) instance. genericOAuth's discovery fetch has
- * no timeout of its own, so without this a hung MP would hold every sign-in
- * request open; the rebuild itself carries on in the background.
- */
-export const DISCOVERY_REBUILD_WAIT_MS = 10 * 1000;
-
-interface RebuildableAuth {
-  handler: (request: Request) => Promise<Response>;
-  $context: Promise<{ socialProviders: ReadonlyArray<{ id: string }> }>;
-}
-
-/**
- * Only these requests need the MP provider; everything else (`/get-session`,
- * `/sign-out`, ...) never triggers a rebuild, so an MP outage cannot slow page
- * loads down. Paths are under better-auth's default `/api/auth` basePath.
- */
-function needsProvider(request: Request): boolean {
-  // `Request.url` is always absolute, so this cannot throw.
-  const path = new URL(request.url).pathname.replace(/\/+$/, "");
-  return path === "/api/auth/sign-in/social" || path.startsWith("/api/auth/callback/");
-}
-
-async function hasProvider(instance: RebuildableAuth): Promise<boolean> {
-  try {
-    const ctx = await instance.$context;
-    return ctx.socialProviders.some((provider) => provider.id === MP_PROVIDER_ID);
-  } catch {
-    return false;
-  }
-}
-
-/** Identifiers only: never the discovery URL or the error message. */
-function logDiscoveryRebuild(
-  outcome: "recovered" | "provider_still_missing" | "create_failed",
-  errName?: string,
-) {
-  const log = outcome === "recovered" ? console.warn : console.error;
-  log(
-    JSON.stringify({
-      event: "auth.discovery.rebuild",
-      message:
-        outcome === "recovered"
-          ? "Rebuilt the auth instance; the MP OIDC provider is available again"
-          : "Rebuilt the auth instance; the MP OIDC provider is still unavailable",
-      providerId: MP_PROVIDER_ID,
-      outcome,
-      ...(errName && { errName }),
-    }),
-  );
-}
-
-/**
- * Wraps `create` so a boot-time OIDC discovery failure heals without a
- * restart.
- *
- * genericOAuth fetches MP's discovery document ONCE, while the auth context
- * initializes, with no retry. If that fetch fails (or the document lacks
- * `issuer`/`jwks_uri` — see `requireIdTokenVerification`), the provider is
- * skipped and `/sign-in/social` returns `404 PROVIDER_NOT_FOUND` for the life
- * of the instance: one transient MP blip at cold start used to disable sign-in
- * until the process restarted. Fail-closed, but an outage.
- *
- * Now a sign-in or callback request that finds the provider missing builds a
- * fresh instance — which runs discovery again — and swaps it in if (and only
- * if) the new one has the provider:
- * - single-flight: concurrent requests share one rebuild;
- * - at most one build per `DISCOVERY_REBUILD_COOLDOWN_MS`, counting the first;
- *   inside the cooldown the request just gets the 404, as before;
- * - a request waits at most `DISCOVERY_REBUILD_WAIT_MS` for the rebuild;
- * - an instance that HAS the provider is never rebuilt, so a healthy
- *   instance's in-memory sessions and account rows (the `id_token_hint` for
- *   sign-out) are never thrown away. Swapping out a provider-less instance
- *   loses nothing: without the provider no OAuth callback could have stored a
- *   session in it (and `session_data` cookies are keyed from the secret, not
- *   the instance).
- *
- * Transparent to callers: the returned object delegates every property to the
- * CURRENT instance at access time (`auth.api.getSession(...)`,
- * `auth.$context`, ...), and its `handler` — what `toNextJsHandler` in the
- * `/api/auth` route calls per request — does the check first. So never cache
- * `auth.api` in a module-level variable; it would pin the first instance.
- * In-process `auth.api.signInSocial` calls do not trigger a rebuild (nothing
- * in `src/` makes one). `src/auth.discovery-rebuild.test.ts` pins all of this.
- */
-export function selfHealingAuth<T extends RebuildableAuth>(
-  create: () => T,
-  {
-    cooldownMs = DISCOVERY_REBUILD_COOLDOWN_MS,
-    waitMs = DISCOVERY_REBUILD_WAIT_MS,
-  }: { cooldownMs?: number; waitMs?: number } = {},
-): T {
-  let current = create();
-  let builtAt = Date.now();
-  let rebuilding: Promise<void> | null = null;
-
-  async function rebuild(): Promise<void> {
-    builtAt = Date.now();
-    let candidate: T;
-    try {
-      candidate = create();
-    } catch (err) {
-      logDiscoveryRebuild("create_failed", errorName(err));
-      return;
-    }
-    if (await hasProvider(candidate)) {
-      current = candidate;
-      logDiscoveryRebuild("recovered");
-    } else {
-      logDiscoveryRebuild("provider_still_missing");
-    }
-  }
-
-  async function ensureProvider(): Promise<void> {
-    if (await hasProvider(current)) return;
-    if (!rebuilding) {
-      if (Date.now() - builtAt < cooldownMs) return;
-      rebuilding = rebuild().finally(() => {
-        rebuilding = null;
-      });
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      rebuilding,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, waitMs);
-      }),
-    ]);
-    clearTimeout(timer);
-  }
-
-  const handler = async (request: Request): Promise<Response> => {
-    if (needsProvider(request)) await ensureProvider();
-    return current.handler(request);
-  };
-
-  // `handler`/`fetch` are real own properties of the target (so `vi.spyOn`
-  // and friends can redefine them); every other property reads through to the
-  // current instance.
-  const own: Pick<RebuildableAuth, "handler"> & { fetch: RebuildableAuth["handler"] } = {
-    handler,
-    fetch: handler,
-  };
-  return new Proxy(own, {
-    get(target, prop, receiver) {
-      if (Object.hasOwn(target, prop)) return Reflect.get(target, prop, receiver);
-      return Reflect.get(current, prop, current);
-    },
-    // `toNextJsHandler` checks `"handler" in auth` before calling it.
-    has(target, prop) {
-      return prop in target || prop in current;
-    },
-  }) as unknown as T;
-}
-
-export const auth = sharedInstance(SHARED_AUTH_KEY, () => selfHealingAuth(createAuth));
+export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
 
 export type Session = typeof auth.$Infer.Session;
