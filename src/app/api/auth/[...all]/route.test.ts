@@ -105,40 +105,198 @@ describe("auth catch-all route allowlist", () => {
     });
   });
 
+  /**
+   * Status alone cannot prove the wrapper stopped a request: better-auth's own
+   * router 404s most unknown paths too, so a wrapper that let everything
+   * through would still "pass" a status-only assertion. Every row here also
+   * asserts `auth.handler` (which `toNextJsHandler` calls at request time) was
+   * never reached.
+   */
   describe("everything else 404s without reaching better-auth", () => {
-    it("GET /list-accounts", async () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function request(method: string, path: string) {
+      // Built from a string, not `new URL(path, ORIGIN)`, so encoded and
+      // `;`-bearing paths reach the route exactly as a client would send them.
+      return new NextRequest(`${ORIGIN}/api/auth${path}`, { method });
+    }
+
+    function expectStopped(response: Response, handlerSpy: { mock: { calls: unknown[] } }) {
+      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(handlerSpy.mock.calls).toHaveLength(0);
+    }
+
+    it.each([
+      ["GET", "/list-accounts"],
+      ["POST", "/get-access-token"],
+      ["POST", "/sign-out"],
+      ["GET", "/error"],
+      ["GET", "/ok"],
+      ["POST", "/update-user"],
+      // Wrong method: the callback is GET only here. better-auth also
+      // registers POST for form_post providers, which MP does not use.
+      ["POST", "/callback/ministry-platform"],
+      // GET-allowlisted paths are not POST-allowlisted, and vice versa.
+      ["POST", "/get-session"],
+      ["GET", "/sign-in/social"],
+    ])("%s %s", async (method, path) => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+      const handler = method === "GET" ? GET : POST;
+
+      expectStopped(await handler(request(method, path)), handlerSpy);
+    });
+
+    /**
+     * Path variants of the allowlisted entries. The wrapper matches the raw,
+     * still-encoded pathname exactly (bar trailing slashes), so each of these
+     * must be refused BEFORE better-auth sees it. The rows pin the mutations
+     * that used to survive: prefix matching (`X`, `/extra`), running the path
+     * through `decodeURIComponent` (`%2D`, `%2d`, `%73`, `%2F`), lower-casing
+     * (the case rows), and treating `;` as a separator.
+     */
+    it.each([
+      ["GET", "/get-sessionX"],
+      ["GET", "/get-session/extra"],
+      ["GET", "/get-session.json"],
+      ["GET", "/get%2Dsession"],
+      ["GET", "/get%2dsession"],
+      ["GET", "/get-%73ession"],
+      ["GET", "/Get-Session"],
+      ["GET", "/GET-SESSION"],
+      ["GET", "/get-session;"],
+      ["GET", "/get-session;x=1"],
+      ["GET", "/callback/ministry-platformX"],
+      ["GET", "/callback/Ministry-Platform"],
+      ["GET", "/callback%2Fministry-platform"],
+      ["GET", "/callback/ministry%2Dplatform"],
+      ["GET", "/callback/ministry-platform;x"],
+      ["POST", "/sign-in/socialX"],
+      ["POST", "/sign-in/social/extra"],
+      ["POST", "/Sign-In/Social"],
+      ["POST", "/sign-in%2Fsocial"],
+      ["POST", "/sign%2Din/social"],
+      ["POST", "/sign-in/social;x"],
+    ])("%s %s (path variant)", async (method, path) => {
+      const handlerSpy = vi.spyOn(auth, "handler");
+      const handler = method === "GET" ? GET : POST;
+      const req = request(method, path);
+      // Guard against the URL parser normalizing the variant away, which
+      // would make the row pass for the wrong reason.
+      expect(req.nextUrl.pathname).toBe(`/api/auth${path}`);
+
+      expectStopped(await handler(req), handlerSpy);
+    });
+
+    /**
+     * The route exports only GET and POST (pinned below). Next derives HEAD
+     * from GET — so a HEAD request runs the same allowlist — and answers
+     * OPTIONS itself with an `Allow` header, never reaching this module.
+     */
+    it.each(["/list-accounts", "/get%2Dsession", "/Get-Session"])(
+      "HEAD %s is stopped by the GET allowlist",
+      async (path) => {
+        const handlerSpy = vi.spyOn(auth, "handler");
+
+        expectStopped(await GET(request("HEAD", path)), handlerSpy);
+      },
+    );
+
+    it("HEAD /get-session goes through the GET allowlist to better-auth", async () => {
+      const handlerSpy = vi
+        .spyOn(auth, "handler")
+        .mockResolvedValue(new Response(null, { status: 204 }));
+
+      const response = await GET(request("HEAD", "/get-session"));
+
+      expect(response.status).toBe(204);
+      expect(handlerSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("exports no HEAD, OPTIONS or other method handlers", async () => {
+      const mod: Record<string, unknown> = await import("./route");
+      for (const method of ["HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"]) {
+        expect(mod[method]).toBeUndefined();
+      }
+    });
+  });
+
+  /**
+   * Every response from this route is about the session, so none may be
+   * cached — whether it came from better-auth or from the wrapper's own 404.
+   */
+  describe("Cache-Control: no-store on every response", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("GET /get-session from the real handler", async () => {
+      const response = await get("/get-session");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("POST /sign-in/social from the real handler", async () => {
+      const response = await post("/sign-in/social", { provider: "ministry-platform" });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("overrides a cacheable Cache-Control from better-auth", async () => {
+      vi.spyOn(auth, "handler").mockResolvedValue(
+        new Response("{}", {
+          status: 200,
+          headers: { "Cache-Control": "public, max-age=600" },
+        }),
+      );
+
+      const response = await get("/get-session");
+
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("copies a response with immutable headers (a redirect), keeping status and Location", async () => {
+      const redirect = Response.redirect("https://test-mp.example.com/after", 302);
+      // Precondition: this is the shape the fallback exists for.
+      expect(() => redirect.headers.set("x", "y")).toThrow(TypeError);
+      vi.spyOn(auth, "handler").mockResolvedValue(redirect);
+
+      const response = await get("/callback/ministry-platform");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("https://test-mp.example.com/after");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("keeps every Set-Cookie on the callback's 302", async () => {
+      const headers = new Headers();
+      headers.append("Set-Cookie", "a=1; Path=/; HttpOnly");
+      headers.append("Set-Cookie", "b=2; Path=/; HttpOnly");
+      headers.set("Location", "/contactlookup");
+      vi.spyOn(auth, "handler").mockResolvedValue(
+        new Response(null, { status: 302, headers }),
+      );
+
+      const response = await get("/callback/ministry-platform");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.getSetCookie()).toEqual([
+        "a=1; Path=/; HttpOnly",
+        "b=2; Path=/; HttpOnly",
+      ]);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("on a 404 from the path allowlist", async () => {
       const response = await get("/list-accounts");
-      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("POST /get-access-token", async () => {
-      const response = await post("/get-access-token");
+    it("on a 404 from the /sign-in/social body filter", async () => {
+      const response = await post("/sign-in/social", { provider: "google" });
       expect(response.status).toBe(404);
-    });
-
-    it("POST /sign-out", async () => {
-      const response = await post("/sign-out");
-      expect(response.status).toBe(404);
-    });
-
-    it("GET /error", async () => {
-      const response = await get("/error");
-      expect(response.status).toBe(404);
-    });
-
-    it("GET /ok", async () => {
-      const response = await get("/ok");
-      expect(response.status).toBe(404);
-    });
-
-    it("POST /update-user", async () => {
-      const response = await post("/update-user", {});
-      expect(response.status).toBe(404);
-    });
-
-    it("POST /callback/ministry-platform (wrong method — the callback is GET only here; better-auth also registers POST for form_post providers, which MP does not use)", async () => {
-      const response = await post("/callback/ministry-platform");
-      expect(response.status).toBe(404);
+      expect(response.headers.get("cache-control")).toBe("no-store");
     });
   });
 
@@ -594,19 +752,31 @@ describe("auth catch-all route allowlist", () => {
   });
 
   describe("trailing-slash and prefix tricks do not bypass exact matching", () => {
-    it("GET /get-session/ (trailing slash) is treated as the same path by our allowlist", async () => {
-      // Our own matching strips the trailing slash, so this path is NOT
-      // rejected by allowedAuthRoutes (unlike /get-sessionX below) — it is let
-      // through to better-auth exactly as /get-session would be. better-auth's
-      // own router does its own exact-path match with no slash-stripping, so it
-      // 404s this particular request itself; that 404 comes from better-auth,
-      // not from a gap in our allowlist. Real callers (authClient) never add a
-      // trailing slash, so this is not a functional concern.
-      const allowedResponse = await get("/get-session");
-      const trailingSlashResponse = await get("/get-session/");
-      expect(allowedResponse.status).not.toBe(404);
-      expect(trailingSlashResponse.status).toBe(404);
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
+
+    it.each(["/get-session/", "/get-session//"])(
+      "GET %s (trailing slashes) is treated as /get-session by our allowlist",
+      async (path) => {
+        // Our own matching strips trailing slashes, so this path is NOT
+        // rejected by allowedAuthRoutes (unlike /get-sessionX below) — it is
+        // let through to better-auth exactly as /get-session would be.
+        // better-auth's own router does its own exact-path match with no
+        // slash-stripping, so it 404s this request itself; that 404 comes from
+        // better-auth, not from a gap in our allowlist. Real callers
+        // (authClient) never add a trailing slash, so this is not a functional
+        // concern. The spy pins the stripping, so changing it is deliberate.
+        const handlerSpy = vi.spyOn(auth, "handler");
+
+        const allowedResponse = await get("/get-session");
+        const trailingSlashResponse = await get(path);
+
+        expect(allowedResponse.status).not.toBe(404);
+        expect(trailingSlashResponse.status).toBe(404);
+        expect(handlerSpy).toHaveBeenCalledTimes(2);
+      },
+    );
 
     it("GET /get-sessionX does not match /get-session", async () => {
       const response = await get("/get-sessionX");

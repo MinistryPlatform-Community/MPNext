@@ -57,14 +57,42 @@ function relativeAuthPath(request: NextRequest): string {
   return withoutTrailingSlashes === "" ? "/" : withoutTrailingSlashes;
 }
 
-const NOT_FOUND = () => new Response("Not Found", { status: 404 });
+/**
+ * Marks a response from this route as uncacheable. Every response here is
+ * either session-bearing or about the session: the OAuth callback's 302 sets
+ * the session cookies, `/get-session` returns the user, and `/sign-in/social`
+ * returns a state cookie. better-auth sets `no-store` on some of these but not
+ * all (customSession drops it on a null session; the callback and sign-in
+ * responses carry none), so it is set here, on every return path, 404s
+ * included.
+ *
+ * Set in place where possible. A response whose headers are immutable (e.g.
+ * one built with `Response.redirect()`) throws on `set`, so it is copied —
+ * status, status text, headers (Set-Cookie included) and body stream — first.
+ */
+function withNoStore(response: Response): Response {
+  try {
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch {
+    const copy = new Response(response.body, response);
+    copy.headers.set("Cache-Control", "no-store");
+    return copy;
+  }
+}
+
+const NOT_FOUND = () =>
+  new Response("Not Found", {
+    status: 404,
+    headers: { "Cache-Control": "no-store" },
+  });
 
 export async function GET(request: NextRequest) {
   const path = relativeAuthPath(request);
   if (!(allowedAuthRoutes.GET as readonly string[]).includes(path)) {
     return NOT_FOUND();
   }
-  return betterAuthGET(request);
+  return withNoStore(await betterAuthGET(request));
 }
 
 /**
@@ -241,5 +269,5 @@ export async function POST(request: NextRequest) {
   if (path === "/sign-in/social" && !(await isAllowedSignInSocialBody(request))) {
     return NOT_FOUND();
   }
-  return betterAuthPOST(request);
+  return withNoStore(await betterAuthPOST(request));
 }
