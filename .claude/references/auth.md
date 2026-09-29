@@ -79,7 +79,18 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 
 There is no server-side session store, so **sign-out cannot revoke a copied
 cookie pair** — it deletes the in-memory row on the process that handled it and
-clears that browser's cookies, nothing more. The settings in `src/lib/auth.ts`
+clears that browser's cookies, nothing more.
+
+> **One `auth` per process.** Next loads `src/lib/auth.ts` once per bundle
+> layer (route handler, server actions, server components — 4 copies under
+> `next dev`, 2 in a production build, verified 2026-09-29). Before the fix,
+> each copy had its own in-memory store: the OAuth callback wrote the session
+> and account rows in the route-handler copy, and the sign-out server action
+> deleted from a different, empty one. Sign-out then removed nothing that
+> `/get-session` reads, so a copied pair lived to the 12 h cap, and no logout
+> URL had an `id_token_hint`. `sharedInstance` now caches the instance on
+> `globalThis`, so every layer shares one store. The 1 h figure below assumes
+> that; `src/auth.shared-instance.test.ts` pins it across two module copies. The settings in `src/lib/auth.ts`
 (documented on `SESSION_EXPIRES_IN_SECONDS`) instead put hard ceilings on every
 session, pinned by the clock-walk suite `src/auth.session-lifetime.test.ts`
 (better-auth 1.7.4, real `auth` instance, mock OIDC code flow, fake clock):
@@ -643,7 +654,7 @@ exposes.
 1. User clicks sign out → calls handleSignOut() server action
 2. auth.api.signOut({ body: { disableRedirect: true } }) → clears the Better
    Auth session and returns better-auth's provider logout URL (when this
-   instance holds the account row)
+   process holds the account row — one shared `auth` per process)
 3. Redirect to MP endsession endpoint:
    ${MP_BASE_URL}/oauth/connect/endsession
      ?post_logout_redirect_uri=${APP_URL}&client_id=${OIDC_CLIENT_ID}
@@ -652,7 +663,7 @@ exposes.
 5. App loads without session → proxy redirects to /signin
 ```
 
-`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the instance that handled sign-in (there is no account cookie — see Account cookie above), so on another serverless instance only `client_id` is sent. Whether MP honours the redirect on `client_id` alone is **unverified** (needs a non-production MP). `handleSignOut()` throws, after clearing the local session, if `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL`/`NEXTAUTH_URL` or `OIDC_CLIENT_ID` is unset — there is no localhost fallback. The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
+`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the process that handled sign-in (there is no account cookie — see Account cookie above; all bundle layers share one `auth`, see Session lifetime), so on another serverless instance only `client_id` is sent. **Tested against MP 2026-09-29 (Playwright):** with `id_token_hint`, MP logs out with no prompt and redirects back; with `client_id` alone, MP shows "Would you like to logout?" with a **Yes** button, and redirects only after Yes. `handleSignOut()` throws, after clearing the local session, if `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL`/`NEXTAUTH_URL` or `OIDC_CLIENT_ID` is unset — there is no localhost fallback. The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
 
 Sign-out is entirely server-side (`auth.api.signOut()`, called in-process from
 the server action) — the browser never calls a `/sign-out` HTTP endpoint, which
