@@ -41,8 +41,10 @@ Create a GitHub release with auto-generated release notes from merged pull reque
    - Apply any requested changes
 
 6. **Create the release:**
-   - Run `gh release create <tag> --target main --title "<tag>" --notes "<notes>"`
+   - Run `gh release create <tag> --target <branch> --title "<tag>" --notes "<notes>"`, where `<branch>` is the `--target` argument (default `main`)
+   - Append `--draft` if the `--draft` argument was given, and `--prerelease` if `--prerelease` was given
    - Use a HEREDOC for the notes body to handle multiline content
+   - If the release is a draft, the tag is not created until it is published — say so, and skip the tag-sync check in step 7
    - Run `git fetch --tags` to sync the new tag locally
 
 7. **Post-creation:**

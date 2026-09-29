@@ -12,7 +12,7 @@ Two CLI utilities that read your Ministry Platform schema and write source/refer
 Both scripts require the same Ministry Platform configuration:
 
 ```env
-MINISTRY_PLATFORM_BASE_URL=https://your-domain.ministryplatformapi.com
+MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 MINISTRY_PLATFORM_CLIENT_ID=your_client_id
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 ```

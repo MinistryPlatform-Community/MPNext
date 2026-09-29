@@ -49,15 +49,22 @@ configuration string.
 
 | File | Action | Signature | Gate |
 |------|--------|-----------|------|
-| `user.ts` | `getCurrentUserProfile` | `(): Promise<MPUserProfile \| undefined>` | Authenticated session; also computes `canAccessContactFeatures` via `hasSecurityRole` |
+| `user.ts` | `getCurrentUserProfile` | `(): Promise<CurrentUserProfile \| undefined>` | Authenticated session; also computes `canAccessContactFeatures` via `hasSecurityRole` |
 | `domain.ts` | `getMpTimezone` | `(): Promise<string>` | Authenticated session |
 
 `getCurrentUserProfile` takes no parameters by design — the `User_GUID` is read from the
-session rather than accepted from the caller, because the profile also discloses roles and
-user groups. It requires only an authenticated session, since any MP user may sign in and
-must be able to load the app shell (avatar, name, sign-out menu) with no security role.
-The returned `canAccessContactFeatures` flag is **UX only, not a security control**; the
-client must never derive policy from `roles`.
+session rather than accepted from the caller, so it can never become a lookup of someone
+else's name and email. It returns the six-field `CurrentUserProfile` DTO
+(`src/lib/dto/user-profile.ts`: name fields, email, `Image_GUID`,
+`canAccessContactFeatures`), built field by field; IDs, GUIDs, phone, roles and user
+groups stay on the server. It resolves `undefined` when MP has no matching user, and
+throws when there is no session.
+
+It is one of the CLAUDE.md carve-outs that use a plain session check instead of
+`requireSecurityRole`: it returns only the caller's **own** profile, and any MP user may
+sign in and must be able to load the app shell (avatar, name, sign-out menu) with no
+security role. The returned `canAccessContactFeatures` flag is **UX only, not a security
+control**.
 
 `getMpTimezone` returns the domain's IANA time zone identifier for client-side
 `Intl.DateTimeFormat` rendering of MP datetimes. A session check is sufficient here rather

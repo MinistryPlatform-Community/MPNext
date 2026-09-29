@@ -84,7 +84,7 @@ const MODELS_PATH = path.join(
 );
 const NEXT_BUILD_PATH = path.join(PROJECT_ROOT, '.next');
 
-const REQUIRED_NODE_VERSION = 20;
+const REQUIRED_NODE_VERSION = 22;
 
 // Suggested client IDs for a new install: two dedicated MP API Clients, one per
 // flow (see README § API Client Setup). An existing .env.local value wins.
@@ -512,7 +512,7 @@ function checkNodeVersion(): StepResult {
     return {
       success: false,
       message: `Node.js v${version} is below minimum required v${REQUIRED_NODE_VERSION}`,
-      details: 'Please upgrade Node.js to v20 or later',
+      details: `Please upgrade Node.js to v${REQUIRED_NODE_VERSION} or later`,
     };
   }
 
@@ -943,7 +943,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   printResult(nodeResult);
 
   if (!nodeResult.success) {
-    console.log(chalk.red('\nSetup cannot continue without Node.js v20 or later.'));
+    console.log(chalk.red(`\nSetup cannot continue without Node.js v${REQUIRED_NODE_VERSION} or later.`));
     return 1;
   }
   passedSteps++;

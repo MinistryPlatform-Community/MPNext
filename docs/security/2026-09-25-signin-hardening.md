@@ -4,8 +4,8 @@
 |---|---|
 | **Issues** | **F3b**: open redirect on `/signin` via tab/CR/LF (bypass of the F3 fix) · **F12**: `/sign-in/social` accepted direct ID-token sign-in |
 | **Severity** | F3b **Low–Medium** · F12 **Low** (Low–Medium if this app's MP OIDC client is shared with another app or allows implicit/hybrid) |
-| **Affected** | F3b: checkouts from [`ee46343`](https://github.com/MinistryPlatform-Community/MPNext/commit/ee46343) through `88c734a`. F12: checkouts through `88c734a` on **better-auth 1.7.x** with `discoveryUrl` set |
-| **Fixed in** | `b7dc8e6` (F3b), `cf5a824` (F12) |
+| **Affected** | F3b: any checkout containing [`ee46343`](https://github.com/MinistryPlatform-Community/MPNext/commit/ee46343) (the F3 fix) and **not** [`b7dc8e6`](https://github.com/MinistryPlatform-Community/MPNext/commit/b7dc8e6). F12: any checkout **not** containing [`cf5a824`](https://github.com/MinistryPlatform-Community/MPNext/commit/cf5a824), on **better-auth 1.7.x** with `discoveryUrl` set |
+| **Fixed in** | [`b7dc8e6`](https://github.com/MinistryPlatform-Community/MPNext/commit/b7dc8e6) (F3b), [`cf5a824`](https://github.com/MinistryPlatform-Community/MPNext/commit/cf5a824) (F12) — both 2026-09-28 |
 | **Reported** | 2026-09-25, privately, by Jonathon Huff (The Moody Church) |
 
 Neither issue is known to have been exploited. Neither exposes data by itself.
@@ -51,6 +51,18 @@ through the app's service account, and audit attribution on writes.
 `/link-social`, which has a similar branch, is now in `disabledAuthPaths`.
 
 ## Checking a fork
+
+If your fork keeps upstream history:
+
+```bash
+# F3b: affected if the first prints and the second does not.
+git merge-base --is-ancestor ee46343 HEAD && echo "has F3 (F3b applies)"
+git merge-base --is-ancestor b7dc8e6 HEAD && echo "has the F3b fix"
+# F12 (better-auth 1.7.x + discoveryUrl): affected unless this prints.
+git merge-base --is-ancestor cf5a824 HEAD && echo "has the F12 fix"
+```
+
+If it does not (a copied or squashed fork), check the code instead:
 
 ```bash
 grep -rF 'startsWith("/\\")' src/                          # prints = F3b applies (the check lived in src/app/signin/page.tsx before F9)
