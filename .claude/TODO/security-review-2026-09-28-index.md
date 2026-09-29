@@ -44,6 +44,8 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 - **Env validation + discovery rebuild (wave 2):** `src/lib/env.ts` — `MINISTRY_PLATFORM_BASE_URL` https-only (loopback http outside production), normalized; `BETTER_AUTH_URL` required, origin only, https for every real host (loopback http allowed even in production so `next build`/`next start` work locally and in CI); the exported `auth` is a self-healing facade that rebuilds the instance on sign-in/callback when the MP provider is missing (single-flight, 30 s cooldown, `auth.discovery.rebuild` log) — `auth-url-env-not-validated`, `discovery-failure-no-retry`
 - **Auth test harness (wave 2):** `src/test-utils/mock-oidc.ts` + code-flow, origin-check, session-config and rate-limit suites; all discovery stubs on the verified path; mutants (origin check off, `trustedOrigins: ["*"]`, strategy, `expiresIn`, `refreshCache`, sub-binding, nonce, PKCE, account cookie) all caught — `auth-test-gaps`
 
+- **Dependencies (wave 3):** `next`/`eslint-config-next` 16.3.5 → 16.3.7 (GHSA-vcvr-r3jv-pc5j); `server-only` guards on `auth.ts`, the MP client and every service (a client import fails `next build` — verified); relocked with `deps:relock`, `deps:verify` clean — `next-image-optimizer-and-version`, `no-server-only-guard`
+
 ## Decisions (2026-09-29)
 
 | Item | Decision |
@@ -54,12 +56,10 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | `shared-device-session-persistence` remainder, sign-out revocation (closed) | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
 | CSP reporting | **None** — known gap |
 
-## Open (wave 2 in progress)
+## Open
 
 | Item | Remaining |
 |---|---|
-| [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
-| [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
 | [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
