@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import type { ContactSearch } from "@/lib/dto";
+import { CONTACT_SEARCH_MAX_LENGTH, type ContactSearch } from "@/lib/dto";
 
 /**
  * ContactLookupSearch tests.
@@ -98,6 +98,12 @@ describe("ContactLookupSearch", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("caps the input at the server's search-term limit", () => {
+    const { input } = renderSearch();
+
+    expect(input).toHaveAttribute("maxLength", String(CONTACT_SEARCH_MAX_LENGTH));
   });
 
   describe("empty and whitespace input", () => {
