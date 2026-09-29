@@ -16,7 +16,9 @@ npm 11.16.0.
 **2026-09-29 (auth security review, wave 3):** `next`/`eslint-config-next`
 `16.3.5` → `16.3.7` for GHSA-vcvr-r3jv-pc5j, and `server-only` added. Relocked
 with `npm run deps:relock`; `deps:verify` clean; the lockfile diff was only the
-`next` family and `server-only`.
+`next` family and `server-only`. Installed per `package-lock.json` after it:
+`next@16.3.7`, `eslint-config-next@16.3.7`, `better-auth@1.7.4`,
+`typescript@6.0.3`, `eslint@9.39.5`, `@types/node@24.13.4`, `vitest@4.1.11`.
 
 ## Accepted advisories (triaged as not exploitable)
 
@@ -111,7 +113,7 @@ with `npm run deps:relock`; `deps:verify` clean; the lockfile diff was only the
 
 | Package | Item | Outcome | Date |
 |---|---|---|---|
-| `next` | Pre-announced **critical** vulnerability (announced 2026-08-20, scheduled 2026-08-26) | **Shipped early, 2026-08-25** as `16.3.3` (Active LTS) and `15.5.24` (Maintenance LTS) — the `backport` dist-tag moved `15.5.23` → `15.5.24`, confirming run 2's prediction. Two critical unauthenticated RCEs, both now in the accepted table above. Repo upgraded `16.3.2` → `16.3.3`; build/lint/582 tests green. [Advisory](https://nextjs.org/blog/august-2026-security-release) | 2026-08-27 |
+| `next` | Pre-announced **critical** vulnerability (announced 2026-08-20, scheduled 2026-08-26) | **Shipped early, 2026-08-25** as `16.3.3` (Active LTS) and `15.5.24` (Maintenance LTS) — the `backport` dist-tag moved `15.5.23` → `15.5.24`, confirming run 2's prediction. Two critical unauthenticated RCEs, both now in the accepted table above. Repo upgraded `16.3.2` → `16.3.3`; build/lint/582 tests (at the time) green. [Advisory](https://nextjs.org/blog/august-2026-security-release) | 2026-08-27 |
 
 > **Run 2's read was correct and worth repeating:** `16.3.2` was *not* the security release
 > despite landing during the announcement window. Confirm a security release by its advisory,
@@ -141,15 +143,15 @@ with `npm run deps:relock`; `deps:verify` clean; the lockfile diff was only the
 
 | Package | Was | Why removed | Date |
 |---|---|---|---|
-| `openai` | `dependencies: ^6.32.0` | Zero references repo-wide — no `import`/`require` in `src/` or `scripts/`, no `OPENAI*` env var, no config reference. Removing it dropped exactly 1 package; build, lint, and 279 tests stayed green. If AI features are added later, install fresh at `^7`. | 2026-08-21 |
+| `openai` | `dependencies: ^6.32.0` | Zero references repo-wide — no `import`/`require` in `src/` or `scripts/`, no `OPENAI*` env var, no config reference. Removing it dropped exactly 1 package; build, lint, and 279 tests (at the time) stayed green. If AI features are added later, install fresh at `^7`. | 2026-08-21 |
 
 ## Applied majors (for the record)
 
 | Package | Change | Verified by | Date |
 |---|---|---|---|
-| `jsdom` | `^29.0.0` → `^30.0.1` | 279/279 tests pass | 2026-08-21 |
+| `jsdom` | `^29.0.0` → `^30.0.1` | 279/279 tests pass (at the time) | 2026-08-21 |
 | `chalk` | `^5.6.2` → `^6.0.0` | `npm run setup:check` renders colored output, all 8 checks run | 2026-08-21 |
-| `@testing-library/jest-dom` | `^6.9.1` → `^7.0.1` | 279/279 tests pass; `@testing-library/dom@^10.4.1` promoted transitive → explicit `devDependency` as v7 requires | 2026-08-21 |
+| `@testing-library/jest-dom` | `^6.9.1` → `^7.0.1` | 279/279 tests pass (at the time); `@testing-library/dom@^10.4.1` promoted transitive → explicit `devDependency` as v7 requires | 2026-08-21 |
 
 ## Lockfile platform drift (Windows -> Linux CI)
 
@@ -250,7 +252,8 @@ reports `ajv: 6.15.0 -> 8.20.0` and a missing `fast-uri`, which is what `npm ci`
 - **CI** — the `lockfile` job in `.github/workflows/test.yml`, on every push to `main` and
   every PR targeting `main` (the workflow's only triggers — a push to a feature branch with
   no open PR runs nothing). This is the authoritative check; it runs on Linux, on Node 22,
-  ahead of the `test` job, and cannot be skipped.
+  in parallel with the `test`, `lint` and `build` jobs (none has a `needs:`, so a
+  lockfile failure does not stop the others from running, but it still fails the run).
 
 Offline behavior: the check needs the registry. Locally it warns and passes when npm is
 unreachable (so an offline commit is not blocked); in CI (`process.env.CI`) it fails instead.
@@ -273,4 +276,4 @@ entanglement is inherent to those upstream packages, so the guard is the fix, no
 
 | Item | Outcome | Date |
 |---|---|---|
-| `vitest.config.ts` CJS/ESM warning | **Fixed** — renamed to `vitest.config.mts`, so Vite loads it as native ESM and the `configLoader: 'native'` warning is gone. Not a pure rename: the config used `__dirname`, which does not exist in an ESM `.mts` file, so the `@` alias would have silently resolved wrong. It now uses `fileURLToPath(new URL('./src', import.meta.url))` — `fileURLToPath` specifically, because `new URL(...).pathname` yields `/S:/MP/MPNext/src` on Windows. `tsconfig.json` also needed `**/*.mts` added to `include`, since `**/*.ts` does not match `.mts` and the config would otherwise have dropped out of type checking. Verified: 582/582 tests, coverage thresholds still enforced, build and lint clean. | 2026-08-27 |
+| `vitest.config.ts` CJS/ESM warning | **Fixed** — renamed to `vitest.config.mts`, so Vite loads it as native ESM and the `configLoader: 'native'` warning is gone. Not a pure rename: the config used `__dirname`, which does not exist in an ESM `.mts` file, so the `@` alias would have silently resolved wrong. It now uses `fileURLToPath(new URL('./src', import.meta.url))` — `fileURLToPath` specifically, because `new URL(...).pathname` yields `/S:/MP/MPNext/src` on Windows. `tsconfig.json` also needed `**/*.mts` added to `include`, since `**/*.ts` does not match `.mts` and the config would otherwise have dropped out of type checking. Verified: 582/582 tests (at the time), coverage thresholds still enforced, build and lint clean. | 2026-08-27 |

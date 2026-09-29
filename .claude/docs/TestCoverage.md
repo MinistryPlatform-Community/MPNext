@@ -1,5 +1,10 @@
 # MPNext — Application & Unit Test Coverage Review
 
+> **Historical snapshot.** This review describes commit `5bc505a` as of 2026-09-12 and is not kept up
+> to date. The coverage gates that apply today are the thresholds in `vitest.config.mts`, documented in
+> [Testing Reference](../references/testing.md) § Coverage; run `npm run test:coverage` for current figures.
+> The `.claude/TODO/` folder it mentions no longer exists.
+
 **Date:** 2026-09-12
 **Reviewed commit:** `5bc505a` (branch `docs/release-readiness-refresh`)
 **Scope:** whole application — `src/**` excluding generated MP models, codegen scripts and `src/components/ui/`
@@ -30,7 +35,7 @@ Three things matter more than the headline number:
 |---|---|
 | **Measurement was inflated ~2.2×.** With no explicit `coverage.include`, every file no test imported dropped out of the denominator. | **Fixed.** `vitest.config.mts` now sets an explicit `include`, plus per-glob `thresholds` that fail the run on regression. |
 | **`testing.md` claimed 95.39% coverage** — not reproducible under any configuration. | **Fixed.** Rewritten against measured numbers, with the new mock patterns documented. |
-| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** Every finding in §5 is closed — §5.1 (filter injection), §5.2/§5.3 (missing auth), §5.4/§5.5 (missing authz, duplicated User_ID lookup), §5.6 (N+1 lookup), §5.7 (token lifetime), §5.8 (tests asserting against a copy of the logic). No test-derived item remains in `.claude/TODO/`. |
+| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** Every finding in §5 is closed — §5.1 (filter injection), §5.2/§5.3 (missing auth), §5.4/§5.5 (missing authz, duplicated User_ID lookup), §5.6 (N+1 lookup), §5.7 (token lifetime), §5.8 (tests asserting against a copy of the logic). No test-derived item remained in `.claude/TODO/` (since removed). |
 
 The shape of the original problem is worth restating, because the new number does not make it go
 away: **high coverage is not evidence of correctness.** The filter-injection path in §5.1 lived in a
@@ -176,7 +181,7 @@ safeguards), `contact-logs.tsx:387` and `user-menu.tsx:35`. None is worth the co
 
 **This is the most important section.** Each item below was fully covered by passing tests and was
 still wrong. The original coverage work **documented rather than fixed** them — one file per issue in
-`.claude/TODO/` — and the fixed items have since been closed out by follow-up work; each carries a
+`.claude/TODO/` (a folder that has since been removed) — and the fixed items have since been closed out by follow-up work; each carries a
 regression test that would have caught the defect.
 
 ### 5.1 Numeric IDs are interpolated into MP filters unsanitized ✅ FIXED

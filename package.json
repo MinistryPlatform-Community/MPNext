@@ -11,6 +11,9 @@
   "bugs": {
     "url": "https://github.com/MinistryPlatform-Community/MPNext/issues"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

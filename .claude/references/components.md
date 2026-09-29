@@ -250,20 +250,20 @@ untimezoned parse left in `src/components/`.
 
 ## Compliance Summary
 
-Verified by inspection of the tree on `docs/release-readiness-refresh`.
+Verified by inspection of the tree on 2026-09-29.
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|
 | File naming (kebab-case) | PASS | Every file and folder under `src/components/` and `src/app/` |
 | Component naming (PascalCase) | PASS | |
-| Named exports only (no default) | PASS in `src/components/` | Zero `export default` under `src/components/`. The 14 in `src/app/` are App Router framework requirements (`page`/`layout`/`error`/`global-error`) |
+| Named exports only (no default) | PASS in `src/components/` | Zero `export default` under `src/components/`. The 15 in `src/app/` (non-test files) are App Router framework requirements (`page`/`layout`/`error`/`global-error`) |
 | `@/` alias for imports | PASS with one exception | `(web)/contactlookup/page.tsx` imports `@/components/contact-lookup/contact-lookup` — the deep path, bypassing the barrel |
 | Barrel exports for features | PASS | All seven component folders with a component have `index.ts`; `shared-actions/` intentionally has none (it exports actions, not components) |
 | `"use client"` where needed | PASS | |
 | `"use server"` for actions | PASS | All six actions files |
 | Actions call services, not MPHelper | PASS | No `MPHelper` import anywhere in `src/components/` or `src/app/` |
 | `requireSecurityRole` on MP-touching actions | PASS with documented carve-outs | See the table in § Authorization |
-| No `console.log`/`.info`/`.debug` in `src/` | PASS | Only `console.error` is used. The `console.log` hits in `src/lib/providers/ministry-platform/helper.ts` are inside `@example` JSDoc blocks, not executable code; the rest are in `scripts/`, which the rule exempts |
+| No `console.log`/`.info`/`.debug` in `src/` | PASS | Only `console.error` and `console.warn` are used (the lint rule allows both). The `console.log` hits in `src/lib/providers/ministry-platform/helper.ts` are inside `@example` JSDoc blocks, not executable code; the rest are in `scripts/`, which the rule exempts |
 | Co-located tests | PASS except `ui/` | `sign-in/sign-in.test.tsx` unit-tests `sanitizeCallbackUrl`; the component itself is exercised through `src/app/signin/page.test.tsx`. Every `src/app/` route file has one |
 | TypeScript strict typing | PASS | |
 
@@ -350,7 +350,7 @@ Components interact with these service classes:
 | ContactService | `@/services/contactService` | contact-lookup, contact-lookup-details |
 | ContactLogService | `@/services/contactLogService` | contact-logs, contact-lookup-details |
 | UserService | `@/services/userService` | shared-actions/user |
-| AuthorizationService | `@/services/authorizationService` | contact-logs, contact-lookup, contact-lookup-details, shared-actions/user, `(web)/contactlookup/layout.tsx` |
+| AuthorizationService | `@/services/authorizationService` | contact-logs, contact-lookup, contact-lookup-details, shared-actions/user, `(web)/contactlookup/layout.tsx`, `(web)/contactlookup/[guid]/page.tsx` |
 | DomainTimezoneService | `@/services/domainTimezoneService` | shared-actions/domain (and internally by ContactLogService) |
 
 `SessionContextService` (`@/services/sessionContextService`) is not called from

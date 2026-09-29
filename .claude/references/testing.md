@@ -417,10 +417,10 @@ a browser commits it. `components/layout/header.test.tsx` ("keeps the sidebar us
 sets `IS_REACT_ACT_ENVIRONMENT = false` for that one test, uses `findBy*`/`waitFor`,
 and restores the flag in `finally`.
 
-## Radix Component Tests Under jsdom
+## jsdom, Radix and React 19 mechanics
 
 jsdom does not implement the browser APIs Radix primitives probe on mount. Without
-these polyfills, `Dialog` / `AlertDialog` / `Select` **throw during render** rather
+these polyfills, `Dialog` / `AlertDialog` / `Select` / `DropdownMenu` **throw during render** rather
 than failing an assertion, which makes the component look broken when only the
 harness is. `components/contact-logs/contact-logs.test.tsx` carries the pattern:
 
@@ -454,28 +454,10 @@ Call it in `beforeEach`. Notes on the rest of the harness:
 - react-hook-form + `zodResolver` validate asynchronously. Assert the error message with
   `await screen.findByText(...)` before asserting the action was not called.
 
-### Verify a gate test actually gates
-
-A test that asserts "the action was called with 42" passes under any policy. For a
-confirmation gate, mutate the component to bypass it and confirm the tests fail:
-
-```
-handleDeleteClick = (logId) => { deleteContactLog(logId); setDeleteLogId(logId); }
-```
-
-All four delete-gate tests fail on that mutation. The suite that preceded them failed
-none of it.
-
-## jsdom, Radix and React 19 mechanics
+### Other jsdom and React 19 mechanics
 
 Each of these presents as a component bug rather than a failed assertion, so
 recognise them before debugging the component.
-
-**Radix needs browser APIs jsdom lacks.** Dialog/AlertDialog/Select/DropdownMenu
-throw on mount without `ResizeObserver`, `hasPointerCapture`,
-`setPointerCapture`, `releasePointerCapture` and `scrollIntoView`. Copy the
-`installJsdomPolyfills()` helper from `contact-logs.test.tsx` and call it in
-`beforeEach`.
 
 **A Radix `Select` will not open from `fireEvent.pointerDown`** - jsdom does not
 implement `PointerEvent` at all. Drive it from the keyboard instead: `ArrowDown`
@@ -507,6 +489,18 @@ files*, so a scoped run over files you just brought to 100% prints an empty-look
 table. Use `--coverage.reporter=json-summary` to see real per-file numbers. And if
 two coverage runs overlap, pass `--coverage.reportsDirectory` to avoid an `ENOENT`
 on `coverage/.tmp/coverage-0.json`.
+
+### Verify a gate test actually gates
+
+A test that asserts "the action was called with 42" passes under any policy. For a
+confirmation gate, mutate the component to bypass it and confirm the tests fail:
+
+```
+handleDeleteClick = (logId) => { deleteContactLog(logId); setDeleteLogId(logId); }
+```
+
+All four delete-gate tests fail on that mutation. The suite that preceded them failed
+none of it.
 
 ## Coverage
 
@@ -576,13 +570,15 @@ Two mechanics worth knowing before editing these:
 Keep branch gates loose where the denominator is small - `src/app/**` has only 10
 branches in total, so a single uncovered one costs 10 points.
 
-### Coverage snapshot (2026-09-12: 1015 tests, 59 files)
+### Historical coverage snapshot (2026-09-12)
 
-Whole app, as `npm run test:coverage` prints it - every `src/**/*.{ts,tsx}`
-excluding generated models, codegen scripts, `src/components/ui/`, and test files.
-Measured 2026-09-12 on `docs/release-readiness-refresh`, Vitest 4.1.11, run in
-6.5s. (Not re-measured since; the suite is now 2035 tests in 85 files — see the
-inventory below. The thresholds still gate every run.)
+**Historical — not current.** The figures below were measured once, on
+2026-09-12, when the suite was 1015 tests in 59 files; they have not been
+re-measured and will not be kept up to date. What is enforced today is the
+threshold set in `vitest.config.mts` (see [Thresholds](#thresholds)); for current
+numbers run `npm run test:coverage`. Scope was the whole app - every
+`src/**/*.{ts,tsx}` excluding generated models, codegen scripts,
+`src/components/ui/`, and test files.
 
 | Metric | Value |
 |---|---|
@@ -595,32 +591,33 @@ This is now a single honest number. Earlier revisions of this doc quoted two
 figures - a high non-UI one and a low whole-app one - because feature components
 and app routes were untested; that split no longer exists.
 
-Everything the report still flags, file by file - all deliberate, all defensive
-or unreachable:
+Everything the report flagged at that time, file by file - all deliberate, all
+defensive or unreachable (cited by function, since line numbers drift):
 
 | File | Uncovered | Why |
 |---|---|---|
-| `contact-logs.tsx` | 232 | `if (!editingLog) return;` in the update handler. Every path that clears `editingLog` also closes the dialog in the same update, so the form cannot submit from a render where it is null. |
-| `lib/auth.ts` | 408 | The one-line arrow delegating to `enrichSessionUser`; better-auth closes over it. |
-| `client.ts` | funcs 75% | The token-getter closure handed to `HttpClient`. |
-| `app/api/auth/[...all]/route.ts` | 53-57 | The non-`/api/auth` and empty-path arms of `relativeAuthPath`; Next only routes `/api/auth/*` here. |
-| `contact-logs/actions.ts` | 64 | The non-`Error` arm of the `getContactLogTypes` catch wrapper. |
-| `authorizationService.ts` | 299 | The `decision.reason ?? "no_security_role"` fallback; `hasSecurityRole` always sets a reason on a denial. |
+| `contact-logs.tsx` | `onEditLog` | `if (!editingLog) return;` in the update handler. Every path that clears `editingLog` also closes the dialog in the same update, so the form cannot submit from a render where it is null. |
+| `lib/auth.ts` | `customSession` callback | The one-line arrow delegating to `enrichSessionUser`; better-auth closes over it. |
+| `client.ts` | constructor (functions) | The `() => this.token` getter closure handed to `HttpClient`. |
+| `app/api/auth/[...all]/route.ts` | `relativeAuthPath` | The non-`/api/auth` and empty-path arms of `relativeAuthPath`; Next only routes `/api/auth/*` here. |
+| `contact-logs/actions.ts` | `getContactLogTypes` | The non-`Error` arm of the `getContactLogTypes` catch wrapper. |
+| `authorizationService.ts` | `requireSecurityRole` | The `decision.reason ?? "no_security_role"` fallback; `hasSecurityRole` always sets a reason on a denial. |
 
-`http-client.ts:31` is no longer in this list - the GET error-message builder was
-covered when `http-client.test.ts` grew to 32 tests.
+The `http-client.ts` GET error-message builder is no longer in this list - it was
+was covered when `http-client.test.ts` grew to 32 tests.
 
 And the unreachable branches:
 
-- `helper.ts:189,273` - the `String(validationError)` arm of a validation-error
+- `helper.ts` `createTableRecords` / `updateTableRecords` - the `String(validationError)` arm of a validation-error
   message; Zod always throws an `Error`.
-- `contact-logs.tsx:95,134` and `domainTimezoneService.ts:237` - `hour === "24"`
+- `contact-logs.tsx` `formatDateTime` / `getNowInMpTz` and `domainTimezoneService.ts`
+  `formatInstantAsMpSql` - `hour === "24"`
   guards. Verified on Node 24.18 / current ICU: `Intl.DateTimeFormat("en-CA",
   { hour12: false })` returns `"00"` at midnight, never `"24"`. Dead here, kept
   as a cross-ICU safeguard.
-- `contact-logs.tsx:387` - an error arm for a `z.string().optional()` field only
+- `contact-logs.tsx` `errors.contactLogType` render - an error arm for a `z.string().optional()` field only
   ever written via `setValue` with a string.
-- `user-menu.tsx:35` - the false arm of `if (action === "signout")`.
+- `user-menu.tsx` `handleItemClick` - the false arm of `if (action === "signout")`.
   `userMenuItems` is a module-level constant with exactly one entry, whose action
   is `"signout"`.
 
@@ -683,7 +680,7 @@ stating why each exists rather than collapsing them into one:
 | File | Catches | Renders inside |
 |---|---|---|
 | `src/app/(web)/error.tsx` | anything thrown below the `(web)` layout | the app shell - Header, avatar, user menu, **sign-out** all survive |
-| `src/app/error.tsx` | `/signin`, `/session-error`, `/auth-error` | the root layout, bare (those routes have no shell) |
+| `src/app/error.tsx` | the routes outside `(web)` (`/signin`, `/session-error`, `/auth-error`, `/signed-out`), plus anything the `(web)` shell itself throws outside its own boundary (e.g. `Header`) | the root layout, bare (those routes have no shell) |
 | `src/app/global-error.tsx` | a throw in the root `layout.tsx` itself | nothing - it *replaces* the root layout |
 
 `error.tsx` never wraps the layout of **its own** segment. That is why a single
@@ -731,7 +728,8 @@ Things that will bite whoever edits these:
 
 Per-file counts below are from `npx vitest run --reporter=json` on 2026-09-29
 (both projects; `scripts/` paths are repo-relative, the rest are under `src/`).
-They sum to 2035.
+They sum to 2037 (2034 passing, 3 skipped) at that date; the total drifts as tests
+are added, so treat it as a snapshot and rerun the command for a current figure.
 
 | Test File | Tests | What It Covers |
 |-----------|-------|----------------|
@@ -786,7 +784,7 @@ They sum to 2035.
 | `services/sessionContextService.test.ts` | 12 | Acting-user resolution, `mp.write.non_user` warning, Next control-flow errors rethrown |
 | `auth.discovery-rebuild.test.ts` | 11 | Boot-time discovery failure self-heals: rebuild on sign-in/callback after the 30 s cooldown, single-flight, only sign-in/callback trigger it, `auth.discovery.rebuild` outcomes, a healthy instance is never rebuilt |
 | `auth.id-token-sign-in.test.ts` | 11 | F12 end to end: real `auth` against a mocked MP OIDC provider with RS256-signed id_tokens; the `hooks.before` refusal over HTTP and in-process, and the `sub` binding alone with the hook removed (node environment) |
-| `contexts/user-context.test.tsx` | 11 | Server-started promise exposed without a client refetch, suspend/resolve/reject, server re-render swaps the promise, refresh stays inside a transition (no fallback mid-reload) |
+| `contexts/user-context.test.tsx` | 13 | Server-started promise exposed without a client refetch, suspend/resolve/reject, server re-render swaps the promise, refresh stays inside a transition (no fallback mid-reload) |
 | `app/(web)/contactlookup/layout.test.tsx` | 9 | Page-layer role gate: renders children for a role-holder, `redirect("/no-access")` for every denial reason, MP failure surfaces instead of redirecting |
 | `app/global-error.test.tsx` | 9 | Renders its own html/body (via `renderToStaticMarkup`), sets `document.title` with no metadata export, imports no app code |
 | `components/sign-in/sign-in-attempts.test.ts` | 9 | `/signin` automatic-restart cap: attempts per window, future timestamps ignored, never blocks sign-in when storage throws |
@@ -820,9 +818,9 @@ They sum to 2035.
 | `auth.user-id-cache.test.ts` | 3 | 15-minute User_ID cache TTL; attribution dropped within one TTL once the `dp_Users` login is gone |
 | `app/(web)/home/page.test.tsx` | 2 | Unconditional redirect to `/`, never looping back to `/home` |
 | `contexts/session-context.test.tsx` | 2 | `useAppSession` wrapper |
-| **Total** | **2035** | 85 files |
+| **Total** | **2037** | 85 files (2026-09-29) |
 
-Shared helper (not a test file): `src/test-utils/mock-oidc.ts` — a mock MP OIDC provider (discovery, JWKS, token, userinfo; RS256 id_tokens) behind a stub `fetch` that **throws on any URL it does not serve**, so no auth test can reach a real Ministry Platform. Install it inside `vi.hoisted` (better-auth runs discovery when the instance is built) and use it from `// @vitest-environment node` suites. `auth.test.ts`, `auth.ip-address.test.ts` and `auth.user-id-cache.test.ts` run on it, on the verified (`requireIdTokenVerification: true`) path.
+Shared helper (not a test file): `src/test-utils/mock-oidc.ts` — a mock MP OIDC provider (discovery, JWKS, token, userinfo; RS256 id_tokens) behind a stub `fetch` that **throws on any URL it does not serve**, so no auth test can reach a real Ministry Platform. Install it inside `vi.hoisted` (better-auth runs discovery when the instance is built) and use it from `// @vitest-environment node` suites. The `src/auth.*.test.ts` suites that import it run on it (`auth.test.ts`, `auth.code-flow.test.ts`, `auth.ip-address.test.ts`, `auth.origin-check.test.ts`, `auth.rate-limit.test.ts`, `auth.session-config.test.ts`, `auth.user-id-cache.test.ts`), on the verified (`requireIdTokenVerification: true`) path.
 
 ## Ministry Platform Safety in Tests
 

@@ -118,7 +118,7 @@ an MP error page, or is auto-logged back in on the next sign-in (SSO behavior).
 ## Environment Variables
 
 ```env
-MINISTRY_PLATFORM_BASE_URL=https://your-mp-instance.com/ministryplatformapi
+MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 BETTER_AUTH_URL=https://yourdomain.com  # Production
 BETTER_AUTH_URL=http://localhost:3000   # Development
 ```

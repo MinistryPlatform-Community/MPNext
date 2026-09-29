@@ -94,7 +94,9 @@ clears that browser's cookies, nothing more.
 > `/get-session` reads, so a copied pair lived to the 12 h cap, and no logout
 > URL had an `id_token_hint`. `sharedInstance` now caches the instance on
 > `globalThis`, so every layer shares one store. The 1 h figure below assumes
-> that; `src/auth.shared-instance.test.ts` pins it across two module copies. The settings in `src/lib/auth.ts`
+> that; `src/auth.shared-instance.test.ts` pins it across two module copies.
+
+The settings in `src/lib/auth.ts`
 (documented on `SESSION_EXPIRES_IN_SECONDS`) instead put hard ceilings on every
 session, pinned by the clock-walk suite `src/auth.session-lifetime.test.ts`
 (better-auth 1.7.4, real `auth` instance, mock OIDC code flow, fake clock):
@@ -738,7 +740,7 @@ exposes.
    /signed-out, which starts no OAuth)
 ```
 
-`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the process that handled sign-in (there is no account cookie — see Account cookie above; all bundle layers share one `auth`, see Session lifetime), so on another serverless instance only `client_id` is sent. **Tested against MP 2026-09-29 (Playwright):** with `id_token_hint`, MP logs out with no prompt and redirects back; with `client_id` alone, MP shows "Would you like to logout?" with a **Yes** button, and redirects only after Yes. `handleSignOut()` throws, after clearing the local session, if `OIDC_CLIENT_ID` is unset, or if `MINISTRY_PLATFORM_BASE_URL` or `BETTER_AUTH_URL`/`NEXTAUTH_URL` is unset or fails the `src/lib/env.ts` checks (non-https, malformed, credentials or query in the URL) — there is no localhost fallback. The `post_logout_redirect_uri` is the origin of `BETTER_AUTH_URL` (`getAuthBaseUrl()`: a path is refused, a single trailing `/` is dropped) and must be registered in the MP OAuth client configuration exactly as that origin.
+`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the process that handled sign-in (there is no account cookie — see [Session Strategy](#session-strategy); all bundle layers share one `auth`, see Session lifetime), so on another serverless instance only `client_id` is sent. **Tested against MP 2026-09-29 (Playwright):** with `id_token_hint`, MP logs out with no prompt and redirects back; with `client_id` alone, MP shows "Would you like to logout?" with a **Yes** button, and redirects only after Yes. `handleSignOut()` throws, after clearing the local session, if `OIDC_CLIENT_ID` is unset, or if `MINISTRY_PLATFORM_BASE_URL` or `BETTER_AUTH_URL`/`NEXTAUTH_URL` is unset or fails the `src/lib/env.ts` checks (non-https, malformed, credentials or query in the URL) — there is no localhost fallback. The `post_logout_redirect_uri` is the origin of `BETTER_AUTH_URL` (`getAuthBaseUrl()`: a path is refused, a single trailing `/` is dropped) and must be registered in the MP OAuth client configuration exactly as that origin.
 
 Sign-out is entirely server-side (`auth.api.signOut()`, called in-process from
 the server action) — the browser never calls a `/sign-out` HTTP endpoint, which
@@ -1209,7 +1211,7 @@ server-side; defence in depth).
 | **F10** (Low) — `ContactService.updateContact` wrote with no authorization | 2026-09-12 | Calls `requireSecurityRole({ table: "Contacts", operation: "update" })` and uses its `User_ID` for `$userId` |
 | **F11** (Low) — `getMpTimezone` had no check at all | 2026-09-12 | Authenticated-session check (its only consumer is the role-gated contact page) |
 | **F5** (Medium) — member PII and pastoral notes written to server logs at info level | 2026-09-12 | Removed all `console.log`/`.debug`/`.info` from non-script `src/`; error logs now carry identifiers/shape only (no request bodies, result sets, `Notes`, or `$filter`/full URLs); see § Logging policy above |
-| **F4** (Medium) — contact-log writes accepted `Made_By`/`Contact_ID` from the caller | 2026-09-12 | `ContactLogService` stamps `Made_By` from the gate and strips both keys via the schema `.omit()`; `Contact_ID` is never sent on update; see § Attribution is server-authoritative above |
+| **F4** (Medium) — contact-log writes accepted `Made_By`/`Contact_ID` from the caller | 2026-09-12 | `ContactLogService` stamps `Made_By` from the gate and strips both keys at runtime with allowlist `.pick()` schemas; `Contact_ID` is never sent on update, and since 2026-09-29 (`dc4a25b`) neither is `Made_By`, so an edit keeps the original author; see § Attribution is server-authoritative above |
 | **F2** (High) — a shared MP email could merge two people onto one better-auth user | 2026-09-12 | `accountLinking.enabled: false`, a synthetic `email` derived from `sub`, the real address moved to `mpEmail`, and `emailVerified` from the provider's own claim; see § Email is never a key and § Account linking |
 | **F7** (Low) — OAuth failures landed on better-auth's built-in error page | 2026-09-12 | `onAPIError.errorURL: "/auth-error"` plus the route allowlist, which no longer exposes `GET /error`; see § OAuth Flow |
 | **id_token substitution** (Low) — `POST /sign-in/social` with an attacker's id_token and a victim's access token minted the victim's session | 2026-09-28 | `refuseIdTokenSignIn` (`hooks.before`), the `getUserInfo` sub binding, and the route's `/sign-in/social` body filter; see § id_token sign-in is disabled |
@@ -1289,7 +1291,7 @@ failure modes are auth's too:
 ## Better Auth Upgrade Checklist
 
 `npm audit fix` or a manual `npm update` can bump `better-auth` across **minor**
-versions (e.g. 1.4 → 1.6). (`npm run setup` no longer can: it installs with `npm ci`
+versions (e.g. 1.7 → 1.8). (`npm run setup` no longer can: it installs with `npm ci`
 from the lockfile and never runs `npm update`.) CI runs lint + `tsc --noEmit`, the
 unit tests (both Vitest projects), `next build` + the prerender check, and the
 lockfile check. The auth suites drive the real `auth` instance against a mock OIDC
@@ -1305,8 +1307,8 @@ the `better-auth` version, do this before merging:
    `/api/auth/oauth2/callback/:id` → `/api/auth/callback/:id`). A moved callback
    needs the new redirect URI registered on the MP OAuth client in **every**
    environment before deploy — nothing in CI catches this.
-3. **Run the auth tests**: `npm run test:run src/auth.test.ts`. Four tests are
-   real library guards, not simulations:
+3. **Run the auth tests**: `npm run test:run -- src/auth`. These are real
+   library guards, not simulations:
    - `better-auth 1.6 guard` — `userGuid` still survives provider-profile parsing.
    - `better-auth 1.7 guard` (getUserInfo) — the profile still carries `sub`, which
      the OIDC `accountSubject` resolver reads.
@@ -1371,12 +1373,10 @@ the `better-auth` version, do this before merging:
 ## Known Limitations
 
 1. **No database (top refactor priority)**: With no `database` in the config, Better Auth uses an in-memory adapter. Sessions live only in the in-memory store + cookies, so a process restart ends each session once its 1-hour cookie cache expires. On serverless/Vercel this is severe: **every cold start or new function instance has an empty session store**, so once the 1-hour JWE cookie cache expires, a request that lands on a fresh instance returns `null` and the user is sent back through sign-in (usually silent while the MP session is alive). This also makes auth bugs hard to reproduce. The adapter also **grows without bound** (every sign-in adds user/account/session rows; nothing prunes them, bounded only by the sign-in rate limit) and has **no unique constraint**, so concurrent first sign-ins can create duplicate user rows (harmless today — nothing keys on them). **Recommendation:** configure a persistent database adapter or `secondaryStorage` (e.g. a Vercel Marketplace Postgres/Neon, or SQLite for local dev) before relying on this in production.
-2. ~~**mapProfileToUser type narrowness**~~ *(resolved in better-auth 1.7)*: `mapProfileToUser` now returns `OAuthMappedUser`, which permits arbitrary extra keys, so the old `as Record<string, unknown>` cast is gone. The type does forbid returning `id` — provider identity is owned by `accountSubject`.
-3. **userGuid type cast**: `session.user.userGuid` requires a type cast because `customSessionClient` doesn't infer `additionalFields` from `genericOAuth`. This is a Better Auth type limitation.
-4. **Token refresh**: None, by design. `offline_access` is not requested and the user's access/refresh tokens are not retained (see Account cookie above); the app never calls MP with the user's token.
-5. ~~**Cookie cache staleness**~~ *(not a limitation)*: `customSession` output is never stored in the cookie — it runs on every `/get-session` — so a change to it takes effect on the next request. Only better-auth's own user/session fields (name, `userGuid`, `mpEmail`, `expiresAt`, …) are cached, for up to 1 h.
-6. **No server-side revocation, no MP re-validation of a live session** *(accepted 2026-09-29)*: sign-out cannot revoke a copied cookie pair, and nothing re-checks the `dp_Users` login while a session is live (only `dp_User_Roles` is re-read per request, and `userIdCache` re-resolves `User_ID` every 15 min without ending the session). Bounded by the 12 h / 1 h ceilings in [Session lifetime and revocation](#session-lifetime-and-revocation-stateless); closed properly only by a server-side store (§ 1).
-7. **Cookie hardening residue (accepted, theoretical):**
+2. **userGuid type cast**: `session.user.userGuid` requires a type cast because `customSessionClient` doesn't infer `additionalFields` from `genericOAuth`. This is a Better Auth type limitation.
+3. **Token refresh**: None, by design. `offline_access` is not requested and the user's access/refresh tokens are not retained (see [Session Strategy](#session-strategy)); the app never calls MP with the user's token.
+4. **No server-side revocation, no MP re-validation of a live session** *(accepted 2026-09-29)*: sign-out cannot revoke a copied cookie pair, and nothing re-checks the `dp_Users` login while a session is live (only `dp_User_Roles` is re-read per request, and `userIdCache` re-resolves `User_ID` every 15 min without ending the session). Bounded by the 12 h / 1 h ceilings in [Session lifetime and revocation](#session-lifetime-and-revocation-stateless); closed properly only by a server-side store (§ 1).
+5. **Cookie hardening residue (accepted, theoretical):**
    - **No `__Host-` prefix.** better-auth uses `__Secure-` and has no `__Host-` option. better-call keeps the first of duplicate cookies and browsers send longer-`Path` cookies first, so a *sibling subdomain* could plant state/session cookies (login CSRF). Relevant only on a custom domain with untrusted sibling subdomains (`*.vercel.app` and `*.azurewebsites.net` are on the Public Suffix List). Host the app on a dedicated subdomain.
    - **OAuth state is not one-time** in cookie mode (10-minute replay window) — see [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off).
    - **A null `/get-session` does not clear stale cookies.** customSession returns `ctx.json(null)` and drops better-auth's cookie deletions (`plugins/custom-session/index.mjs`). Not exploitable — `AuthWrapper` still redirects — and the route now adds `Cache-Control: no-store` to every `/api/auth` response, the null one included.

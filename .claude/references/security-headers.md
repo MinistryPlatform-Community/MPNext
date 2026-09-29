@@ -132,6 +132,13 @@ header that the proxy sets on `NextResponse.next({ request: { headers } })`. A
 page prerendered at build time has no request, so no nonce, so under
 enforcement its bootstrap script is blocked and the page never hydrates.
 
+The proxy also sets the raw nonce as an `x-nonce` request header (the
+convention from Next's CSP guide). Nothing in `src/` reads it today — Next takes
+the nonce from the CSP header, not from `x-nonce` — so it is only there for a
+server component that needs to nonce its own `<script>` (read it with
+`(await headers()).get('x-nonce')`). It is a request header only; it never
+appears on the response.
+
 Two consequences:
 
 1. **Route segment config is ignored in a `"use client"` module.** This is why
@@ -142,7 +149,9 @@ Two consequences:
    page.test.tsx` pins both facts.
 2. **Check the build output after adding a route.** Anything printed with `○`
    is prerendered and will not hydrate under an enforced CSP. Every app route
-   is `ƒ` (including `/signed-out`, which is `force-dynamic`) except Next's
+   is `ƒ` (`/signin`, `/session-error` and `/signed-out` each export
+   `dynamic = "force-dynamic"`; the rest are dynamic because they await
+   `searchParams` or, under `(web)`, `headers()` via `AuthWrapper`) except Next's
    two built-ins, which are always `○` and cannot opt out: `/_not-found`
    (renders its HTML but will not hydrate under enforcement; no interactivity
    to lose, so accepted) and `/_global-error`, the 500 page wrapping

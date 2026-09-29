@@ -1,6 +1,6 @@
 # Downstream Hardening Playbook
 
-**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12), follow-up `65a3225..cf5a824` (2026-09-25), auth review follow-up 2026-09-28/29 (see [2026-09-29 follow-up](#2026-09-29-follow-up))
+**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12), follow-up `65a3225..cf5a824` (committed 2026-09-28; reported 2026-09-25), auth review follow-up 2026-09-28/29 (see [2026-09-29 follow-up](#2026-09-29-follow-up))
 **Audience:** maintainers of repos that were forked or copied from MPNext
 **Status of the source repo after this work:** all findings below closed; F8 (no PKCE / nonce) is an accepted risk
 

@@ -101,7 +101,7 @@ grep -rn "console\.log\|console\.debug\|console\.info" src/ --include="*.ts" --i
 grep -rn "callbackUrl" src/ | grep -i "location.href\|sanitize"
 # F3b: the 2026-09-12 sanitizer only checked a leading `//` and `/\` — tab/CR/LF bypass it
 grep -rqF 'startsWith("/\\")' src/ && echo "✗ F3b (weak leading-/\\ check)" || echo "✓ no weak check"
-grep -rqF '\u001f' src/components/sign-in/ && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
+grep -rqF '\u001f' src/components/sign-in/ src/app/signin/ 2>/dev/null && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
 
 # F12: is ID-token sign-in refused? (live whenever discoveryUrl is set on better-auth >= 1.7)
 grep -q "discoveryUrl" src/lib/auth.ts && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \

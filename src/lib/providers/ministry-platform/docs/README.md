@@ -37,6 +37,7 @@ ministry-platform/
 │   ├── metadata.service.ts
 │   ├── domain.service.ts
 │   ├── file.service.ts
+│   ├── guards.ts               # sanitizeIdentifier, errorName (path-segment + log guards)
 │   └── index.ts                # Barrel export
 ├── models/                     # Generated types + Zod schemas (one pair per MP table)
 │   ├── Contacts.ts
@@ -92,7 +93,7 @@ await mp.createTableRecords('Contact_Log', [{
 ## Environment Variables
 
 ```env
-MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com
+MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 MINISTRY_PLATFORM_CLIENT_ID=your_client_id
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 ```
@@ -185,10 +186,11 @@ happens before any token or network work. Out of the box `ALLOWED_PROCEDURES` is
 every execute call fails with `Procedure is not on the allowlist`. `getProcedures` is
 metadata only and is not gated.
 
-To enable a procedure, give the `MPHelper` that calls it a fixed list:
+To enable a procedure, give the `MPHelper` that calls it a fixed list. (Hypothetical
+example — there is no `StatsService` or `api_MyChurch_Get_Stats` in this repo.)
 
 ```typescript
-// src/services/statsService.ts: the allowlist sits next to its only caller
+// Hypothetical src/services/statsService.ts: the allowlist sits next to its only caller
 const STATS_PROCEDURES = ['api_MyChurch_Get_Stats'] as const;
 
 export class StatsService {
@@ -385,7 +387,7 @@ npm run mp:generate:models
 npm run mp:generate:storedprocs
 
 # Or use directly with options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
 
 See [scripts/README.md](../scripts/README.md) for full documentation.

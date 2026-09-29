@@ -157,6 +157,12 @@ the smallest case that exercises both `_TABLE` rules at once. The option keys ar
 Two parallel queries on `MPHelper.getTableRecords` covering (a) primary contact of the group, and (b) leader-role participation:
 
 ```typescript
+import { sanitizeNumericId } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
+
+// Validate once; throws "Invalid Contact ID" unless it is a positive safe integer
+// (a number, or a digits-only string)
+const id = sanitizeNumericId(contactId, "Contact ID");
+
 // Query A: groups where the user is Primary_Contact
 {
   table: "Groups",
@@ -173,7 +179,7 @@ Two parallel queries on `MPHelper.getTableRecords` covering (a) primary contact 
     "Groups.End_Date",
   ].join(", "),
   filter:
-    `Groups.Primary_Contact = ${contactId} ` +
+    `Groups.Primary_Contact = ${id} ` +
     `AND (Groups.End_Date IS NULL OR Groups.End_Date > GETDATE())`,
   orderBy: "Groups.Group_Name",
 }
@@ -194,7 +200,7 @@ Two parallel queries on `MPHelper.getTableRecords` covering (a) primary contact 
     "Group_ID_TABLE.End_Date AS End_Date",
   ].join(", "),
   filter:
-    `Participant_ID_TABLE.Contact_ID = ${contactId} ` +
+    `Participant_ID_TABLE.Contact_ID = ${id} ` +
     `AND Group_Role_ID_TABLE.Group_Role_Type_ID = 1 ` +
     `AND (Group_Participants.End_Date IS NULL OR Group_Participants.End_Date > GETDATE()) ` +
     `AND (Group_ID_TABLE.End_Date IS NULL OR Group_ID_TABLE.End_Date > GETDATE())`,
@@ -270,7 +276,7 @@ caller without a permitted role gets one answer ("not authorized") and learns no
 arguments the endpoint would have accepted.
 
 The **path** is guarded too, independently of the filter. Table and procedure names must be plain
-identifiers (`sanitizeIdentifier` in `services/guards.ts`: `^[A-Za-z_][A-Za-z0-9_]*$`, ≤ 128 chars;
+identifiers (`sanitizeIdentifier` in `src/lib/providers/ministry-platform/services/guards.ts`: `^[A-Za-z_][A-Za-z0-9_]*$`, ≤ 128 chars;
 throws `Invalid <field>`), so `GET /tables/{table}` cannot be pointed at another endpoint. Below that,
 `HttpClient` refuses any endpoint that does not start with `/` or that contains `..`, `?`, `#`, `\`,
 `%2e`/`%2f`/`%5c` (any case) or a control character, and re-checks that the resolved URL stays under

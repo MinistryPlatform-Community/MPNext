@@ -186,7 +186,7 @@ The shared signature of these bugs: a `Date` object that crosses a zone boundary
 
 ## Windows ↔ IANA zone names
 
-MP's `/domain` endpoint returns `TimeZoneName` as a **Windows** zone (e.g. `"Eastern Standard Time"`). `Intl.DateTimeFormat` requires **IANA** (e.g. `"America/New_York"`). `resolveIanaTimezone` maps between them via the `WINDOWS_TO_IANA` table in `domainTimezoneService.ts` — 137 entries, the standard Windows zone list. If a new MP deployment surfaces an unmapped zone it throws ``Unknown time zone "<name>" — add it to the Windows→IANA mapping in domainTimezoneService.ts``; extend the table rather than silently falling back to the server's local zone.
+MP's `/domain` endpoint returns `TimeZoneName` as a **Windows** zone (e.g. `"Eastern Standard Time"`). `Intl.DateTimeFormat` requires **IANA** (e.g. `"America/New_York"`). `resolveIanaTimezone` maps between them via the `WINDOWS_TO_IANA` table in `domainTimezoneService.ts`, which covers the standard Windows zone list. If a new MP deployment surfaces an unmapped zone it throws ``Unknown time zone "<name>" — add it to the Windows→IANA mapping in domainTimezoneService.ts``; extend the table rather than silently falling back to the server's local zone.
 
 Resolution order, before the table is consulted:
 

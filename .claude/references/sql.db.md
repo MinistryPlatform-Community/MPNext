@@ -13,6 +13,10 @@ field in the MP UI. The generated TypeScript models in
 `src/lib/providers/ministry-platform/models/` do **not** carry these descriptions, so this is purely a
 DBA-side affordance for MP users.
 
+> **Confirm first.** Adding or updating an extended property is a write to the MP database. Per
+> `CLAUDE.md` § Ministry Platform Data Safety, show the user exactly what will change (table, column,
+> old → new description) and get an explicit yes before running either procedure.
+
 ```sql
 EXEC sys.sp_addextendedproperty
   @name = N'MS_Description',

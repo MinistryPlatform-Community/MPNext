@@ -1,5 +1,13 @@
 # Playbook: Port Ministry Platform Write Attribution Into This Repo
 
+> **Superseded in part — read this first.**
+>
+> - **Anonymous writes are now refused upstream.** MPNext resolves the acting `User_ID` inside `AuthorizationService.requireSecurityRole` (`src/services/authorizationService.ts`, `hasSecurityRole`): writes go through `SessionContextService.getActingUserIdForWrite`, which still logs `mp.write.non_user`, but a `null` result is then refused as `no_mp_user`. The gate returns the `User_ID`, and services pass that as `$userId`. `CLAUDE.md` (Key Development Practice 10) requires this role gate on every service method that touches MP data. Outcome 4 below ("anonymous / unresolved writes do not throw") no longer describes upstream.
+> - **If this fork has ported the security playbooks** ([`port-downstream-hardening.md`](port-downstream-hardening.md), [`port-security-review-2026-09-28.md`](port-security-review-2026-09-28.md)) or the [Downstream Hardening Playbook](../../docs/security/downstream-hardening-playbook.md), follow those where they disagree with this one. The session-side resolver and `SessionContextService` below are still the basis they build on.
+> - **`.claude/references/ministryplatform.writeattribution.md` does not exist upstream.** The steps below that create and cite it are optional and fork-local; upstream documents attribution in `CLAUDE.md` and `.claude/references/auth.md`.
+>
+> The body below is kept as written for forks porting the original change.
+
 You are Claude Code running in a repo that integrates with **Ministry Platform** (MP). Another team has closed a class of audit-trail gaps where MP write APIs were called without `$userId`, so every change recorded against MP's audit log was attributed to the OAuth integration account rather than the user who performed it. This playbook ports that fix into the repo you're in.
 
 **Outcome you're driving toward**

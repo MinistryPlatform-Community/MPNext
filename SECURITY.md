@@ -18,8 +18,9 @@ and the [Downstream Hardening Playbook](docs/security/downstream-hardening-playb
 security problem.**
 
 Report privately through **GitHub private vulnerability reporting**: the
-repository's **Security** tab → **Report a vulnerability**. This is the only
-reporting channel.
+repository's **Security** tab → **Report a vulnerability**, or directly at
+<https://github.com/MinistryPlatform-Community/MPNext/security/advisories/new>.
+This is the only reporting channel.
 
 It helps to include:
 

@@ -57,7 +57,7 @@ Also: do not run `npm ci` while `next dev` is running — it deletes `node_modul
 - Generated types automatically quote field names with special characters (e.g., `"Allow_Check-in"`)
 - The `mp:generate:models` script uses `--clean` flag to remove old files before regenerating
 - The `mp:generate*` scripts run `tsx --conditions=react-server`: the generators import `MPHelper`, whose client is guarded by `server-only`. Plain `tsx` fails with "This module cannot be imported from a Client Component module"
-- Manual generation with options: `tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help`
+- Manual generation with options: `npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help`
 
 ## Architecture
 
@@ -72,11 +72,11 @@ Also: do not run `npm ci` while `next dev` is running — it deletes `node_modul
 - **Services Layer**: Singleton service classes in `src/services/` wrap MPHelper for domain logic
   - Domain: `ContactService`, `ContactLogService`, `UserService`
   - Cross-cutting: `AuthorizationService` (MP security-role gate, exports `UnauthorizedError`), `SessionContextService` (resolves the acting MP `User_ID` for audit attribution), `DomainTimezoneService` (all datetime conversion at the MP boundary)
-- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`. The MP profile (the six-field `CurrentUserProfile` DTO) is started server-side by `src/app/server-providers.tsx` (below `AuthWrapper`) and streamed in as a promise; a failed load resolves to `null` (logged as `user.profile.load_failed`), not a throw; `useUser()` suspends on it, so keep each `<Suspense>` around it tight and same-size (the header wraps only its avatar) or the page shifts; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`
+- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`. The MP profile (the six-field `CurrentUserProfile` DTO) is started server-side by `src/app/server-providers.tsx` (below `AuthWrapper`) and streamed in as a promise; a failed load resolves to `null` (logged as `user.profile.load_failed`), not a throw; `useUser()` suspends on it, so keep each `<Suspense>` around it tight and same-size (the header wraps only its avatar) or the page shifts; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`; `sign-out-broadcast.ts` posts a data-less cross-tab `BroadcastChannel` hint on sign-out so other open tabs re-check their session and leave for `/signed-out` (a no-op where `BroadcastChannel` is missing)
 - **Error Boundaries**: `src/app/global-error.tsx` (root, replaces the whole document), `src/app/error.tsx` (root segment), and `src/app/(web)/error.tsx` (protected shell, keeps header/sidebar alive) — so one throw no longer takes the whole page
 - **Security Headers**: `src/lib/security-headers.ts` builds the policy; `src/proxy.ts` applies it with a fresh per-request nonce. See **[Security Headers](.claude/references/security-headers.md)**.
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
-- **Validation**: Zod v4 (`zod@^4.3`) — note: different API from Zod v3 (e.g., `z.object()` vs `z.interface()`)
+- **Validation**: Zod v4 (`zod@^4.3`) — note: different API from Zod v3 (e.g., string formats are top-level — `z.email()`, `z.uuid()`; a single `error` param replaces `message`/`errorMap`; `z.strictObject()`/`z.looseObject()` replace `.strict()`/`.passthrough()`)
 - **Path Alias**: `@/*` maps to `src/*`
 - **Server-only modules**: `src/lib/auth.ts`, the MP client (`client.ts`, `auth/client-credentials.ts`, `utils/http-client.ts`) and every service in `src/services/` start with `import "server-only"`, so importing one from a client component fails `next build`. New modules that hold secrets or call MP must do the same (tests resolve it through an alias in `vitest.config.mts`)
 
@@ -211,33 +211,41 @@ When working with Ministry Platform data:
 ```typescript
 import { MPHelper } from '@/lib/providers/ministry-platform';
 import { ContactLogSchema } from '@/lib/providers/ministry-platform/models';
+import { AuthorizationService } from '@/services/authorizationService';
 
 const mp = new MPHelper();
+
+// `$userId` is the acting MP User_ID, used for dp_Audit_Log attribution (NOT a
+// Contact_ID). Take it from the role gate: requireSecurityRole returns it, and
+// throws UnauthorizedError when the user may not perform the operation.
+const $userId = await AuthorizationService.getInstance().requireSecurityRole({
+  table: 'Contact_Log',
+  operation: 'create', // 'read' | 'create' | 'update' | 'delete'
+});
 
 // ✅ Good: Validate data before creating records
 await mp.createTableRecords('Contact_Log', records, {
   schema: ContactLogSchema,
-  $userId: currentUser.Contact_ID
+  $userId,
 });
 
 // ✅ Good: Partial validation for updates (default)
+// (gate with operation: 'update' to get $userId for an update)
 await mp.updateTableRecords('Contact_Log', partialRecords, {
   schema: ContactLogSchema,
   partial: true, // default, allows partial updates
-  $userId: currentUser.Contact_ID
+  $userId,
 });
 
 // ✅ Good: Strict validation for full record updates
 await mp.updateTableRecords('Contact_Log', fullRecords, {
   schema: ContactLogSchema,
   partial: false, // require all fields
-  $userId: currentUser.Contact_ID
+  $userId,
 });
 
 // ⚠️ Acceptable: Skip validation (backward compatible)
-await mp.createTableRecords('Contact_Log', records, {
-  $userId: currentUser.Contact_ID
-});
+await mp.createTableRecords('Contact_Log', records, { $userId });
 ```
 
 ## Testing
@@ -249,8 +257,8 @@ await mp.createTableRecords('Contact_Log', records, {
 - **MPHelper mock**: Use mock class (`MPHelper: class { method = mockFn; }`), not `vi.fn().mockImplementation()`
 - **Singleton reset**: Reset `(ServiceClass as any).instance = undefined` in `beforeEach` to prevent state leakage
 - **Server action tests**: Mock `@/services/authorizationService` (`requireSecurityRole`/`hasSecurityRole`) and the service singletons. Only session-only subjects — `auth-wrapper`, `shared-actions/user`, `shared-actions/domain`, `user-menu/actions`, `sessionContextService`, `userService` — still mock `@/lib/auth` + `next/headers`.
-- **Coverage is gated, not advisory**: `vitest.config.mts` sets per-glob thresholds (`src/app/**`, `src/components/**/*.tsx`, `src/services/**`, `src/lib/**/*.ts`, `src/contexts/**`, and `src/proxy.ts` at 100%) plus a global backstop (98% statements / 95% branches / 97% functions / 98% lines). The global gate is what catches a newly added, entirely untested file. `src/components/ui/` and the generated `models/` are excluded from the denominator.
-- **CI**: `.github/workflows/test.yml` has four jobs on Node 22: `test` (`npx vitest run --coverage` — both Vitest projects — then Codecov upload), `lint` (`npm run lint` + `npx tsc --noEmit`), `build` (`npm run build` + `npm run build:check-prerender`) and `lockfile`
+- **Coverage is gated, not advisory**: `vitest.config.mts` sets per-glob thresholds — `src/app/**`, `src/components/**/*.tsx`, `src/components/**/actions.ts`, `src/services/**`, `src/lib/**/*.ts` and `src/contexts/**` at 95% statements/lines with 85–90% branches and 90–95% functions; only `src/proxy.ts` is gated at 100% — plus a global backstop (98% statements / 95% branches / 97% functions / 98% lines). The global gate is what catches a newly added, entirely untested file. `src/components/ui/` and the generated `models/` are excluded from the denominator.
+- **CI**: `.github/workflows/test.yml` has four jobs on Node 22: `test` (`npx vitest run --coverage` — both Vitest projects — then Codecov upload), `lint` (`npm run lint` + `npx tsc --noEmit`), `build` (`npm run build` + `npm run build:check-prerender`) and `lockfile`. A second workflow, `.github/workflows/discord-release-notification.yml`, posts a Discord embed via the `DISCORD_WEBHOOK_URL` secret when a GitHub release is published (or on manual dispatch); it runs no tests
 - See **[Testing Reference](.claude/references/testing.md)** for all mock patterns, coverage data, and test inventory
 
 ## Reference Documents
@@ -271,6 +279,11 @@ For detailed context on specific areas, see:
 - **[Security Policy](SECURITY.md)** - Supported versions and how to report a vulnerability privately
 - **[OAuth Logout Setup](docs/OAUTH_LOGOUT_SETUP.md)** - OIDC RP-initiated logout configuration and post-logout redirect URIs
 - **[SQL Snippets](.claude/references/sql.db.md)** - Recipes for work done directly against the MP SQL database, outside the API safety rails
+- **[Auth Review Record](docs/security/2026-09-28-auth-review.md)** - The 2026-09-28 authentication/authorization review: findings, fixes, and what was left as-is
+- **[Additional Security Hardening](docs/security/Additional_Security_Hardening.md)** - Open and accepted hardening decisions, with the reasoning for each
+- **[Downstream Hardening Playbook](docs/security/downstream-hardening-playbook.md)** - What forks and copies of MPNext must merge from the 2026-09-12, 09-25 and 09-28 security work, since no alert will reach them
+- **[Porting Playbooks](.claude/playbooks/)** - Step-by-step playbooks for porting upstream changes into downstream forks
+- **[Ministry Platform Provider Docs](src/lib/providers/ministry-platform/docs/README.md)** - The MP provider: client, services, `MPHelper` API
 
 <!-- BEGIN:nextjs-agent-rules -->
 

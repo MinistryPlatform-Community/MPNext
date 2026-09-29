@@ -57,7 +57,8 @@ export default defineConfig({
 
         // Thin shadcn/Radix wrappers — excluded from the denominator entirely.
         // Testing them asserts that Radix works. Feature components (*.tsx) are
-        // NOT excluded: they stay visible in the report, just ungated.
+        // NOT excluded: they stay in the report and are gated by the
+        // 'src/components/**/*.tsx' threshold below.
         'src/components/ui/',
       ],
 
@@ -117,9 +118,9 @@ export default defineConfig({
           lines: 100,
         },
 
-        // Global gate across everything in `include`. Achieved 2026-09-13:
-        // 99.74% stmts / 97.21% branch / 99.31% funcs / 99.91% lines. This is
-        // the backstop that catches a newly added, entirely untested file —
+        // Global gate across everything in `include`, set just under the
+        // achieved figures (run `npm run test:coverage` for current ones). This
+        // is the backstop that catches a newly added, entirely untested file —
         // the per-glob gates above cannot, since a new file lands inside a glob
         // and is diluted by everything already covered there.
         statements: 98,
