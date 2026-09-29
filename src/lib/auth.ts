@@ -3,6 +3,7 @@ import { genericOAuth } from "better-auth/plugins";
 import { customSession } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { APIError, createAuthMiddleware } from "better-auth/api";
+import { isIP } from "node:net";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
 
@@ -381,6 +382,64 @@ if (!process.env.VITEST) {
 }
 
 /**
+ * Client-IP resolution for better-auth's rate limiter (`/sign-in*` is 3
+ * requests per 10 s per IP in production). By default better-auth trusts only
+ * a single, valid IP in `x-forwarded-for`; anything else — no header, an
+ * appended chain, Azure's `ip:port` — drops every client into ONE shared
+ * bucket (`no-trusted-ip|<path>`), so ~1 request every 3 s blocks sign-in for
+ * everyone. Which header is trustworthy depends on the host, so it is
+ * configuration, not code:
+ *
+ * - `AUTH_IP_ADDRESS_HEADERS` — comma-separated header names, tried in order
+ *   (e.g. `cf-connecting-ip` behind Cloudflare). Only name a header your edge
+ *   always OVERWRITES; a header clients can set themselves lets them rotate
+ *   past the limit or lock a victim's IP out.
+ * - `AUTH_TRUSTED_PROXIES` — comma-separated proxy IPs/CIDRs. The forwarded
+ *   chain is walked right to left past these, and the first untrusted hop is
+ *   the client (for proxies that append to `x-forwarded-for`).
+ *
+ * Invalid entries refuse startup: better-auth itself only warns and ignores a
+ * bad trusted-proxy entry, which would silently fall back to the shared
+ * bucket. Per-host guidance is in `.env.example` and `.claude/references/auth.md`.
+ */
+export function parseIpAddressOptions(
+  env: Readonly<Record<string, string | undefined>>,
+): { ipAddressHeaders?: string[]; trustedProxies?: string[] } {
+  const list = (value: string | undefined) =>
+    (value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean);
+
+  const ipAddressHeaders = list(env.AUTH_IP_ADDRESS_HEADERS).map((h) => h.toLowerCase());
+  const badHeaders = ipAddressHeaders.filter((h) => !/^[a-z0-9-]+$/.test(h));
+  if (badHeaders.length > 0) {
+    throw new Error(
+      `[auth] AUTH_IP_ADDRESS_HEADERS has invalid header names: ${badHeaders.join(", ")}. Use comma-separated names like "cf-connecting-ip".`,
+    );
+  }
+
+  const trustedProxies = list(env.AUTH_TRUSTED_PROXIES);
+  const badProxies = trustedProxies.filter((entry) => !isIpOrCidr(entry));
+  if (badProxies.length > 0) {
+    throw new Error(
+      `[auth] AUTH_TRUSTED_PROXIES has entries that are not an IP address or CIDR range: ${badProxies.join(", ")}.`,
+    );
+  }
+
+  return {
+    ...(ipAddressHeaders.length > 0 && { ipAddressHeaders }),
+    ...(trustedProxies.length > 0 && { trustedProxies }),
+  };
+}
+
+function isIpOrCidr(entry: string): boolean {
+  const slash = entry.indexOf("/");
+  const family = isIP(slash === -1 ? entry : entry.slice(0, slash));
+  if (family === 0) return false;
+  if (slash === -1) return true;
+  const prefix = entry.slice(slash + 1);
+  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128);
+}
+
+/**
  * Session lifetime. The app is stateless (no database, no `secondaryStorage`):
  * the signed `session_token` + `session_data` cookies are the session, backed
  * only by better-auth's per-process in-memory adapter. That rules out real
@@ -434,6 +493,8 @@ const options = {
   // (context/create-context.mjs). See `assertAuthEnvironment` above.
   advanced: {
     disableOriginCheck: false,
+    // See `parseIpAddressOptions` above.
+    ipAddress: parseIpAddressOptions(process.env),
   },
   disabledPaths: disabledAuthPaths,
   // User-level hooks. The customSession and nextCookies plugins register their

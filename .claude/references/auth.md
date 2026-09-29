@@ -158,6 +158,35 @@ The same secret is the raw HMAC key for `session_token` and the HS256 key for
 versioned `secrets` would allow graceful rotation but is deliberately not
 enabled (see the `BETTER_AUTH_SECRETS` refusal above).
 
+### Rate limiting and client IP
+
+better-auth rate-limits only in production, in memory, per instance; `/sign-in*`
+is 3 requests per 10 s per client IP, and in-process `auth.api` calls are never
+limited. By default it trusts only a single, valid IP in `x-forwarded-for`. No
+header, an appended chain (`client, proxy`) or Azure's `ip:port` all resolve to
+no IP, and every such client shares one bucket (`no-trusted-ip|<path>`): about
+one request every 3 s then blocks sign-in for everyone. Conversely, on a
+`next start` exposed directly, a client sets `x-forwarded-for` itself and can
+rotate past the limit or lock out a victim's IP.
+
+The trustworthy source is host-specific, so `parseIpAddressOptions` in
+`src/lib/auth.ts` maps two env vars onto `advanced.ipAddress`:
+
+| Host | Setting (verify on your host) |
+|---|---|
+| Vercel | Blank (Vercel overwrites `x-forwarded-for`), or `AUTH_IP_ADDRESS_HEADERS=x-real-ip` |
+| Cloudflare | `AUTH_IP_ADDRESS_HEADERS=cf-connecting-ip` |
+| Azure App Service | `AUTH_IP_ADDRESS_HEADERS=x-client-ip` (`x-forwarded-for` carries `ip:port`) |
+| nginx / proxy that appends to `x-forwarded-for` | `AUTH_TRUSTED_PROXIES=<proxy IPs/CIDRs>` |
+| `next start` exposed directly | No trustworthy header; put a proxy in front |
+
+Only name a header the edge always **overwrites**. Invalid header names or
+proxy entries refuse startup (better-auth itself only warns and ignores a bad
+proxy entry, which would silently fall back to the shared bucket). The
+sign-in UI's handling of a 429 is tracked separately. Pinned by
+`src/auth.ip-address.test.ts`, which includes a real rate-limited instance
+showing one client locking out another when unconfigured.
+
 ### Email is never a key (synthetic `email`, real address in `mpEmail`)
 
 > 🔒 **better-auth's `email` column holds a synthetic per-user value, not the
@@ -1048,6 +1077,8 @@ See the `pkce` row in [genericOAuth Configuration](#genericoauth-configuration).
 | `MINISTRY_PLATFORM_CLIENT_ID` | Yes | Client-credentials service account used for **all** MP data access. Auth depends on it too: `customSession` resolves `User_ID` and `AuthorizationService` reads `dp_User_Roles` through it. May be the same client as `OIDC_CLIENT_ID` |
 | `MINISTRY_PLATFORM_CLIENT_SECRET` | Yes | Secret for the above |
 | `MP_SECURITY_ROLES` | For the contact features | Comma-separated MP role names permitted to use the gated contact features (reads **and** writes), or `*` for any security role. Unset, blank, or naming no roles = **nobody** (fail closed). See [Configuring the gate](#configuring-the-gate). |
+| `AUTH_IP_ADDRESS_HEADERS` | Host-dependent | Comma-separated headers the sign-in rate limiter reads the client IP from, in order. Only a header your edge overwrites. See [Rate limiting and client IP](#rate-limiting-and-client-ip) |
+| `AUTH_TRUSTED_PROXIES` | Host-dependent | Comma-separated proxy IPs/CIDRs skipped (right to left) in an appended `x-forwarded-for` chain. Invalid entries refuse startup |
 | `MP_WRITE_SECURITY_ROLES` | No | **Deprecated** — the write-only predecessor of `MP_SECURITY_ROLES`, read only when that yields no usable policy, and now governing reads too. |
 
 *Fallback variables allow gradual migration from NextAuth.
