@@ -1,7 +1,6 @@
 "use client";
 
 import { ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
-import { unstable_rethrow } from "next/navigation";
 import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 import {
   DropdownMenu,
@@ -11,11 +10,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { handleSignOut } from "./actions";
+import { signOutEverywhere } from "./sign-out-button";
 
 interface UserMenuProps {
   onClose?: () => void;
-  userProfile: MPUserProfile;
+  /**
+   * `null` when the MP profile didn't load (no `dp_Users` match, or MP
+   * unreachable). The menu still renders — with sign-out — so a user whose
+   * profile failed is never left with no way to sign out.
+   */
+  userProfile: MPUserProfile | null;
   children: React.ReactNode;
 }
 
@@ -33,19 +37,11 @@ export function UserMenu({ onClose, userProfile, children }: UserMenuProps) {
       onClose();
     }
     if (action === "signout") {
-      try {
-        await handleSignOut();
-      } catch (err) {
-        // `handleSignOut` ends in `redirect()`, and Next implements that by
-        // throwing a NEXT_REDIRECT control-flow signal. `unstable_rethrow` must
-        // stay the first statement here: it re-throws framework signals so a
-        // successful sign-out still navigates, and lets only genuine failures
-        // fall through to the alert. Remove it and every successful sign-out
-        // pops an error instead of signing the user out.
-        unstable_rethrow(err);
-        const message = err instanceof Error ? err.message : "Sign out failed";
-        alert(`Error: ${message}`);
-      }
+      // `signOutEverywhere` re-throws Next's NEXT_REDIRECT signal (so a
+      // successful sign-out still navigates), tells the other open tabs, and
+      // returns a message only for a genuine failure.
+      const message = await signOutEverywhere();
+      if (message) alert(`Error: ${message}`);
     }
   };
 
@@ -57,13 +53,19 @@ export function UserMenu({ onClose, userProfile, children }: UserMenuProps) {
         align="end"
       >
         <DropdownMenuLabel className="text-white">
-          <div className="flex flex-col space-y-1">
-            <p className="font-medium text-white">
-              {userProfile.Nickname || userProfile.First_Name}{" "}
-              {userProfile.Last_Name}
+          {userProfile ? (
+            <div className="flex flex-col space-y-1">
+              <p className="font-medium text-white">
+                {userProfile.Nickname || userProfile.First_Name}{" "}
+                {userProfile.Last_Name}
+              </p>
+              <p className="text-sm text-gray-300">{userProfile.Email_Address}</p>
+            </div>
+          ) : (
+            <p className="text-sm font-normal text-gray-300">
+              Your Ministry Platform profile couldn&apos;t be loaded.
             </p>
-            <p className="text-sm text-gray-300">{userProfile.Email_Address}</p>
-          </div>
+          )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-gray-500" />
         {userMenuItems.map((item) => (

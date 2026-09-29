@@ -28,8 +28,9 @@ function AppTitle() {
 }
 
 /**
- * The avatar slot before the MP profile is available — while it loads, and for
- * a user MP has no profile for. Same 40px box as the loaded avatar.
+ * The avatar slot while the MP profile loads (the Suspense fallback). Same
+ * 40px box as the loaded avatar. A user MP has no profile for gets the
+ * menu-bearing variant in `HeaderAvatar` instead, so they can still sign out.
  */
 function AvatarPlaceholder() {
   return (
@@ -49,7 +50,18 @@ function HeaderAvatar() {
   const session = useAppSession();
 
   if (!userProfile) {
-    return <AvatarPlaceholder />;
+    // No MP profile (no `dp_Users` match, or the load failed and
+    // `UserProvider` resolved it to null) — but this header only renders
+    // inside the `(web)` shell, behind `AuthWrapper`, so there IS a session.
+    // The menu must still open and offer sign-out: a bare placeholder here
+    // left a shared machine signed in with no visible way out.
+    return (
+      <UserMenu userProfile={null}>
+        <button className={AVATAR_BUTTON_CLASS} aria-label="User menu" title="User menu">
+          <UserCircleIcon className="h-8 w-8 text-white" />
+        </button>
+      </UserMenu>
+    );
   }
 
   return (
