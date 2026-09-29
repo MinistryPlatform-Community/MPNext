@@ -97,3 +97,19 @@ Build not run — wave-2 CI build/prerender check should confirm only /_not-foun
 - Root README.md ~562: createCommunication/sendMessage now `(content, sender, attachments?)`; sender built from requireSecurityRole's User_ID; remove author/from/FromAddress from payload example.
 - testing.md: add helper.wiring.test.ts (plus guards.test.ts, generate-types.test.ts).
 - Breaking for forks (release notes): new MPHelper communication signatures; procedures deny-all by default.
+
+## From wave 2 — signed-out page + profile DTO (merged 7bdc892)
+- auth.md: add `/signed-out` to public paths; SessionGuard sends ended sessions to `/signed-out` (not `/signin`); shared-device decision (persistent 12 h cookie accepted; 1 h replay bound).
+- components.md: add `src/app/signed-out` and `CurrentUserProfile`; remove claims that the profile carries roles/groups/IDs/phone.
+- testing.md: add `src/app/signed-out/page.test.tsx`.
+- Additional_Security_Hardening.md: shared-device residual risk accepted/closed.
+- CLAUDE.md Import Patterns: optionally add `CurrentUserProfile` to the DTO example.
+- Follow-up (needs MP admin): register `<origin>/signed-out` as a post-logout redirect URI, then point `post_logout_redirect_uri` (user-menu/actions.ts) at it and update docs/OAUTH_LOGOUT_SETUP.md.
+- Code follow-up: `MPUserProfile` (types/user-profile.types.ts) now used only by home-demos/contact-lookup-demo-card.test.tsx — trim/remove; switch that test to CurrentUserProfile.
+
+## From wave 2 — CI build (merged 9dc4e6a)
+- CLAUDE.md § Testing: CI jobs = test (both Vitest projects: src + scripts), lint (+tsc), build + prerender check, lockfile; Config bullet mentions the two projects. § Commands: add `npm run test:scripts`, `npm run build:check-prerender`.
+- testing.md: CI job list; replace `npx vitest run --config scripts/vitest.config.mts` instructions; src/scripts projects; add scripts/check-prerender.test.ts.
+- auth.md CI claim (~946/1121): "lint + tsc + unit tests + build + prerender check".
+- security-headers.md: point to scripts/check-prerender.mjs as the CI guard for nonce-less prerenders; `/signed-out` is dynamic.
+- Note for README/auth.md: `next build` performs the OIDC discovery GET once per worker (read-only); with a real .env.local it contacts the real MP discovery endpoint.

@@ -38,6 +38,9 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 
 - **Provider sender (wave 2):** `MPHelper.createCommunication`/`sendMessage(content, sender, attachments?)` with a required trusted sender; `new MPHelper({ allowedProcedures })` per-instance allowlist (default deny); `$ignorePermissions` removed from types — `dormant-provider-helpers`
 
+- **Signed-out page + profile DTO (wave 2):** `/signed-out` (public, dynamic, never starts OAuth) is where `SessionGuard` and cross-tab sign-out land; `getCurrentUserProfile` returns a six-field `CurrentUserProfile`; `UserService` no longer reads roles/groups/phone — `client-data-overexposure`, `shared-device-session-persistence`
+- **CI build (wave 2):** `build` job + `scripts/check-prerender.mjs` (only `/_not-found`, `/_global-error` static); setup tests run as a second Vitest project in `test:run`; `SessionContextService` rethrows Next control-flow errors (no build-log noise) — `ci-missing-lint-and-build`
+
 ## Decisions (2026-09-29)
 
 | Item | Decision |
@@ -46,7 +49,7 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | `unused-user-oauth-tokens-stored` scope remainder (closed) | **Won't fix** — template repo; forks need the broad scope |
 | Signed-out page | **Implement** — a page that does not auto-start OAuth (wave 2) |
 | [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | **Rebuild the auth instance on `PROVIDER_NOT_FOUND`** (single-flight, 30 s cooldown). Static endpoints ruled out: incompatible with `requireIdTokenVerification` |
-| [security-shared-device-session-persistence](security-shared-device-session-persistence.md) remainder, sign-out revocation | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
+| `shared-device-session-persistence` remainder, sign-out revocation (closed) | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
 | CSP reporting | **None** — known gap |
 
 ## Open (wave 2 in progress)
@@ -55,12 +58,9 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 |---|---|
 | [security-auth-url-env-not-validated](security-auth-url-env-not-validated.md) | `src/lib/env.ts`; wire into auth, MP client, sign-out, CSP |
 | [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | Rebuild-on-failure |
-| [security-client-data-overexposure](security-client-data-overexposure.md) | `CurrentUserProfile` DTO for `getCurrentUserProfile` (session and log rows done) |
 | [security-auth-test-gaps](security-auth-test-gaps.md) | #1–#5, #8 (route/proxy gaps #6–#7 done) |
-| [security-ci-missing-lint-and-build](security-ci-missing-lint-and-build.md) | `npm run build` + prerender check (only `/_not-found`, `/_global-error` static); setup tests in `test:run` |
 | [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
 | [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
-| [security-shared-device-session-persistence](security-shared-device-session-persistence.md) | Signed-out page; rest accepted |
 | [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
