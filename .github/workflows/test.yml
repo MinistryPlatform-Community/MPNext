@@ -36,9 +36,7 @@ jobs:
 
   # ESLint (including the F5 `no-console` rule over src/, which nothing else
   # enforces — `next build` does not run ESLint in Next 16) and a full type
-  # check. TODO: add `npm run build` plus a check that no app route other than
-  # the accepted `/_not-found` / `/_global-error` is prerendered (○), once
-  # `/_global-error` is dynamic — see .claude/TODO/security-ci-missing-lint-and-build.md.
+  # check.
   lint:
     runs-on: ubuntu-latest
 
@@ -60,6 +58,49 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+  # A production build, then a check that it prerendered (○) no app route other
+  # than Next's built-in `/_not-found` and `/_global-error`. A prerendered page
+  # carries no per-request CSP nonce, so under the enforced nonce-based CSP its
+  # scripts are blocked and it never hydrates — and `next build` reports that
+  # only as a ○ in its route table, never as a failure. The allowlist lives in
+  # scripts/check-prerender.mjs.
+  build:
+    runs-on: ubuntu-latest
+
+    # Dummy values: the build needs the variables to exist, not to work. It must
+    # never reach a real Ministry Platform. `.invalid` is a reserved TLD that
+    # never resolves (RFC 2606), so Better Auth's OIDC discovery fetch during
+    # "Collecting page data" fails fast and harmlessly (it logs "Discovery fetch
+    # failed … Provider skipped" and the build carries on). No secrets are used.
+    env:
+      MINISTRY_PLATFORM_BASE_URL: https://mp.invalid/ministryplatformapi
+      MINISTRY_PLATFORM_CLIENT_ID: ci-build-dummy
+      MINISTRY_PLATFORM_CLIENT_SECRET: ci-build-dummy
+      OIDC_CLIENT_ID: ci-build-dummy
+      OIDC_CLIENT_SECRET: ci-build-dummy
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ci-build-dummy-secret-not-used-for-anything-real
+      MP_SECURITY_ROLES: ci-build-dummy
+      NEXT_TELEMETRY_DISABLED: 1
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check no unexpected route was prerendered
+        run: npm run build:check-prerender
+
   test:
     runs-on: ubuntu-latest
 
@@ -75,13 +116,11 @@ jobs:
 
       - run: npm ci
 
+      # Runs both Vitest projects once each: `src` (the app, coverage-gated) and
+      # `scripts` (the dev tooling in scripts/, outside the src/-only coverage
+      # denominator) — see vitest.config.mts.
       - name: Run tests with coverage
         run: npx vitest run --coverage
-
-      # scripts/ tooling (setup's .env.local writer) — outside the src/-scoped
-      # root config and its coverage gates.
-      - name: Run scripts tests
-        run: npx vitest run --config scripts/vitest.config.mts
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5

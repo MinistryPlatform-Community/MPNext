@@ -1,14 +1,18 @@
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
-// Tests for the dev tooling in scripts/ (setup's .env.local writer). Kept out of
-// the root vitest.config.mts on purpose: that config's `include` and coverage
-// thresholds are scoped to src/, and these are Node-only CLI helpers. CI runs
-// this config as its own step in .github/workflows/test.yml.
+// Tests for the dev tooling in scripts/ (setup's .env.local writer and the
+// CI prerender guard). This is the `scripts` project of the root
+// vitest.config.mts, so `npm run test:run` / `test:coverage` (and CI) already
+// run it. It is a separate project on purpose: these are Node-only CLI helpers,
+// and must not pick up the root `src` project's jsdom environment or its
+// src/test-setup.ts env stubs. The root coverage `include` is src/-only, so
+// nothing here counts toward the src/ coverage gates.
 //
-//   npx vitest run --config scripts/vitest.config.mts
+//   npm run test:scripts        # just this project
 export default defineConfig({
   test: {
+    name: 'scripts',
     root: fileURLToPath(new URL('.', import.meta.url)),
     environment: 'node',
     include: ['**/*.test.ts'],

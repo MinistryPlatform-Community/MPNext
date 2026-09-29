@@ -108,7 +108,7 @@ Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.
 
 ## Prerequisites
 
-- **Node.js**: v20 LTS or higher (Next.js 16 and React 19 require a modern Node runtime). `npm run setup` enforces this minimum; CI lints, type-checks and tests on Node 22 (it does not run `next build` yet).
+- **Node.js**: v20 LTS or higher (Next.js 16 and React 19 require a modern Node runtime). `npm run setup` enforces this minimum; CI lints, type-checks, builds and tests on Node 22.
 - **Package Manager**: npm (comes with Node.js)
 - **Ministry Platform**: Active instance with API credentials and OAuth client configured (see [OAuth Setup](#oauth-setup))
 
@@ -481,12 +481,12 @@ MPNext/
 │   ├── playbooks/                        # Porting playbooks
 │   └── reports/                          # Past dependency audit reports
 ├── .githooks/                            # pre-commit lockfile guard
-├── .github/workflows/                    # CI: tests, lint + tsc, lockfile drift check
+├── .github/workflows/                    # CI: tests, lint + tsc, build + prerender check, lockfile drift check
 ├── .github/dependabot.yml                # Weekly SHA bumps for GitHub Actions
 ├── docs/
 │   ├── OAUTH_LOGOUT_SETUP.md
 │   └── security/                         # Security advisories
-├── scripts/                              # setup.ts (+ setup-env.ts, its .env.local writer), check-lockfile.mjs
+├── scripts/                              # setup.ts (+ setup-env.ts, its .env.local writer), check-lockfile.mjs, check-prerender.mjs
 ├── public/                               # Static assets
 ├── coverage/                             # Test coverage reports
 ├── .env.example                          # Environment template
@@ -666,7 +666,7 @@ All services follow the singleton pattern; all except `SessionContextService` us
 
 The project uses **Vitest 4** — 1,015 tests at 99.74% statement coverage, gated in CI.
 
-The setup script's `.env.local` writer has its own small suite outside `src/` (`scripts/setup-env.test.ts`, which round-trips values through Next's real env loader). Run it with `npx vitest run --config scripts/vitest.config.mts`; CI runs it too.
+The dev tooling in `scripts/` has its own small Node-only suite — `scripts/setup-env.test.ts` (the setup script's `.env.local` writer, round-tripped through Next's real env loader) and `scripts/check-prerender.test.ts` (the CI prerender guard). It is the `scripts` project in `vitest.config.mts`, so `npm test`, `npm run test:run` and `npm run test:coverage` run it alongside the app suite; `npm run test:scripts` runs it alone. It sits outside the `src/`-only coverage denominator, so it does not affect the coverage gates.
 
 ### Test Infrastructure
 
@@ -714,11 +714,10 @@ Tests are configured in `vitest.config.mts`:
 
 CI (`.github/workflows/test.yml`) runs on Node 22:
 
-- `test` — `npx vitest run --coverage`, then the `scripts/` suite. The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.**
+- `test` — `npx vitest run --coverage` (both Vitest projects, `src` and `scripts`, once each). The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.**
 - `lint` — `npm run lint` (including the `no-console` rule over `src/`) and `npx tsc --noEmit`.
 - `lockfile` — the platform-drift check described under [Known Issues](#known-issues).
-
-CI does **not** run `npm run build` yet, so run it locally before merging anything that adds or changes a route.
+- `build` — `npm run build` with dummy environment values (a non-resolving `mp.invalid` Ministry Platform URL — the build never reaches a real instance), then `npm run build:check-prerender`, which fails if any app route other than Next's built-in `/_not-found` and `/_global-error` was prerendered as static (○). A prerendered page has no per-request CSP nonce, so under the enforced CSP it never hydrates. The allowlist is in `scripts/check-prerender.mjs`; after a local `npm run build` you can run the same check yourself.
 
 Every action is pinned to a full commit SHA (Dependabot keeps them current via `.github/dependabot.yml`), and each workflow declares `permissions: contents: read`.
 
