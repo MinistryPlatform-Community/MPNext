@@ -100,7 +100,7 @@ Custom provider located at `src/lib/providers/ministry-platform/` featuring:
 ### Authentication
 Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.ts`)
 - Stateless JWT cookie sessions (no database required)
-- Session enrichment via `customSession` (name split plus the MP `User_ID`); the full `MPUserProfile` is loaded client-side by `UserProvider`
+- Session enrichment via `customSession` (name split plus the MP `User_ID`); the full `MPUserProfile` is started server-side by `ServerProviders` and streamed to `UserProvider`
 - OIDC RP-initiated logout for proper session termination
 - Security-role authorization via `AuthorizationService`, gating reads as well as writes
 - Proxy-based route protection (`src/proxy.ts` — Next.js 16 replaces middleware with proxy)

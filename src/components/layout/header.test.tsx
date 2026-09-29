@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { use } from "react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 
 /**
@@ -24,6 +25,11 @@ import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
  * 4. The sidebar is owned here, not by the Sidebar itself. Header holds the
  *    open/close state and renders the backdrop, so opening and both closing
  *    paths are exercised end to end.
+ * 5. Only the avatar may suspend on the profile. When the whole header
+ *    suspended, its layout-level fallback replaced the fixed bar and shifted
+ *    the page 64px on every load; the bar, hamburger and sidebar must stay
+ *    rendered while `useUser()` is pending, and HeaderSkeleton (the layout's
+ *    safety-net fallback) must keep the same fixed, h-16 shape.
  *
  * The contexts are mocked rather than wrapped in real providers: UserProvider
  * calls a server action that hits Ministry Platform, and nothing in this test
@@ -47,7 +53,7 @@ vi.mock("@/components/user-menu/actions", () => ({
   handleSignOut: mockHandleSignOut,
 }));
 
-import { Header } from "./header";
+import { Header, HeaderSkeleton } from "./header";
 
 // Radix primitives need a few browser APIs jsdom does not implement. Without
 // these, DropdownMenu throws on mount rather than failing an assertion, which
@@ -83,6 +89,12 @@ const profile: MPUserProfile = {
 
 function setUser(userProfile: MPUserProfile | null) {
   mockUseUser.mockReturnValue({ userProfile, refreshUserProfile: vi.fn() });
+}
+
+/** Makes `useUser()` suspend, as it does while the profile is in flight. */
+function setUserPending() {
+  const never = new Promise<never>(() => {});
+  mockUseUser.mockImplementation(() => use(never));
 }
 
 function setSession(session: unknown) {
@@ -164,6 +176,79 @@ describe("Header", () => {
       render(<Header />);
 
       expect(avatarButton()).toBeInTheDocument();
+    });
+  });
+
+  describe("while useUser() is suspended", () => {
+    it("keeps the fixed bar, hamburger and title on screen", () => {
+      vi.stubEnv("NEXT_PUBLIC_APP_NAME", "");
+      setUserPending();
+      render(<Header />);
+
+      const header = screen.getByRole("banner");
+      expect(header.className).toContain("fixed");
+      expect(
+        screen.getByRole("button", { name: "Open menu" })
+      ).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "MPNext" })).toBeInTheDocument();
+    });
+
+    it("shows a same-size placeholder in the avatar slot", () => {
+      setUserPending();
+      render(<Header />);
+
+      const button = avatarButton();
+      expect(button.className).toContain("p-1");
+      expect(button.querySelector("svg.h-8.w-8")).not.toBeNull();
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    });
+
+    it("keeps the sidebar usable", async () => {
+      // Outside act(): inside it, React holds every commit until the pending
+      // profile settles — which this one never does — so the click would never
+      // land. A browser commits it, and that is the behaviour under test.
+      const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      env.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        setUserPending();
+        const { container } = render(<Header />);
+        const hamburger = await screen.findByRole("button", { name: "Open menu" });
+        const panel = container.querySelector(".w-64") as HTMLElement;
+
+        fireEvent.click(hamburger);
+
+        await waitFor(() => {
+          expect(panel.className).toContain("translate-x-0");
+        });
+        expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+      } finally {
+        env.IS_REACT_ACT_ENVIRONMENT = true;
+      }
+    });
+  });
+
+  describe("HeaderSkeleton", () => {
+    it("matches the header's fixed, h-16 shape so it cannot shift <main>", () => {
+      render(<HeaderSkeleton />);
+
+      const skeleton = screen.getByRole("banner");
+      const real = render(<Header />).container.querySelector("header") as HTMLElement;
+
+      expect(skeleton.className).toBe(real.className);
+      expect(skeleton.firstElementChild?.className).toBe(
+        real.firstElementChild?.className
+      );
+      expect(skeleton).toHaveAttribute("aria-busy", "true");
+    });
+
+    it("shows the app title but no interactive controls", () => {
+      vi.stubEnv("NEXT_PUBLIC_APP_NAME", "Grace Church Portal");
+      render(<HeaderSkeleton />);
+
+      expect(
+        screen.getByRole("heading", { name: "Grace Church Portal" })
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
   });
 

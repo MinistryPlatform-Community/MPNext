@@ -4,7 +4,7 @@ This document provides detailed context about the authentication system for LLM 
 
 ## Overview
 
-MPNext uses **Better Auth** with the **genericOAuth** plugin to authenticate users against Ministry Platform's OIDC endpoints. Sessions are stateless (JWT cookie cache, no database). The full MP user profile is loaded client-side by `UserProvider`; the only thing the session itself resolves server-side is the MP `User_ID` (see [customSession Callback](#customsession-callback)).
+MPNext uses **Better Auth** with the **genericOAuth** plugin to authenticate users against Ministry Platform's OIDC endpoints. Sessions are stateless (JWT cookie cache, no database). The full MP user profile is loaded separately — started server-side by `ServerProviders` and streamed to `UserProvider`; the only thing the session itself resolves server-side is the MP `User_ID` (see [customSession Callback](#customsession-callback)).
 
 ## Critical: user.id vs userGuid
 
@@ -45,7 +45,8 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 | `src/app/api/auth/[...all]/route.ts` | Allowlisted route handler — only `GET /get-session`, `GET /callback/ministry-platform`, `POST /sign-in/social` reach better-auth; everything else 404s. `POST /sign-in/social` is also body-filtered (exact `application/json`, keys `provider`/`callbackURL` only, `provider: "ministry-platform"`) — see [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial) |
 | `src/proxy.ts` | Route protection (session cookie check) |
 | `src/app/auth-error/page.tsx` | Landing page for a failed OAuth callback (`onAPIError.errorURL`) — outside the (web) route group, public in `src/proxy.ts` |
-| `src/contexts/user-context.tsx` | `UserProvider` — loads MP user profile client-side |
+| `src/app/server-providers.tsx` | `ServerProviders` — starts the MP profile load during the server render, below `AuthWrapper` |
+| `src/contexts/user-context.tsx` | `UserProvider` — exposes the streamed profile promise to `useUser()`; reloads it on `refreshUserProfile()` |
 | `src/contexts/session-context.tsx` | `useAppSession()` — thin wrapper around `authClient.useSession()` |
 | `src/components/layout/auth-wrapper.tsx` | Server guard for the (web) group — redirects to `/signin` (no session) or `/session-error` (session without `userGuid`). Authentication only; it does **not** check roles |
 | `src/app/session-error/page.tsx` | Recovery page for broken sessions — provides a sign-out even when the header/menu can't render (outside the (web) group, so not self-guarded) |
@@ -554,7 +555,7 @@ MP call per (user × container × 15 min). The TTL means a deleted or re-pointed
 does **not** end the session. A failed lookup is **not** cached and never blocks session
 creation: it logs and returns `userId: null`, which the write path then surfaces as
 `mp.write.non_user` and the gate refuses as `no_mp_user`. The full MP profile (name,
-photo, roles, groups) is still loaded client-side by `UserProvider`, not here.
+photo, roles, groups) is loaded by `ServerProviders` / `UserProvider`, not here.
 
 ## Auth Client (`src/lib/auth-client.ts`)
 
@@ -605,8 +606,9 @@ export const authClient = createAuthClient({
    h. customSession resolves userId from dp_Users, then creates the session →
       sets JWT cookie
 6. Redirect to callbackURL → app loads with session
-7. UserProvider calls getCurrentUserProfile() → loads MP profile (userGuid comes
-   from the session, never from the caller)
+7. ServerProviders (below AuthWrapper in the (web) layout) calls
+   getCurrentUserProfile() during the server render and streams the promise to
+   UserProvider (userGuid comes from the session, never from the caller)
 ```
 
 ### /signin must start exactly ONE OAuth flow
@@ -814,17 +816,28 @@ function MyComponent() {
 
 ### UserProvider Pattern
 
-`UserProvider` in `src/contexts/user-context.tsx` loads the full MP user profile client-side:
+The full MP user profile is loaded during the server render and streamed to the client:
 
-1. Waits for a session from `authClient.useSession()`
-2. Calls the `getCurrentUserProfile()` server action — **it takes no parameters**.
+1. `ServerProviders` (`src/app/server-providers.tsx`) renders below `AuthWrapper`, so it
+   only runs once a session is confirmed, and passes an **un-awaited** promise to
+   `Providers` → `UserProvider`. Awaiting it would hold the whole shell on MP.
+2. That promise comes from `getCurrentUserProfile()` — **it takes no parameters**.
    The `User_GUID` is read from the session server-side, never accepted from the
    caller: the profile discloses the user's roles and user groups, and GUIDs are not
    usefully secret (they appear in the client session and in `/contactlookup` URLs)
 3. `UserService.getUserProfile()` queries `dp_Users WHERE User_GUID = '{userGuid}'`
 4. Returns `MPUserProfile` (First_Name, Last_Name, Email_Address, Image_GUID, `roles`,
    `userGroups`, plus the server-computed `canAccessContactFeatures` UX flag)
-5. Profile available via `useUser()` hook in any client component
+5. Profile available via `useUser()` hook in any client component. `useUser()`
+   **suspends** until the promise settles and rethrows a rejection to the nearest
+   error boundary. `refreshUserProfile()` reloads it through the same server action,
+   inside `startTransition` so rendered consumers keep their content meanwhile.
+
+Keep every `<Suspense>` around a `useUser()` caller tight and the same size as what
+it replaces. Before 2026-09-29 the *whole* `Header` suspended behind an in-flow
+`<div className="h-16" />` fallback while the profile loaded client-side after
+hydration; the fixed bar vanished and `<main>` dropped 64px on every page load (CLS
+≈ 0.05). Now only the avatar suspends, behind a same-size placeholder.
 
 ## Authorization (distinct from authentication)
 

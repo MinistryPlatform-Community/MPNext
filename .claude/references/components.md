@@ -33,10 +33,11 @@ Every file below has a co-located `*.test.tsx` / `*.test.ts`.
 | Route file | Type | Purpose |
 |---|---|---|
 | `layout.tsx` | Server | Root layout — `<html>`/`<body>` and `globals.css` only. No shell, no fonts, no metadata (those live in `(web)/layout.tsx`) |
-| `providers.tsx` | Client | `Providers` wraps children in `UserProvider`. Named export, mounted by `(web)/layout.tsx` |
+| `providers.tsx` | Client | `Providers` wraps children in `UserProvider`, forwarding the `profilePromise` prop. Named export, mounted by `server-providers.tsx` |
+| `server-providers.tsx` | Server | `ServerProviders` starts `getCurrentUserProfile()` during the server render and passes the un-awaited promise to `Providers`. Must sit below `AuthWrapper` |
 | `error.tsx` | Client | Error boundary for the routes OUTSIDE `(web)` — `/signin`, `/session-error`, `/auth-error`. Bare centred layout, offers retry **and** a plain link to `/signin` |
 | `global-error.tsx` | Client | Last-resort boundary for a throw in the root layout itself. Renders its own `<html>`/`<body>`, imports nothing from the app, styles inline (the CSP's `style-src` has `'unsafe-inline'` and no nonce) |
-| `(web)/layout.tsx` | Server | The authenticated shell: `AuthWrapper` → `Providers` → `Header` (in `<Suspense>`) + `DynamicBreadcrumb`. Owns `metadata` and `viewport` |
+| `(web)/layout.tsx` | Server | The authenticated shell: `AuthWrapper` → `ServerProviders` → `Header` (in a `<Suspense>` whose fallback is the fixed `HeaderSkeleton`) + `DynamicBreadcrumb`. Owns `metadata` and `viewport` |
 | `(web)/error.tsx` | Client | Error boundary for the shell. Deliberately INSIDE `(web)` so the Header — and therefore sign-out — keeps rendering around the error card |
 | `(web)/page.tsx` | Server | Dashboard. Synchronous, makes no MP call; mounts `ContactLookupDemoCard` in `<Suspense>` because `useUser()` suspends |
 | `(web)/home/page.tsx` | Server | Three-line legacy redirect to `/` |
@@ -62,10 +63,10 @@ named `GET`/`POST` as the framework requires.
 | File | Type | Tested | Purpose |
 |------|------|--------|---------|
 | `layout/auth-wrapper.tsx` | Server | Yes | Redirects to `/signin` with no session, and to `/session-error` when the session carries no `userGuid` |
-| `layout/header.tsx` | Client | Yes | Fixed top bar; owns `sidebarOpen` state, renders `Sidebar` and `UserMenu`, reads `useUser()` + `useAppSession()` |
-| `layout/sidebar.tsx` | Client | Yes | Slide-out nav. Dashboard always shown; Contact Lookup appended only when `userProfile?.canAccessContactFeatures === true` (UX only, fails closed) |
+| `layout/header.tsx` | Client | Yes | Fixed top bar; owns `sidebarOpen` state, renders `Sidebar` and `UserMenu`. Only its avatar reads `useUser()` + `useAppSession()`, behind its own same-size `<Suspense>`, so the bar never suspends. Also exports `HeaderSkeleton`, the layout's pixel-identical fallback |
+| `layout/sidebar.tsx` | Client | Yes | Slide-out nav, `next/link` entries (a plain `<a>` reloads the document and the profile). Dashboard always shown; Contact Lookup appended, behind its own `<Suspense>`, only when `userProfile?.canAccessContactFeatures === true` (UX only, fails closed) |
 | `layout/dynamic-breadcrumb.tsx` | Client | Yes | Builds breadcrumbs from `usePathname()`, or from a `customSegments` prop |
-| `layout/index.ts` | - | - | Barrel exports: `AuthWrapper`, `Header`, `Sidebar`, `DynamicBreadcrumb` |
+| `layout/index.ts` | - | - | Barrel exports: `AuthWrapper`, `Header`, `HeaderSkeleton`, `Sidebar`, `DynamicBreadcrumb` |
 
 `Sidebar` is *not* mounted by `(web)/layout.tsx` — `Header` mounts it. Only
 `AuthWrapper`, `Header` and `DynamicBreadcrumb` are imported by the layout.

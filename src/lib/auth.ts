@@ -125,8 +125,9 @@ async function resolveMpUserId(userGuid: string): Promise<number | null> {
  * request through the whole auth stack. Behavior is identical to the inline
  * version it replaced.
  *
- * Profile loading still happens client-side via UserProvider /
- * getCurrentUserProfile(). The only server-side lookup here is User_ID, cached
+ * The MP profile is loaded separately — started server-side by
+ * `ServerProviders` via getCurrentUserProfile() and read through UserProvider,
+ * not carried in the session. The only server-side lookup here is User_ID, cached
  * in-memory for `USER_ID_CACHE_TTL_MS` per process, so it costs at most one MP
  * call per (user × container × 15 minutes).
  */
