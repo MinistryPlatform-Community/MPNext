@@ -36,6 +36,8 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 
 - **F3b advisory fork check:** advisory greps all of `src/`; playbook control-char check covers `src/app/signin/` too. Verified against `ee46343`, `cfeecab~1`, `HEAD` → vulnerable, vulnerable, clean — `f3b-advisory-fork-check-incomplete`
 
+- **Provider sender (wave 2):** `MPHelper.createCommunication`/`sendMessage(content, sender, attachments?)` with a required trusted sender; `new MPHelper({ allowedProcedures })` per-instance allowlist (default deny); `$ignorePermissions` removed from types — `dormant-provider-helpers`
+
 ## Decisions (2026-09-29)
 
 | Item | Decision |
@@ -54,7 +56,6 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | [security-auth-url-env-not-validated](security-auth-url-env-not-validated.md) | `src/lib/env.ts`; wire into auth, MP client, sign-out, CSP |
 | [security-discovery-failure-no-retry](security-discovery-failure-no-retry.md) | Rebuild-on-failure |
 | [security-client-data-overexposure](security-client-data-overexposure.md) | `CurrentUserProfile` DTO for `getCurrentUserProfile` (session and log rows done) |
-| [security-dormant-provider-helpers](security-dormant-provider-helpers.md) | Thread trusted sender through `helper.ts`/`provider.ts` (until then `createCommunication`/`sendMessage`/`executeProcedure*` refuse every call); remove `$ignorePermissions` from types |
 | [security-auth-test-gaps](security-auth-test-gaps.md) | #1–#5, #8 (route/proxy gaps #6–#7 done) |
 | [security-ci-missing-lint-and-build](security-ci-missing-lint-and-build.md) | `npm run build` + prerender check (only `/_not-found`, `/_global-error` static); setup tests in `test:run` |
 | [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |

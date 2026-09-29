@@ -50,7 +50,7 @@ Cross-group: setup tests (scripts/setup-env.test.ts) only run via scripts/vitest
 Follow-up: CI build + prerender check (after F's global-error fix).
 
 ## From B (merged 178d489)
-!! Behaviour: MPHelper.createCommunication / sendMessage / executeProcedure(WithBody) now refuse every call — need sender threaded through provider.ts:224-242 + helper.ts:468-486 (sender from gate's User_ID), and ALLOWED_PROCEDURES is empty. provider.test.ts:222,234 expect 3rd arg. → wave-2 item.
+(RESOLVED in wave 2 by security/w2-provider-sender — docs only now) Behaviour: MPHelper.createCommunication / sendMessage / executeProcedure(WithBody) now refuse every call — need sender threaded through provider.ts:224-242 + helper.ts:468-486 (sender from gate's User_ID), and ALLOWED_PROCEDURES is empty. provider.test.ts:222,234 expect 3rd arg. → wave-2 item.
 Cross-group: types/provider.types.ts:101 remove $ignorePermissions from GlobalFilterParams; helper.ts:353 JSDoc + ~367 example.
 Docs: providers/ministry-platform/docs/README.md :166-175 procedure allowlist, :180-186 trusted sender, :241-244 drop $ignorePermissions; README.md:545 executeProcedureWithBody needs allowlist note; README.md:562 createCommunication/sendMessage need trusted sender; testing.md add services/guards.test.ts, scripts/generate-types.test.ts. Table names restricted to plain identifiers.
 
@@ -91,3 +91,9 @@ Build not run — wave-2 CI build/prerender check should confirm only /_not-foun
 - **unused-user-oauth-tokens-stored remainder (won't fix):** keep `dataplatform/scopes/all`. Rationale for auth.md § scopes: this is a template repo; forks need the broad scope for their own features. Token minimisation already shipped (no `offline_access`, no account cookie, tokens stripped from memory).
 - **shared-device session persistence / sign-out revocation (accepted):** 12 h absolute cap + 1 h replay bound after sign-out (≤12 h on another instance) are accepted; persistent 12 h cookie (survives browser close) accepted. Update `docs/security/Additional_Security_Hardening.md` §1 to "Accepted 2026-09-29", and note the signed-out page (wave 2).
 - **CSP reporting (none)** and **style-src nonce (accepted)** — see header-hardening note above.
+
+## From wave 2 — provider sender (merged 1310da8)
+- Root README.md ~545: executeProcedureWithBody example refused unless allowlisted → show `new MPHelper({ allowedProcedures: ['...'] })`.
+- Root README.md ~562: createCommunication/sendMessage now `(content, sender, attachments?)`; sender built from requireSecurityRole's User_ID; remove author/from/FromAddress from payload example.
+- testing.md: add helper.wiring.test.ts (plus guards.test.ts, generate-types.test.ts).
+- Breaking for forks (release notes): new MPHelper communication signatures; procedures deny-all by default.
