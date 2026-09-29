@@ -66,7 +66,8 @@ The rule: **strings with no zone marker are wall-clock**, strings/Dates with exp
 
 It rejects rather than guesses: an empty/whitespace-only string or a non-string non-`Date` throws
 `toMpSqlDatetime: value must be a non-empty string or Date`, and a string that matches neither the
-wall-clock shape nor `Date` parsing throws ``toMpSqlDatetime: unable to parse "<value>"``. Accepted
+wall-clock shape nor `Date` parsing throws `toMpSqlDatetime: value could not be parsed as a date`
+(the value is deliberately not echoed — it can be caller input). Accepted
 wall-clock shapes are `YYYY-MM-DD`, `YYYY-MM-DD HH:MM[:SS]` and `YYYY-MM-DDTHH:MM[:SS][.fff]`; missing
 components default to zero.
 
@@ -77,7 +78,8 @@ Use when you need a `Date` instant to do real arithmetic on a value MP returned 
 A wall-clock string is interpreted as MP-TZ (`"2026-05-17 12:00:00"` in `America/New_York` → the
 `2026-05-17T16:00:00.000Z` instant). A string carrying `Z` or an explicit `±HH:MM` offset skips the
 wall-clock path entirely and is parsed directly, without consulting the domain zone; if that parse
-yields an Invalid Date it throws ``parseMpDatetime: unable to parse "<value>"``.
+yields an Invalid Date it throws `parseMpDatetime: value could not be parsed as a date` (again
+without the value).
 
 ## Recipes
 
@@ -184,7 +186,7 @@ The shared signature of these bugs: a `Date` object that crosses a zone boundary
 
 ## Windows ↔ IANA zone names
 
-MP's `/domain` endpoint returns `TimeZoneName` as a **Windows** zone (e.g. `"Eastern Standard Time"`). `Intl.DateTimeFormat` requires **IANA** (e.g. `"America/New_York"`). `resolveIanaTimezone` maps between them via the `WINDOWS_TO_IANA` table in `domainTimezoneService.ts` — 137 entries, the standard Windows zone list. If a new MP deployment surfaces an unmapped zone it throws ``Unknown time zone "<name>" — add it to the Windows→IANA mapping in domainTimezoneService.ts``; extend the table rather than silently falling back to the server's local zone.
+MP's `/domain` endpoint returns `TimeZoneName` as a **Windows** zone (e.g. `"Eastern Standard Time"`). `Intl.DateTimeFormat` requires **IANA** (e.g. `"America/New_York"`). `resolveIanaTimezone` maps between them via the `WINDOWS_TO_IANA` table in `domainTimezoneService.ts`, which covers the standard Windows zone list. If a new MP deployment surfaces an unmapped zone it throws ``Unknown time zone "<name>" — add it to the Windows→IANA mapping in domainTimezoneService.ts``; extend the table rather than silently falling back to the server's local zone.
 
 Resolution order, before the table is consulted:
 

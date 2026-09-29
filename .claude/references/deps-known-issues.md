@@ -3,8 +3,8 @@
 State carried between `/audit-deps` runs so each audit starts from prior conclusions
 instead of re-deriving them. Every entry needs a date and a re-check trigger.
 
-Last audit: **2026-08-27** — report at `.claude/reports/deps-audit-2026-08-27.md`
-(prior: `deps-audit-2026-08-21-run2.md`, `deps-audit-2026-08-21.md`).
+Last full audit: **2026-08-27** (prior: 2026-08-21, twice). Per-run reports are local
+working files (`.claude/reports/`, gitignored); this file is the durable record.
 
 Advisory state re-verified **2026-09-12** (release docs pass — read-only, no
 upgrades applied): `npm audit` reports **0 vulnerabilities across 720 packages**
@@ -13,18 +13,27 @@ drift. Installed at that check: `next@16.3.5`, `better-auth@1.7.4`,
 `typescript@6.0.3`, `eslint@9.39.5`, `@types/node@24.13.4`, Node 24.18.0,
 npm 11.16.0.
 
+**2026-09-29 (auth security review, wave 3):** `next`/`eslint-config-next`
+`16.3.5` → `16.3.7` for GHSA-vcvr-r3jv-pc5j, and `server-only` added. Relocked
+with `npm run deps:relock`; `deps:verify` clean; the lockfile diff was only the
+`next` family and `server-only`. Installed per `package-lock.json` after it:
+`next@16.3.7`, `eslint-config-next@16.3.7`, `better-auth@1.7.4`,
+`typescript@6.0.3`, `eslint@9.39.5`, `@types/node@24.13.4`, `vitest@4.1.11`.
+
 ## Accepted advisories (triaged as not exploitable)
 
 | Package | Advisory | Reason not exploitable | Verified | Re-check when |
 |---|---|---|---|---|
 | `better-auth` | 2026 CVE cluster: `CVE-2026-53513` (SSRF, CVSS 9.6, `@better-auth/sso`), `CVE-2026-53516` (OAuth auto-link ATO), `CVE-2026-45337` (`deviceAuthorization`), `CVE-2026-67336` (insecure crypto defaults in `oidcProvider`/`mcp`) | Two independent reasons: (a) all fixed in `1.6.11`+, installed is `1.7.4`; (b) the vulnerable plugins are not loaded — `src/lib/auth.ts` registers exactly `genericOAuth`, `customSession`, `nextCookies`. Repo-wide grep for `oidcProvider`, `mcp(`, `ssoPlugin`, `deviceAuthorization`, `apiKey(` matches nothing outside comments. **Re-verified run 2 (2026-08-21):** plugin list unchanged; grep still returns no matches; OSV independently returns 0 vulns for `better-auth@1.7.1`. **Re-verified 2026-09-12:** upgraded to `1.7.4` (`e02eec3`), plugin list still exactly those three. | 2026-09-12 | Any change to the plugin list in `src/lib/auth.ts` |
-| `next` | [GHSA-2xp9-vwfh-vxw4](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4) — **critical** unauthenticated RCE optimizing an attacker-controlled AVIF (`libheif` via `sharp`) | **Patched** (`16.3.3`; installed is now `16.3.5`) *and* unreachable, three independent ways: (a) all three `<Image>` call sites pass `unoptimized` — `contact-lookup-results.tsx`, `contact-lookup-details.tsx`, `layout/header.tsx`; (b) `next.config.ts` declares no `images.remotePatterns`/`domains`, so `/_next/image` rejects every remote URL — an attacker cannot supply a hostile AVIF; (c) the only local file the optimizer can reach is `public/assets/icons/favicon.ico`, repo-committed. Note `/_next/image` is unauthenticated by design (the matcher at the bottom of `src/proxy.ts` excludes it), so (a)–(c) are the entire defense. **Re-verified 2026-09-12:** still three `unoptimized` call sites, still no `images` key in `next.config.ts`. | 2026-09-12 | **Either** `images.remotePatterns`/`domains` is added to `next.config.ts`, **or** any `<Image>` drops `unoptimized` |
+| `next` | [GHSA-2xp9-vwfh-vxw4](https://github.com/vercel/next.js/security/advisories/GHSA-2xp9-vwfh-vxw4) — **critical** unauthenticated RCE optimizing an attacker-controlled AVIF (`libheif` via `sharp`) | **Patched** (`16.3.3`; installed is now `16.3.5`) *and* unreachable, three independent ways: (a) all three `<Image>` call sites pass `unoptimized` — `contact-lookup-results.tsx`, `contact-lookup-details.tsx`, `layout/header.tsx`; (b) `next.config.ts` declares no `images.remotePatterns`/`domains`, so `/_next/image` rejects every remote URL — an attacker cannot supply a hostile AVIF; (c) the only local file the optimizer can reach is `public/assets/icons/favicon.ico`, repo-committed. Note `/_next/image` is unauthenticated by design (the matcher at the bottom of `src/proxy.ts` excludes it), so (a)–(c) are the entire defense. **Re-verified 2026-09-12:** still three `unoptimized` call sites, still no `images` key in `next.config.ts`. **2026-09-29:** `next.config.ts` now sets `images: { unoptimized: true }`, which turns the `/_next/image` endpoint off entirely (it 404s) — a fourth, stronger barrier. | 2026-09-29 | **Either** `images.remotePatterns`/`domains` is added to `next.config.ts`, **or** any `<Image>` drops `unoptimized` |
+| `better-auth` | GHSA-wxw3-q3m9-c3jr — forged OAuth `state` accepted when state is stored in a cookie and `pkce: false` | **Patched** (`1.6.2`; installed is `1.7.4`). This app runs exactly that configuration (cookie state storage; `pkce: false` because MP does not support PKCE), so the fix is load-bearing: **never go below `1.6.2`**. The state-validation tests in `src/auth.code-flow.test.ts` (missing, mismatched, cookie-less, tampered and expired state all refused before the code is redeemed) guard the binding. | 2026-09-29 | `better-auth` is downgraded, or the state storage / `pkce` setting in `src/lib/auth.ts` changes |
 | `next` | [CVE-2026-75604](https://www.cve.org/CVERecord?id=CVE-2026-75604) / [GHSA-p293-qw3h-jr36](https://github.com/vercel/next.js/security/advisories/GHSA-p293-qw3h-jr36) — **critical** unauthenticated RCE on Windows-hosted servers | **Patched** (`16.3.3`). Needed **both** preconditions; only one held. Windows filesystem — **met** (dev on Windows 11). Both Pages Router *and* App Router — **not met**: App Router only (`src/app/`), no source `pages/`, no `getServerSideProps`/`getStaticProps`/`next/router` in `src/`. (`./.next/server/pages` is a build artifact for internal error pages, **not** Pages Router adoption — do not misread it.) Narrower margin than the AVIF issue: one `pages/` route would have made it live. | 2026-08-27 | A `pages/` directory is introduced |
 
 ### Cleared entries
 
 | Package | Advisory | Cleared because | Date |
 |---|---|---|---|
+| `next` | GHSA-vcvr-r3jv-pc5j / CVE-2026-94545 — RCE via `next/og` `ImageResponse`, fixed in `16.3.6` | Upgraded to `16.3.7`. Was not reachable before the upgrade either: nothing in `src/` imports `next/og`. | 2026-09-29 |
 | `postcss` (bundled in `next`) | 2 moderate findings under `node_modules/next/...` (GHSA-qx2v-qp2m-jg93, against the `8.4.31` Next used to bundle) | Resolved upstream in `next@16.3.1`. `npm audit` now reports 0 findings across 583 packages. **Still clear 2026-09-12:** `next@16.3.5` bundles `postcss@8.5.23`, top-level `postcss` resolves `8.5.28`, `npm audit` reports 0 across 720 packages. | 2026-08-21 (re-checked 2026-09-12) |
 
 > The `npm audit fix --force` ban is permanent and independent of the cleared entry above:
@@ -104,7 +113,7 @@ npm 11.16.0.
 
 | Package | Item | Outcome | Date |
 |---|---|---|---|
-| `next` | Pre-announced **critical** vulnerability (announced 2026-08-20, scheduled 2026-08-26) | **Shipped early, 2026-08-25** as `16.3.3` (Active LTS) and `15.5.24` (Maintenance LTS) — the `backport` dist-tag moved `15.5.23` → `15.5.24`, confirming run 2's prediction. Two critical unauthenticated RCEs, both now in the accepted table above. Repo upgraded `16.3.2` → `16.3.3`; build/lint/582 tests green. [Advisory](https://nextjs.org/blog/august-2026-security-release) | 2026-08-27 |
+| `next` | Pre-announced **critical** vulnerability (announced 2026-08-20, scheduled 2026-08-26) | **Shipped early, 2026-08-25** as `16.3.3` (Active LTS) and `15.5.24` (Maintenance LTS) — the `backport` dist-tag moved `15.5.23` → `15.5.24`, confirming run 2's prediction. Two critical unauthenticated RCEs, both now in the accepted table above. Repo upgraded `16.3.2` → `16.3.3`; build/lint/582 tests (at the time) green. [Advisory](https://nextjs.org/blog/august-2026-security-release) | 2026-08-27 |
 
 > **Run 2's read was correct and worth repeating:** `16.3.2` was *not* the security release
 > despite landing during the announcement window. Confirm a security release by its advisory,
@@ -134,15 +143,15 @@ npm 11.16.0.
 
 | Package | Was | Why removed | Date |
 |---|---|---|---|
-| `openai` | `dependencies: ^6.32.0` | Zero references repo-wide — no `import`/`require` in `src/` or `scripts/`, no `OPENAI*` env var, no config reference. Removing it dropped exactly 1 package; build, lint, and 279 tests stayed green. If AI features are added later, install fresh at `^7`. | 2026-08-21 |
+| `openai` | `dependencies: ^6.32.0` | Zero references repo-wide — no `import`/`require` in `src/` or `scripts/`, no `OPENAI*` env var, no config reference. Removing it dropped exactly 1 package; build, lint, and 279 tests (at the time) stayed green. If AI features are added later, install fresh at `^7`. | 2026-08-21 |
 
 ## Applied majors (for the record)
 
 | Package | Change | Verified by | Date |
 |---|---|---|---|
-| `jsdom` | `^29.0.0` → `^30.0.1` | 279/279 tests pass | 2026-08-21 |
+| `jsdom` | `^29.0.0` → `^30.0.1` | 279/279 tests pass (at the time) | 2026-08-21 |
 | `chalk` | `^5.6.2` → `^6.0.0` | `npm run setup:check` renders colored output, all 8 checks run | 2026-08-21 |
-| `@testing-library/jest-dom` | `^6.9.1` → `^7.0.1` | 279/279 tests pass; `@testing-library/dom@^10.4.1` promoted transitive → explicit `devDependency` as v7 requires | 2026-08-21 |
+| `@testing-library/jest-dom` | `^6.9.1` → `^7.0.1` | 279/279 tests pass (at the time); `@testing-library/dom@^10.4.1` promoted transitive → explicit `devDependency` as v7 requires | 2026-08-21 |
 
 ## Lockfile platform drift (Windows -> Linux CI)
 
@@ -243,7 +252,8 @@ reports `ajv: 6.15.0 -> 8.20.0` and a missing `fast-uri`, which is what `npm ci`
 - **CI** — the `lockfile` job in `.github/workflows/test.yml`, on every push to `main` and
   every PR targeting `main` (the workflow's only triggers — a push to a feature branch with
   no open PR runs nothing). This is the authoritative check; it runs on Linux, on Node 22,
-  ahead of the `test` job, and cannot be skipped.
+  in parallel with the `test`, `lint` and `build` jobs (none has a `needs:`, so a
+  lockfile failure does not stop the others from running, but it still fails the run).
 
 Offline behavior: the check needs the registry. Locally it warns and passes when npm is
 unreachable (so an offline commit is not blocked); in CI (`process.env.CI`) it fails instead.
@@ -266,4 +276,4 @@ entanglement is inherent to those upstream packages, so the guard is the fix, no
 
 | Item | Outcome | Date |
 |---|---|---|
-| `vitest.config.ts` CJS/ESM warning | **Fixed** — renamed to `vitest.config.mts`, so Vite loads it as native ESM and the `configLoader: 'native'` warning is gone. Not a pure rename: the config used `__dirname`, which does not exist in an ESM `.mts` file, so the `@` alias would have silently resolved wrong. It now uses `fileURLToPath(new URL('./src', import.meta.url))` — `fileURLToPath` specifically, because `new URL(...).pathname` yields `/S:/MP/MPNext/src` on Windows. `tsconfig.json` also needed `**/*.mts` added to `include`, since `**/*.ts` does not match `.mts` and the config would otherwise have dropped out of type checking. Verified: 582/582 tests, coverage thresholds still enforced, build and lint clean. | 2026-08-27 |
+| `vitest.config.ts` CJS/ESM warning | **Fixed** — renamed to `vitest.config.mts`, so Vite loads it as native ESM and the `configLoader: 'native'` warning is gone. Not a pure rename: the config used `__dirname`, which does not exist in an ESM `.mts` file, so the `@` alias would have silently resolved wrong. It now uses `fileURLToPath(new URL('./src', import.meta.url))` — `fileURLToPath` specifically, because `new URL(...).pathname` yields `/S:/MP/MPNext/src` on Windows. `tsconfig.json` also needed `**/*.mts` added to `include`, since `**/*.ts` does not match `.mts` and the config would otherwise have dropped out of type checking. Verified: 582/582 tests (at the time), coverage thresholds still enforced, build and lint clean. | 2026-08-27 |

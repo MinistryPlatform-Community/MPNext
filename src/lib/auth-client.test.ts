@@ -8,8 +8,9 @@ import { authClient } from '@/lib/auth-client';
  * plugin wiring, but two things are worth guarding:
  *
  * 1. `customSessionClient` must be registered, otherwise the client-side session
- *    type loses the fields customSession adds on the server (firstName,
- *    lastName, userId, userGuid) and every consumer silently sees undefined.
+ *    type loses the fields customSession returns on the server (`userId`, and
+ *    the additional field `userGuid`) and every consumer silently sees
+ *    undefined.
  * 2. `signIn.social` must exist. better-auth 1.7 dropped `genericOAuthClient()`
  *    and moved generic OAuth providers onto the standard social API, so a
  *    regression here would break sign-in entirely.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Image from "next/image";
 import { Bars3Icon } from "@heroicons/react/24/outline";
 import { UserCircleIcon } from "@heroicons/react/24/solid";
@@ -8,73 +8,144 @@ import { Sidebar } from "./sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { useAppSession, useUser } from "@/contexts";
 
-export function Header() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+// The header is `fixed`, and `<main>` reserves its height with `mt-16`. Anything
+// rendered in its place — a skeleton, a Suspense fallback — must be fixed and
+// h-16 too, or content drops 64px while it shows and jumps back when it goes.
+const HEADER_CLASS =
+  "fixed top-0 left-0 right-0 z-50 bg-[#344767] shadow-sm border-b border-[#2d3a5f]";
+const BAR_CLASS = "flex items-center justify-between h-16 px-4";
+const HAMBURGER_CLASS =
+  "p-2 rounded-md text-white hover:text-gray-200 hover:bg-[#2d3a5f] focus:outline-none focus:ring-2 focus:ring-blue-300";
+const AVATAR_BUTTON_CLASS =
+  "p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300";
+
+function AppTitle() {
+  return (
+    <h1 className="text-lg font-semibold text-white truncate">
+      {process.env.NEXT_PUBLIC_APP_NAME || "MPNext"}
+    </h1>
+  );
+}
+
+/**
+ * The avatar slot while the MP profile loads (the Suspense fallback). Same
+ * 40px box as the loaded avatar. A user MP has no profile for gets the
+ * menu-bearing variant in `HeaderAvatar` instead, so they can still sign out.
+ */
+function AvatarPlaceholder() {
+  return (
+    <button className={AVATAR_BUTTON_CLASS} aria-label="User menu">
+      <UserCircleIcon className="h-8 w-8 text-white" />
+    </button>
+  );
+}
+
+/**
+ * The only part of the header that depends on the MP profile, so the only part
+ * that suspends on it. Isolating it keeps the bar, hamburger and sidebar on
+ * screen (and the sidebar's open state intact) while the profile loads.
+ */
+function HeaderAvatar() {
   const { userProfile } = useUser();
   const session = useAppSession();
 
+  if (!userProfile) {
+    // No MP profile (no `dp_Users` match, or the load failed and
+    // `UserProvider` resolved it to null) — but this header only renders
+    // inside the `(web)` shell, behind `AuthWrapper`, so there IS a session.
+    // The menu must still open and offer sign-out: a bare placeholder here
+    // left a shared machine signed in with no visible way out.
+    return (
+      <UserMenu userProfile={null}>
+        <button className={AVATAR_BUTTON_CLASS} aria-label="User menu" title="User menu">
+          <UserCircleIcon className="h-8 w-8 text-white" />
+        </button>
+      </UserMenu>
+    );
+  }
+
+  return (
+    <UserMenu userProfile={userProfile}>
+      <button
+        className={AVATAR_BUTTON_CLASS}
+        aria-label="User menu"
+        title={
+          userProfile.First_Name && userProfile.Last_Name
+            ? `${userProfile.First_Name} ${userProfile.Last_Name}`
+            : session?.user?.name ||
+              // `session.user.email` is a synthetic per-user value
+              // (see `syntheticEmailForSub` in src/lib/auth.ts); the
+              // real MP address is the `mpEmail` additional field.
+              (session?.user as { mpEmail?: string | null } | undefined)?.mpEmail ||
+              "User menu"
+        }
+      >
+        {userProfile.Image_GUID ? (
+          <Image
+            src={`${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${userProfile.Image_GUID}?$thumbnail=true`}
+            alt={
+              userProfile.First_Name && userProfile.Last_Name
+                ? `${userProfile.First_Name} ${userProfile.Last_Name}`
+                : "User avatar"
+            }
+            width={32}
+            height={32}
+            className="rounded-full object-cover border-2 border-white"
+            unoptimized
+          />
+        ) : (
+          <UserCircleIcon className="h-8 w-8 text-white" />
+        )}
+      </button>
+    </UserMenu>
+  );
+}
+
+/**
+ * A static, pixel-identical stand-in for the header, for use as a Suspense
+ * fallback. `Header` itself should never suspend (its avatar has its own
+ * boundary), so this only guards against a future descendant that does.
+ */
+export function HeaderSkeleton() {
+  return (
+    <header className={HEADER_CLASS} aria-busy="true">
+      <div className={BAR_CLASS}>
+        <span className="p-2" aria-hidden="true">
+          <Bars3Icon className="h-6 w-6 text-white" />
+        </span>
+        <AppTitle />
+        <span className="p-1" aria-hidden="true">
+          <UserCircleIcon className="h-8 w-8 text-white" />
+        </span>
+      </div>
+    </header>
+  );
+}
+
+export function Header() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#344767] shadow-sm border-b border-[#2d3a5f]">
-        <div className="flex items-center justify-between h-16 px-4">
+      <header className={HEADER_CLASS}>
+        <div className={BAR_CLASS}>
           {/* Left side - Hamburger menu */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 rounded-md text-white hover:text-gray-200 hover:bg-[#2d3a5f] focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className={HAMBURGER_CLASS}
             aria-label="Open menu"
           >
             <Bars3Icon className="h-6 w-6" />
           </button>
 
           {/* Center - App title */}
-          <h1 className="text-lg font-semibold text-white truncate">
-            {process.env.NEXT_PUBLIC_APP_NAME || "MPNext"}
-          </h1>
+          <AppTitle />
 
           {/* Right side - User avatar */}
           <div className="relative">
-            {userProfile ? (
-              <UserMenu userProfile={userProfile}>
-                <button
-                  className="p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  aria-label="User menu"
-                  title={
-                    userProfile?.First_Name && userProfile?.Last_Name
-                      ? `${userProfile.First_Name} ${userProfile.Last_Name}`
-                      : session?.user?.name ||
-                        // `session.user.email` is a synthetic per-user value
-                        // (see `syntheticEmailForSub` in src/lib/auth.ts); the
-                        // real MP address is the `mpEmail` additional field.
-                        (session?.user as { mpEmail?: string | null } | undefined)?.mpEmail ||
-                        "User menu"
-                  }
-                >
-                  {userProfile?.Image_GUID ? (
-                    <Image
-                      src={`${process.env.NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL}/${userProfile.Image_GUID}?$thumbnail=true`}
-                      alt={
-                        userProfile.First_Name && userProfile.Last_Name
-                          ? `${userProfile.First_Name} ${userProfile.Last_Name}`
-                          : "User avatar"
-                      }
-                      width={32}
-                      height={32}
-                      className="rounded-full object-cover border-2 border-white"
-                      unoptimized
-                    />
-                  ) : (
-                    <UserCircleIcon className="h-8 w-8 text-white" />
-                  )}
-                </button>
-              </UserMenu>
-            ) : (
-              <button
-                className="p-1 rounded-full text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                aria-label="User menu"
-              >
-                <UserCircleIcon className="h-8 w-8 text-white" />
-              </button>
-            )}
+            <Suspense fallback={<AvatarPlaceholder />}>
+              <HeaderAvatar />
+            </Suspense>
           </div>
         </div>
       </header>

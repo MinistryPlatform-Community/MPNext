@@ -37,6 +37,7 @@ ministry-platform/
 │   ├── metadata.service.ts
 │   ├── domain.service.ts
 │   ├── file.service.ts
+│   ├── guards.ts               # sanitizeIdentifier, errorName (path-segment + log guards)
 │   └── index.ts                # Barrel export
 ├── models/                     # Generated types + Zod schemas (one pair per MP table)
 │   ├── Contacts.ts
@@ -92,7 +93,7 @@ await mp.createTableRecords('Contact_Log', [{
 ## Environment Variables
 
 ```env
-MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com
+MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 MINISTRY_PLATFORM_CLIENT_ID=your_client_id
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 ```
@@ -161,6 +162,9 @@ mp.deleteTableRecords<T>(
 `getTableRecords` takes camelCase keys and maps them onto MP's `$`-prefixed query
 parameters internally. The write methods take the `$`-prefixed keys directly.
 
+Table names must be plain identifiers (`/^[A-Za-z_][A-Za-z0-9_]*$/`, at most 128
+characters); anything else throws `Invalid table name` before a request is built.
+
 ### Procedures
 
 ```typescript
@@ -174,24 +178,94 @@ mp.executeProcedureWithBody(
 
 Both execute methods return an array of result sets (`unknown[][]`), not a flat row array.
 
+**Execution is allowlisted, and the default list is empty.** The service account can run
+any procedure MP exposes, including ones that mutate data, so both execute methods refuse
+a name unless it is a plain identifier (`/^[A-Za-z_][A-Za-z0-9_]*$/`, at most 128
+characters) *and* on the allowlist. Matching is exact and case-sensitive, and the refusal
+happens before any token or network work. Out of the box `ALLOWED_PROCEDURES` is `[]`, so
+every execute call fails with `Procedure is not on the allowlist`. `getProcedures` is
+metadata only and is not gated.
+
+To enable a procedure, give the `MPHelper` that calls it a fixed list. (Hypothetical
+example — there is no `StatsService` or `api_MyChurch_Get_Stats` in this repo.)
+
+```typescript
+// Hypothetical src/services/statsService.ts: the allowlist sits next to its only caller
+const STATS_PROCEDURES = ['api_MyChurch_Get_Stats'] as const;
+
+export class StatsService {
+  private mp = new MPHelper({ allowedProcedures: STATS_PROCEDURES });
+
+  async getStats(congregationId: number) {
+    await AuthorizationService.getInstance().requireSecurityRole({ /* ... */ });
+    return this.mp.executeProcedure('api_MyChurch_Get_Stats', {
+      '@CongregationID': sanitizeNumericId(congregationId, 'congregation ID'),
+    });
+  }
+}
+```
+
+- The list is per `MPHelper` instance and adds to `ALLOWED_PROCEDURES`. Other helper
+  instances, including every existing service's `new MPHelper()`, stay deny-all.
+- Names are validated when the helper is constructed. An invalid name throws
+  `Invalid allowed procedure name` at startup, not on first use.
+- Keep the list a constant in code, never built from request input. The allowlist is
+  the only thing stopping a caller-chosen name from reaching a mutating procedure.
+- No library file changes, so a fork can enable procedures without editing
+  `services/procedure.service.ts`. Adding a name app-wide by editing `ALLOWED_PROCEDURES`
+  there still works, but then every helper instance can run it.
+
 ### Communications
 
 ```typescript
 mp.createCommunication(
-  communication: CommunicationInfo,
+  communication: CommunicationContent,   // CommunicationInfo minus AuthorUserId / FromContactId
+  sender: CommunicationSender,           // { authorUserId, fromContactId }
   attachments?: File[]
 ): Promise<Communication>
 
-mp.sendMessage(message: MessageInfo, attachments?: File[]): Promise<Communication>
+mp.sendMessage(
+  message: MessageContent,               // MessageInfo minus FromAddress
+  sender: MessageSender,                 // { fromAddress: { DisplayName, Address } }
+  attachments?: File[]
+): Promise<Communication>
 ```
 
 When `attachments` is non-empty the request goes out as multipart form data, otherwise as JSON.
 
-`CommunicationInfo.CommunicationType` mirrors MP's `Platform.Messaging.CommunicationType`
-enum — `'Unknown' | 'Email' | 'SMS' | 'RssFeed' | 'GlobalMFA'`. An `'SMS'` communication must
-also carry `TextPhoneNumberId` (`dp_SMS_Numbers.SMS_Number_ID` of the outbound number); the
-type requires it, and `createCommunication` re-checks before it spends a round trip. MP answers
-either mistake with an opaque HTTP 500 rather than a 400.
+**The sender is a required, separate argument, and it must be trusted.** The service
+account can send as anyone, and `MPHelper` has no session and no authorization gate of
+its own. So the author and From contact (or From address) come only from `sender`. Any
+`AuthorUserId`, `FromContactId` or `FromAddress` left on the content is ignored and
+overwritten. The call is refused before anything is sent if `sender` is missing or
+malformed.
+
+The caller is a service method that has already run
+`AuthorizationService.requireSecurityRole`. It builds `sender` from the `User_ID` that gate
+returned and a contact (or address) that user may send as, looked up server-side. It never
+builds `sender` from request input such as form fields, server action arguments or query
+strings.
+
+```typescript
+const userId = await AuthorizationService.getInstance().requireSecurityRole({
+  table: 'dp_Communications',
+  operation: 'create',
+});
+const fromContactId = await this.getContactIdForUser(userId); // server-side lookup
+await mp.createCommunication(content, { authorUserId: userId, fromContactId });
+```
+
+The content itself is validated too. The payload is rebuilt from the known fields only, so
+extra keys are dropped. `CommunicationType` must be `Email` or `SMS`, and an `SMS`
+communication must also carry `TextPhoneNumberId` (`dp_SMS_Numbers.SMS_Number_ID` of the
+outbound number). IDs must be positive integers. Subjects and display names must not contain control characters, and
+addresses must be single plain addresses.
+
+`CommunicationType` is deliberately narrower than MP's `Platform.Messaging.CommunicationType`
+enum (`Unknown | Email | SMS | RssFeed | GlobalMFA`): the template permits only `Email` and
+`SMS`, in both the type and the runtime check. MP has no `Text` or `Letter` member. MP answers
+an unknown type, or an `SMS` send without `TextPhoneNumberId`, with an opaque HTTP 500 rather
+than a 400, so both are refused before anything is sent.
 
 ### Files
 
@@ -244,11 +318,11 @@ mp.refreshMetadata(): Promise<void>
 
 ```typescript
 mp.getDomainInfo(): Promise<DomainInfo>
-mp.getGlobalFilters(params?: {
-  $ignorePermissions?: boolean;
-  $userId?: number;
-}): Promise<GlobalFilterItem[]>
+mp.getGlobalFilters(params?: { $userId?: number }): Promise<GlobalFilterItem[]>
 ```
+
+`$ignorePermissions` is not supported. Requests already run as the admin-level service
+account, and `DomainService` drops the flag even if a JavaScript caller sends it.
 
 ## Zod Validation
 
@@ -320,7 +394,7 @@ npm run mp:generate:models
 npm run mp:generate:storedprocs
 
 # Or use directly with options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
 
 See [scripts/README.md](../scripts/README.md) for full documentation.

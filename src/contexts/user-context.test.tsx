@@ -1,16 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, renderHook, screen, waitFor, act } from '@testing-library/react';
 import { Component, ReactNode, Suspense } from 'react';
+import type { CurrentUserProfile } from '@/lib/dto';
 
-const { mockUseSession, mockGetCurrentUserProfile } = vi.hoisted(() => ({
-  mockUseSession: vi.fn(),
+/**
+ * UserProvider / useUser tests.
+ *
+ * The profile promise is started on the server (ServerProviders) and handed in
+ * as a prop, so the provider's own job is small: expose that promise, let
+ * `useUser()` suspend on it, and swap in a client-side reload on
+ * `refreshUserProfile()` — inside a transition, so already-rendered consumers
+ * keep their content instead of falling back to Suspense (the header flicker
+ * this design replaced).
+ */
+
+const { mockGetCurrentUserProfile } = vi.hoisted(() => ({
   mockGetCurrentUserProfile: vi.fn(),
-}));
-
-vi.mock('@/lib/auth-client', () => ({
-  authClient: {
-    useSession: mockUseSession,
-  },
 }));
 
 vi.mock('@/components/shared-actions/user', () => ({
@@ -18,6 +23,11 @@ vi.mock('@/components/shared-actions/user', () => ({
 }));
 
 import { UserProvider, useUser } from './user-context';
+
+const profile = {
+  First_Name: 'John',
+  Last_Name: 'Doe',
+} as CurrentUserProfile;
 
 function ProfileProbe({
   onRefresh,
@@ -47,18 +57,31 @@ class Boundary extends Component<
   }
 }
 
-async function renderWithProvider(ui: ReactNode) {
+function tree(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
+  return (
+    <UserProvider profilePromise={promise}>
+      <Boundary>
+        <Suspense fallback={<div data-testid="loading">loading</div>}>{ui}</Suspense>
+      </Boundary>
+    </UserProvider>
+  );
+}
+
+async function renderWithProvider(promise: Promise<CurrentUserProfile | null>, ui: ReactNode) {
   let result!: ReturnType<typeof render>;
   await act(async () => {
-    result = render(
-      <UserProvider>
-        <Boundary>
-          <Suspense fallback={<div>loading</div>}>{ui}</Suspense>
-        </Boundary>
-      </UserProvider>
-    );
+    result = render(tree(promise, ui));
   });
   return result;
+}
+
+/** A promise the test resolves by hand, to observe the pending state. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 describe('UserContext', () => {
@@ -79,96 +102,140 @@ describe('UserContext', () => {
   });
 
   describe('UserProvider', () => {
-    it('should load profile when session has userGuid', async () => {
-      const mockProfile = {
-        User_ID: 1,
-        User_GUID: 'guid-123',
-        First_Name: 'John',
-        Last_Name: 'Doe',
-      };
-
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
-        isPending: false,
-      });
-      mockGetCurrentUserProfile.mockResolvedValueOnce(mockProfile);
-
-      await renderWithProvider(<ProfileProbe />);
+    it('should expose the profile from the server-started promise', async () => {
+      await renderWithProvider(Promise.resolve(profile), <ProfileProbe />);
 
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('John');
       });
-      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith();
+      // The server already started the load; the client must not repeat it.
+      expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
     });
 
-    it('should resolve to null profile when no session', async () => {
-      mockUseSession.mockReturnValue({
-        data: null,
-        isPending: false,
-      });
-
-      await renderWithProvider(<ProfileProbe />);
+    it('should expose a null profile', async () => {
+      await renderWithProvider(Promise.resolve(null), <ProfileProbe />);
 
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
-      expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
     });
 
-    it('should not fetch profile when session has no userGuid', async () => {
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id' } },
-        isPending: false,
+    it('should suspend consumers until the promise resolves', async () => {
+      const pending = deferred<CurrentUserProfile | null>();
+      await renderWithProvider(pending.promise, <ProfileProbe />);
+
+      expect(screen.getByTestId('loading')).toBeInTheDocument();
+      expect(screen.queryByTestId('name')).toBeNull();
+
+      await act(async () => {
+        pending.resolve(profile);
       });
 
-      await renderWithProvider(<ProfileProbe />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('name')).toHaveTextContent('none');
-      });
-      expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
+      expect(screen.getByTestId('name')).toHaveTextContent('John');
     });
 
-    it('should propagate profile load error to ErrorBoundary', async () => {
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
-        isPending: false,
-      });
-      mockGetCurrentUserProfile.mockRejectedValueOnce(new Error('Network error'));
-
+    it('should degrade a failed profile load to null instead of throwing to a boundary', async () => {
+      // The header — the shell's only sign-out control — reads this promise
+      // from ABOVE (web)/error.tsx. A rejection used to escape to the root
+      // boundary and take the whole shell (and sign-out) with it.
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      await renderWithProvider(<ProfileProbe />);
+      await renderWithProvider(
+        Promise.reject(new Error('ConnectTimeoutError: pastoral note text')),
+        <ProfileProbe />
+      );
 
       await waitFor(() => {
-        expect(screen.getByTestId('err')).toHaveTextContent('Network error');
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
+      expect(screen.queryByTestId('err')).toBeNull();
+      // Logged by identifier and shape only — never the message.
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'Error' });
+      expect(JSON.stringify(spy.mock.calls)).not.toContain('pastoral');
 
       spy.mockRestore();
     });
 
-    it('should refresh profile when refreshUserProfile is called', async () => {
-      const mockProfile = { User_ID: 1, User_GUID: 'guid-123', First_Name: 'John' };
-      const updatedProfile = { User_ID: 1, User_GUID: 'guid-123', First_Name: 'Jane' };
-
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
-        isPending: false,
+    // A promise streamed from a Server Component arrives as React Flight's
+    // `ReactPromise`: a Promise subclass whose `then()` returns `undefined`, so
+    // `.catch()` on it returns `undefined` too. Plain Promises hide that.
+    function flightPromise<T>(settle: (res: (v: T) => void, rej: (e: unknown) => void) => void) {
+      const inner = new Promise<T>(settle);
+      const p = Object.create(Promise.prototype) as Promise<T>;
+      Object.defineProperty(p, 'then', {
+        value: (onFulfilled?: (v: T) => unknown, onRejected?: (e: unknown) => unknown) => {
+          inner.then(onFulfilled, onRejected);
+          return undefined;
+        },
       });
-      mockGetCurrentUserProfile
-        .mockResolvedValueOnce(mockProfile)
-        .mockResolvedValueOnce(updatedProfile);
+      return p;
+    }
 
+    it('should read a Flight-streamed promise whose then() returns undefined', async () => {
+      await renderWithProvider(flightPromise((res) => res(profile)), <ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+      expect(screen.queryByTestId('err')).toBeNull();
+    });
+
+    it('should degrade a rejected Flight-streamed promise to null', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(
+        flightPromise<CurrentUserProfile | null>((_res, rej) => rej(new Error('down'))),
+        <ProfileProbe />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'Error' });
+
+      spy.mockRestore();
+    });
+
+    it('should log a non-Error rejection by its type', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await renderWithProvider(Promise.reject('boom'), <ProfileProbe />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+      expect(spy).toHaveBeenCalledWith('user.profile.load_failed', { name: 'string' });
+
+      spy.mockRestore();
+    });
+
+    it('should follow a new promise from a server re-render', async () => {
+      const result = await renderWithProvider(Promise.resolve(profile), <ProfileProbe />);
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        result.rerender(
+          tree(Promise.resolve({ ...profile, First_Name: 'Jane' }), <ProfileProbe />)
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('Jane');
+      });
+    });
+  });
+
+  describe('refreshUserProfile', () => {
+    it('should reload the profile via the server action', async () => {
+      mockGetCurrentUserProfile.mockResolvedValueOnce({ ...profile, First_Name: 'Jane' });
       const refreshRef: { current: (() => void) | null } = { current: null };
 
       await renderWithProvider(
-        <ProfileProbe
-          onRefresh={(fn) => {
-            refreshRef.current = fn;
-          }}
-        />
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
       );
-
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('John');
       });
@@ -180,39 +247,83 @@ describe('UserContext', () => {
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('Jane');
       });
-
-      expect(mockGetCurrentUserProfile).toHaveBeenCalledTimes(2);
-    });
-  });
-
-    it('should not fetch while the session is still pending', async () => {
-      // Fetching during isPending would fire with a userGuid that may still change,
-      // then race the real value.
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
-        isPending: true,
-      });
-
-      await renderWithProvider(<ProfileProbe />);
-
-      expect(mockGetCurrentUserProfile).not.toHaveBeenCalled();
-      expect(screen.getByTestId('name')).toHaveTextContent('none');
+      expect(mockGetCurrentUserProfile).toHaveBeenCalledTimes(1);
+      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith();
     });
 
-    it('should normalize an undefined profile to null', async () => {
-      // getCurrentUserProfile returns MPUserProfile | undefined; the context
-      // coerces undefined to null so consumers only handle one empty value.
-      mockUseSession.mockReturnValue({
-        data: { user: { id: 'internal-id', userGuid: 'guid-123' } },
-        isPending: false,
-      });
-      mockGetCurrentUserProfile.mockResolvedValueOnce(undefined);
+    it('should keep showing the current profile while the reload is in flight', async () => {
+      // The regression this guards: a non-transition update swapped rendered
+      // consumers (the whole header) for their Suspense fallback mid-reload.
+      const reload = deferred<CurrentUserProfile | undefined>();
+      mockGetCurrentUserProfile.mockReturnValueOnce(reload.promise);
+      const refreshRef: { current: (() => void) | null } = { current: null };
 
-      await renderWithProvider(<ProfileProbe />);
+      await renderWithProvider(
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        refreshRef.current?.();
+      });
+
+      expect(screen.queryByTestId('loading')).toBeNull();
+      expect(screen.getByTestId('name')).toHaveTextContent('John');
+
+      await act(async () => {
+        reload.resolve({ ...profile, First_Name: 'Jane' });
+      });
+
+      expect(screen.getByTestId('name')).toHaveTextContent('Jane');
+    });
+
+    it('should degrade a failed reload to null', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockGetCurrentUserProfile.mockRejectedValueOnce(new Error('MP down'));
+      const refreshRef: { current: (() => void) | null } = { current: null };
+
+      await renderWithProvider(
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        refreshRef.current?.();
+      });
 
       await waitFor(() => {
         expect(screen.getByTestId('name')).toHaveTextContent('none');
       });
-      expect(mockGetCurrentUserProfile).toHaveBeenCalledWith();
+      expect(screen.queryByTestId('err')).toBeNull();
+
+      spy.mockRestore();
     });
+
+    it('should normalize an undefined reloaded profile to null', async () => {
+      mockGetCurrentUserProfile.mockResolvedValueOnce(undefined);
+      const refreshRef: { current: (() => void) | null } = { current: null };
+
+      await renderWithProvider(
+        Promise.resolve(profile),
+        <ProfileProbe onRefresh={(fn) => (refreshRef.current = fn)} />
+      );
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('John');
+      });
+
+      await act(async () => {
+        refreshRef.current?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('name')).toHaveTextContent('none');
+      });
+    });
+  });
 });

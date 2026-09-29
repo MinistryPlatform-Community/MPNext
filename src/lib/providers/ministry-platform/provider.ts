@@ -2,17 +2,21 @@ import { MinistryPlatformClient } from "./client";
 import { 
     TableService,
     ProcedureService,
+    ALLOWED_PROCEDURES,
     CommunicationService,
     MetadataService,
     DomainService,
     FileService
 } from "./services";
+import type { CommunicationSender, MessageSender } from "./services";
 import { 
     TableQueryParams, 
     ProcedureInfo, 
     CommunicationInfo, 
+    CommunicationContent,
     Communication, 
     MessageInfo,
+    MessageContent,
     DomainInfo,
     GlobalFilterItem,
     GlobalFilterParams,
@@ -191,55 +195,92 @@ export class MinistryPlatformProvider {
      * Executes the requested stored procedure retrieving parameters from the query string.
      * @param procedure Stored procedure name
      * @param params Query parameters to pass to the procedure
+     * @param allowedProcedures Extra procedure names this call may run, on top of
+     *   {@link ALLOWED_PROCEDURES}. Supplied by `MPHelper` from its constructor
+     *   option; it must be a fixed list in code, never derived from request input.
      * @returns Promise with the procedure results
      */
     public async executeProcedure(
         procedure: string, 
-        params?: QueryParams
+        params?: QueryParams,
+        allowedProcedures?: Iterable<string>
     ): Promise<unknown[][]> {
-        return this.procedureService.executeProcedure(procedure, params);
+        return this.procedureServiceFor(allowedProcedures).executeProcedure(procedure, params);
     }
 
     /**
      * Executes the requested stored procedure with provided parameters in the request body.
      * @param procedure Stored procedure name
      * @param parameters Parameters to be used for calling stored procedure
+     * @param allowedProcedures As for {@link executeProcedure}
      * @returns Promise with the procedure results
      */
     public async executeProcedureWithBody(
         procedure: string, 
-        parameters: Record<string, unknown>
+        parameters: Record<string, unknown>,
+        allowedProcedures?: Iterable<string>
     ): Promise<unknown[][]> {
-        return this.procedureService.executeProcedureWithBody(procedure, parameters);
+        return this.procedureServiceFor(allowedProcedures).executeProcedureWithBody(procedure, parameters);
+    }
+
+    /**
+     * The shared ProcedureService (built-in allowlist only) when no extra names
+     * are given; otherwise a short-lived one whose allowlist is the built-in
+     * list plus those names. ProcedureService holds only the shared client and
+     * a Set, so building one per call is cheap and keeps each caller's
+     * allowlist from leaking into anyone else's.
+     */
+    private procedureServiceFor(allowedProcedures?: Iterable<string>): ProcedureService {
+        if (allowedProcedures === undefined) {
+            return this.procedureService;
+        }
+        return new ProcedureService(this.client, {
+            allowedProcedures: [...ALLOWED_PROCEDURES, ...allowedProcedures],
+        });
     }
 
     // Communication Service Methods
     /**
      * Creates a new communication, immediately renders it and schedules for delivery.
      * Supports both simple JSON communication and multipart form data with file attachments.
-     * @param communication Communication information object
+     *
+     * The author and From contact come only from `sender`, which the caller must
+     * build from trusted server state (see `MPHelper.createCommunication`).
+     * @param communication Communication content (author/from fields, if present, are ignored)
+     * @param sender Trusted author `User_ID` and From `Contact_ID`
      * @param attachments Optional array of file attachments
      * @returns Promise with the created communication
      */
     public async createCommunication(
-        communication: CommunicationInfo,
+        communication: CommunicationContent,
+        sender: CommunicationSender,
         attachments?: File[]
     ): Promise<Communication> {
-        return this.communicationService.createCommunication(communication, attachments);
+        // CommunicationService rebuilds the payload and stamps AuthorUserId /
+        // FromContactId from `sender`, so the content never needs them.
+        return this.communicationService.createCommunication(
+            communication as CommunicationInfo,
+            attachments,
+            sender
+        );
     }
 
     /**
      * Creates email messages from the provided information and immediately schedules them for delivery.
      * Supports both simple JSON message and multipart form data with file attachments.
-     * @param message Message information object
+     *
+     * The From address comes only from `sender` (see `MPHelper.sendMessage`).
+     * @param message Message content (a `FromAddress`, if present, is ignored)
+     * @param sender Trusted From address
      * @param attachments Optional array of file attachments
      * @returns Promise with the created communication
      */
     public async sendMessage(
-        message: MessageInfo,
+        message: MessageContent,
+        sender: MessageSender,
         attachments?: File[]
     ): Promise<Communication> {
-        return this.communicationService.sendMessage(message, attachments);
+        return this.communicationService.sendMessage(message as MessageInfo, attachments, sender);
     }
 
     // File Service Methods

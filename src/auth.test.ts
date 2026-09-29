@@ -12,6 +12,11 @@ const { mockGetTableRecords } = vi.hoisted(() => ({
   mockGetTableRecords: vi.fn(),
 }));
 
+// Mock MP OIDC server (discovery with `issuer` + `jwks_uri`, a local JWKS), so
+// the instance under test is built on the VERIFIED id_token path, not with the
+// provider skipped by a failed discovery fetch. Any other fetch throws.
+await vi.hoisted(async () => (await import('@/test-utils/mock-oidc')).installMockOidc());
+
 // MPHelper is mocked as a class (not vi.fn().mockImplementation) so `new MPHelper()`
 // inside resolveMpUserId picks up the stubbed method — see .claude/references/testing.md.
 vi.mock('@/lib/providers/ministry-platform', () => ({
@@ -20,7 +25,31 @@ vi.mock('@/lib/providers/ministry-platform', () => ({
   },
 }));
 
-import { auth, userAdditionalFields, enrichSessionUser, syntheticEmailForSub } from '@/lib/auth';
+import {
+  auth,
+  userAdditionalFields,
+  enrichSessionUser,
+  syntheticEmailForSub,
+  USER_ID_FAILURE_CACHE_TTL_MS,
+  USER_ID_NOT_FOUND_CACHE_TTL_MS,
+  USERINFO_TIMEOUT_MS,
+} from '@/lib/auth';
+
+/**
+ * An UNSIGNED compact JWT carrying the given payload. `getUserInfo` reads
+ * `sub`, `exp`, `aud` and `azp` from the id_token without verifying it
+ * (genericOAuth's wrapper verifies the signature before calling it — see
+ * `readIdTokenClaims` in src/lib/auth.ts), so calling the configured
+ * `getUserInfo` directly needs no real signature. `exp` defaults to five
+ * minutes from now, since `getUserInfo` refuses a token without one; pass
+ * `exp: undefined` to omit it. src/auth.id-token-sign-in.test.ts covers the
+ * signed, end-to-end path.
+ */
+function fakeIdToken(payload: Record<string, unknown>): string {
+  const enc = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+  const claims = { exp: Math.floor(Date.now() / 1000) + 300, ...payload };
+  return `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc(claims)}.sig`;
+}
 
 /**
  * Auth Tests
@@ -56,55 +85,22 @@ describe('Auth - enrichSessionUser', () => {
     vi.restoreAllMocks();
   });
 
-  describe('Name splitting', () => {
-    it('should split a full name into firstName and lastName', async () => {
-      const result = await enrichSessionUser(
-        { id: 'ba-internal-id', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501001' },
-        session,
+  describe('User fields', () => {
+    it('passes the user through and adds only userId (no firstName/lastName split)', async () => {
+      const user = {
+        id: 'ba-internal-id',
+        name: 'Mary Jane Van Der Berg',
+        email: 'x@mp.invalid',
+        userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501001',
+      };
+      const result = await enrichSessionUser(user, session);
+
+      // Exact key set: the split fields were dropped (nothing read them, and a
+      // name missing a part produced "undefined").
+      expect(Object.keys(result.user).sort()).toEqual(
+        ['email', 'id', 'name', 'userGuid', 'userId'],
       );
-
-      expect(result.user.firstName).toBe('John');
-      expect(result.user.lastName).toBe('Doe');
-    });
-
-    it('should keep multi-part last names intact', async () => {
-      const result = await enrichSessionUser(
-        { id: 'ba-internal-id', name: 'Mary Jane Van Der Berg', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501002' },
-        session,
-      );
-
-      expect(result.user.firstName).toBe('Mary');
-      expect(result.user.lastName).toBe('Jane Van Der Berg');
-    });
-
-    it('should return an empty lastName for a single-word name', async () => {
-      const result = await enrichSessionUser(
-        { id: 'ba-internal-id', name: 'Prince', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501003' },
-        session,
-      );
-
-      expect(result.user.firstName).toBe('Prince');
-      expect(result.user.lastName).toBe('');
-    });
-
-    it('should handle an undefined name without throwing', async () => {
-      const result = await enrichSessionUser(
-        { id: 'ba-internal-id', name: undefined, userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501004' },
-        session,
-      );
-
-      expect(result.user.firstName).toBe('');
-      expect(result.user.lastName).toBe('');
-    });
-
-    it('should handle an empty-string name', async () => {
-      const result = await enrichSessionUser(
-        { id: 'ba-internal-id', name: '', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501005' },
-        session,
-      );
-
-      expect(result.user.firstName).toBe('');
-      expect(result.user.lastName).toBe('');
+      expect(result.user).toMatchObject({ ...user, userId: 4242 });
     });
   });
 
@@ -126,13 +122,40 @@ describe('Auth - enrichSessionUser', () => {
       expect(result.user.userGuid).toBe('ab12cd34-ef56-7890-abcd-ef1234501006');
     });
 
-    it('should pass the session object through by reference, unmodified', async () => {
+    /**
+     * Review item security-client-data-overexposure: `/get-session` must not hand page
+     * JS the raw session token (a bearer credential if a `bearer` plugin is ever
+     * added) or the recorded IP / user agent.
+     */
+    it('withholds token, ipAddress and userAgent from the session (exact key set)', async () => {
+      const fullSession = {
+        id: 'session-123',
+        token: 'raw-session-token',
+        userId: 'ba-internal-id',
+        expiresAt: new Date('2026-09-29T12:00:00Z'),
+        createdAt: new Date('2026-09-29T00:00:00Z'),
+        updatedAt: new Date('2026-09-29T00:00:00Z'),
+        ipAddress: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 test',
+      };
       const result = await enrichSessionUser(
         { id: 'ba-internal-id', name: 'John Doe', userGuid: 'ab12cd34-ef56-7890-abcd-ef1234501007' },
-        session,
+        fullSession,
       );
 
-      expect(result.session).toBe(session);
+      expect(Object.keys(result.session).sort()).toEqual(
+        ['createdAt', 'expiresAt', 'id', 'updatedAt', 'userId'],
+      );
+      expect(result.session).toEqual({
+        id: 'session-123',
+        userId: 'ba-internal-id',
+        expiresAt: fullSession.expiresAt,
+        createdAt: fullSession.createdAt,
+        updatedAt: fullSession.updatedAt,
+      });
+      // A copy: better-auth's own session object is left untouched.
+      expect(result.session).not.toBe(fullSession);
+      expect(fullSession.token).toBe('raw-session-token');
     });
 
     it('should not add userProfile to the session', async () => {
@@ -234,18 +257,6 @@ describe('Auth - enrichSessionUser', () => {
       expect(result.user.userId).toBeNull();
     });
 
-    it('should not cache a failed resolution', async () => {
-      const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502007';
-      mockGetTableRecords.mockResolvedValueOnce([]).mockResolvedValueOnce([{ User_ID: 77 }]);
-
-      const first = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
-      const second = await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
-
-      expect(first.user.userId).toBeNull();
-      expect(second.user.userId).toBe(77);
-      expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
-    });
-
     it('should never block session creation when the MP lookup throws', async () => {
       // A failed User_ID lookup must degrade to null, not reject — otherwise a
       // transient MP outage logs every user out. The missing attribution surfaces
@@ -258,8 +269,34 @@ describe('Auth - enrichSessionUser', () => {
       );
 
       expect(result.user.userId).toBeNull();
-      expect(result.user.firstName).toBe('John');
+      expect(result.user.name).toBe('John Doe');
       expect(console.error).toHaveBeenCalled();
+    });
+
+    /**
+     * Review item security-resolve-mp-user-id-logs-guid-and-no-negative-cache: the
+     * failure log is a structured event with no GUID, and never the error
+     * message (an MP client error can carry the `$filter`, which holds the GUID).
+     */
+    it('logs a structured event that never contains the GUID or the error message', async () => {
+      const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502009';
+      mockGetTableRecords.mockRejectedValueOnce(
+        new Error(`GET /tables/dp_Users?$filter=User_GUID = '${userGuid}' failed`),
+      );
+
+      await enrichSessionUser({ id: 'ba', name: 'John Doe', userGuid }, session);
+
+      const calls = vi.mocked(console.error).mock.calls;
+      expect(calls).toHaveLength(1);
+      const logged = calls.flat().map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+      expect(logged.toLowerCase()).not.toContain(userGuid.toLowerCase());
+      expect(logged).not.toContain('dp_Users?$filter');
+      expect(JSON.parse(String(calls[0][0]))).toEqual({
+        event: 'auth.session.user_id_unresolved',
+        message: expect.any(String),
+        reason: 'lookup_failed',
+        errName: 'Error',
+      });
     });
 
     it('should reject a malformed userGuid rather than interpolating it into the filter', async () => {
@@ -273,6 +310,99 @@ describe('Auth - enrichSessionUser', () => {
       expect(result.user.userId).toBeNull();
       expect(mockGetTableRecords).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * Negative cache for `resolveMpUserId` (review item
+ * security-resolve-mp-user-id-logs-guid-and-no-negative-cache). customSession
+ * runs on every `/get-session`, so an uncached failure cost one MP query (and
+ * one log line) per request. Fake `Date` only: the module-level cache compares
+ * against `Date.now()`.
+ */
+describe('Auth - enrichSessionUser negative cache', () => {
+  const session = { id: 'session-123', userId: 'ba-internal-id' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-29T08:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('pins the windows (30 s after an error, 5 min for "no such user")', () => {
+    expect(USER_ID_FAILURE_CACHE_TTL_MS).toBe(30 * 1000);
+    expect(USER_ID_NOT_FOUND_CACHE_TTL_MS).toBe(5 * 60 * 1000);
+  });
+
+  it('makes at most one MP call, and logs once, while MP is failing within the window', async () => {
+    const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502101';
+    mockGetTableRecords.mockRejectedValue(new Error('MP unreachable'));
+
+    for (let i = 0; i < 5; i++) {
+      vi.setSystemTime(Date.now() + 5_000);
+      const result = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+      expect(result.user.userId).toBeNull();
+    }
+    // 5 calls spread over 25 s — all inside the 30 s window.
+    expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries after the failure window, and recovers attribution once MP is back', async () => {
+    const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502102';
+    mockGetTableRecords.mockRejectedValueOnce(new Error('MP unreachable')).mockResolvedValue([{ User_ID: 77 }]);
+
+    const first = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    vi.setSystemTime(Date.now() + USER_ID_FAILURE_CACHE_TTL_MS - 1);
+    const inside = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 1);
+    const after = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+
+    expect(first.user.userId).toBeNull();
+    expect(inside.user.userId).toBeNull();
+    expect(after.user.userId).toBe(77);
+    expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
+  });
+
+  it('remembers "no such user" for the longer window, then re-reads dp_Users', async () => {
+    const userGuid = 'ab12cd34-ef56-7890-abcd-ef1234502103';
+    mockGetTableRecords.mockResolvedValueOnce([]).mockResolvedValue([{ User_ID: 88 }]);
+
+    const t0 = Date.now();
+    const first = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    // Past the error window, still inside the not-found window: no MP call.
+    vi.setSystemTime(t0 + USER_ID_FAILURE_CACHE_TTL_MS + 1);
+    await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    vi.setSystemTime(t0 + USER_ID_NOT_FOUND_CACHE_TTL_MS - 1);
+    const inside = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(t0 + USER_ID_NOT_FOUND_CACHE_TTL_MS);
+    const after = await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+
+    expect(first.user.userId).toBeNull();
+    expect(inside.user.userId).toBeNull();
+    expect(after.user.userId).toBe(88);
+    expect(mockGetTableRecords).toHaveBeenCalledTimes(2);
+    // "No such user" is an answer, not an error: nothing is logged.
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('negative-caches a malformed userGuid too (sanitizeGuid throws before any MP call)', async () => {
+    const userGuid = "' OR 1=1 -- negative-cache";
+    await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+    await enrichSessionUser({ id: 'ba', name: 'A B', userGuid }, session);
+
+    expect(mockGetTableRecords).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -304,13 +434,18 @@ describe('Auth - OAuth Configuration', () => {
 
     expect(config.providerId).toBe('ministry-platform');
     expect(config.scopes).toContain('openid');
-    expect(config.scopes).toContain('offline_access');
+    // No refresh token is ever used, so none is requested.
+    expect(config.scopes).not.toContain('offline_access');
     expect(config.scopes).toContain(
       'http://www.thinkministry.com/dataplatform/scopes/all',
     );
-    // MP rejects PKCE today; better-auth 1.7 defaults it to true (OAuth 2.1),
-    // so this must stay explicitly false until MP is verified to accept S256.
+    // MP does not support PKCE; better-auth 1.7 defaults it to true (OAuth
+    // 2.1), so this must stay explicitly false (accepted risk F8 — see the
+    // nonce comment in src/lib/auth.ts).
     expect(config.pkce).toBe(false);
+    // A partial discovery document must not silently disable id_token
+    // verification. Behavioural guard: src/auth.oidc-hardening.test.ts.
+    expect(config.requireIdTokenVerification).toBe(true);
     expect(config.authorizationUrlParams).toEqual({ realm: 'realm' });
   });
 
@@ -374,11 +509,16 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(fetchSpy).toHaveBeenCalledWith(
       `${process.env.MINISTRY_PLATFORM_BASE_URL}/oauth/connect/userinfo`,
-      { headers: { Authorization: 'Bearer access-token' } },
+      {
+        headers: { Authorization: 'Bearer access-token' },
+        signal: expect.any(AbortSignal),
+        redirect: 'error',
+      },
     );
     // This is the field better-auth resolves the account subject from.
     expect(profile).toMatchObject({
@@ -417,6 +557,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: false });
@@ -441,6 +582,7 @@ describe('Auth - OAuth Configuration', () => {
 
     const profile = await config.getUserInfo!({
       accessToken: 'access-token',
+      idToken: fakeIdToken({ sub: guid }),
     } as OAuth2Tokens);
 
     expect(profile).toMatchObject({ emailVerified: true });
@@ -451,11 +593,190 @@ describe('Auth - OAuth Configuration', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, { status: 401 }),
     );
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(
-      config.getUserInfo!({ accessToken: 'bad-token' } as OAuth2Tokens),
+      config.getUserInfo!({
+        accessToken: 'bad-token',
+        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598003' }),
+      } as OAuth2Tokens),
     ).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(errorSpy.mock.calls[0][0]))).toEqual({
+      event: 'auth.userinfo.fetch_failed',
+      message: expect.any(String),
+      reason: 'http_status',
+      status: 401,
+    });
+  });
+
+  /**
+   * Review item security-get-user-info-robustness: `getUserInfo`'s contract is
+   * "return null, never throw" (a throw is not caught by better-auth's callback
+   * route), so every way the userinfo request can go wrong must come back as
+   * null plus a structured log with no body and no token.
+   */
+  describe('userinfo request robustness', () => {
+    const guid = 'ab12cd34-ef56-7890-abcd-ef1234596001';
+    const tokens = () =>
+      ({ accessToken: 'secret-access-token', idToken: fakeIdToken({ sub: guid }) }) as OAuth2Tokens;
+
+    function loggedEvent(spy: { mock: { calls: unknown[][] } }) {
+      expect(spy.mock.calls).toHaveLength(1);
+      const [line] = spy.mock.calls[0];
+      expect(String(line)).not.toContain('secret-access-token');
+      return JSON.parse(String(line)) as Record<string, unknown>;
+    }
+
+    it('returns null (does not throw) when fetch rejects (network error / timeout)', async () => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(timeout);
+
+      await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
+      expect(loggedEvent(errorSpy)).toEqual({
+        event: 'auth.userinfo.fetch_failed',
+        message: expect.any(String),
+        reason: 'request_failed',
+        errName: 'TimeoutError',
+      });
+    });
+
+    it('returns null when fetch rejects with a non-Error value', async () => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue('boom');
+
+      await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
+      expect(loggedEvent(errorSpy)).toMatchObject({ reason: 'request_failed', errName: 'string' });
+    });
+
+    it('returns null for a non-JSON 200 (a proxy HTML error page), without logging the body', async () => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('<html>Gateway says hi to member@example.com</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+      );
+
+      await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
+      const event = loggedEvent(errorSpy);
+      expect(event).toMatchObject({ event: 'auth.userinfo.fetch_failed', reason: 'invalid_json', errName: 'SyntaxError' });
+      expect(JSON.stringify(event)).not.toContain('member@example.com');
+    });
+
+    it.each([
+      ['null', 'null'],
+      ['an array', '[]'],
+      ['a string', '"sub"'],
+    ])('returns null when the JSON body is %s (not an object)', async (_label, body) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }),
+      );
+
+      await expect(config.getUserInfo!(tokens())).resolves.toBeNull();
+      expect(loggedEvent(errorSpy)).toMatchObject({ reason: 'not_an_object' });
+    });
+
+    it('sets a timeout and refuses redirects on the userinfo request', async () => {
+      expect(USERINFO_TIMEOUT_MS).toBe(10_000);
+      const config = getMpProviderConfig();
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ sub: guid }), { status: 200 }),
+      );
+
+      await config.getUserInfo!(tokens());
+
+      expect(timeoutSpy).toHaveBeenCalledWith(USERINFO_TIMEOUT_MS);
+      const init = fetchSpy.mock.calls[0][1]!;
+      expect(init.redirect).toBe('error');
+      expect(init.signal).toBe(timeoutSpy.mock.results[0].value);
+    });
+
+    it.each([
+      ['given_name missing', { family_name: 'Doe' }, 'Doe'],
+      ['family_name missing', { given_name: 'Pat' }, 'Pat'],
+      ['both missing, name present', { name: 'Pat Doe' }, 'Pat Doe'],
+      ['nothing usable', { given_name: 42, family_name: null, name: {} }, ''],
+      ['whitespace parts', { given_name: '  Pat ', family_name: ' ' }, 'Pat'],
+    ])('builds the display name from string claims only (%s)', async (_label, claims, expected) => {
+      const config = getMpProviderConfig();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ sub: guid, ...claims }), { status: 200 }),
+      );
+
+      const profile = await config.getUserInfo!(tokens());
+
+      expect(profile?.name).toBe(expected);
+      expect(profile?.name).not.toContain('undefined');
+    });
+  });
+
+  /**
+   * Review item security-id-token-claim-checks-weak: jose checks `exp` only when it
+   * is present, and nothing checks `azp` for a multi-audience token, so
+   * `getUserInfo` does both (before spending a userinfo call).
+   */
+  describe('id_token claim checks', () => {
+    const guid = 'ab12cd34-ef56-7890-abcd-ef1234595001';
+    const clientId = process.env.OIDC_CLIENT_ID!;
+
+    function mockUserinfo() {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ sub: guid, given_name: 'Pat', family_name: 'Doe' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    }
+
+    it.each([
+      ['no exp', { exp: undefined }, 'missing_exp'],
+      ['a non-numeric exp', { exp: 'tomorrow' }, 'missing_exp'],
+      ['an exp in the past', { exp: Math.floor(Date.now() / 1000) - 1 }, 'expired'],
+      ['aud: [other, ours] with azp: other', { aud: ['other-client', clientId], azp: 'other-client' }, 'azp_mismatch'],
+      ['aud: [other, ours] with no azp', { aud: ['other-client', clientId] }, 'azp_mismatch'],
+    ])('refuses an id_token with %s, before calling userinfo', async (_label, claims, reason) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo();
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'access-token',
+          idToken: fakeIdToken({ sub: guid, ...claims }),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(errorSpy.mock.calls[0][0]))).toEqual({
+        event: 'auth.userinfo.id_token_claims_invalid',
+        message: expect.any(String),
+        reason,
+      });
+    });
+
+    it.each([
+      ['a single string aud', { aud: clientId }],
+      ['aud: [other, ours] with azp: ours', { aud: ['other-client', clientId], azp: clientId }],
+    ])('accepts %s', async (_label, claims) => {
+      const config = getMpProviderConfig();
+      mockUserinfo();
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'access-token',
+          idToken: fakeIdToken({ sub: guid, ...claims }),
+        } as OAuth2Tokens),
+      ).resolves.toMatchObject({ sub: guid });
+    });
   });
 
   it('should map profile to user with userGuid via mapProfileToUser', async () => {
@@ -545,7 +866,7 @@ describe('Auth - OAuth Configuration', () => {
     ['numeric', { sub: 12345 }],
   ])('returns null from getUserInfo when sub is %s (refuses sign-in)', async (_label, subClaim) => {
     const config = getMpProviderConfig();
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -559,8 +880,163 @@ describe('Auth - OAuth Configuration', () => {
     );
 
     await expect(
-      config.getUserInfo!({ accessToken: 'access-token' } as OAuth2Tokens),
+      config.getUserInfo!({
+        accessToken: 'access-token',
+        // A valid id_token, so the refusal is provably the userinfo `sub`
+        // check and not the id_token binding check that runs before it.
+        idToken: fakeIdToken({ sub: 'ab12cd34-ef56-7890-abcd-ef1234598004' }),
+      } as OAuth2Tokens),
     ).resolves.toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"auth.userinfo.invalid_sub"'),
+    );
+  });
+
+  /**
+   * Token-substitution guard (defence in depth behind `refuseIdTokenSignIn`).
+   * `/sign-in/social`'s id_token mode calls `getUserInfo` with a
+   * CALLER-SUPPLIED access token; the userinfo `sub` it yields must match the
+   * verified id_token's `sub`, or an attacker's id_token plus a victim's access
+   * token signs in as the victim. Every refusal returns null (never throws) and
+   * logs `auth.userinfo.sub_mismatch` with a reason — never the GUIDs or token
+   * contents themselves.
+   */
+  describe('id_token sub binding', () => {
+    const userinfoSub = 'ab12cd34-ef56-7890-abcd-ef1234597001';
+
+    function mockUserinfo(sub: string) {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({ sub, given_name: 'Pat', family_name: 'Doe' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+
+    /** The structured (JSON) events written to console.error. */
+    function loggedEvents(calls: unknown[][]) {
+      return calls.flatMap(([line]) => {
+        try {
+          return [JSON.parse(String(line)) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      });
+    }
+
+    it('accepts a profile whose userinfo sub matches the id_token sub', async () => {
+      const config = getMpProviderConfig();
+      mockUserinfo(userinfoSub);
+
+      const profile = await config.getUserInfo!({
+        accessToken: 'access-token',
+        idToken: fakeIdToken({ sub: userinfoSub }),
+      } as OAuth2Tokens);
+
+      expect(profile).toMatchObject({ sub: userinfoSub });
+    });
+
+    it('accepts a case-only difference (GUID case carries no meaning)', async () => {
+      const config = getMpProviderConfig();
+      mockUserinfo(userinfoSub);
+
+      const profile = await config.getUserInfo!({
+        accessToken: 'access-token',
+        idToken: fakeIdToken({ sub: userinfoSub.toUpperCase() }),
+      } as OAuth2Tokens);
+
+      // The userinfo sub is what is returned, unchanged.
+      expect(profile).toMatchObject({ sub: userinfoSub });
+    });
+
+    it('refuses a userinfo sub that differs from the id_token sub (token substitution)', async () => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const attackerSub = 'ab12cd34-ef56-7890-abcd-ef1234597002';
+      mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'victim-access-token',
+          idToken: fakeIdToken({ sub: attackerSub }),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'mismatch' }),
+      );
+      // Identifiers only: neither GUID nor any token content reaches the log.
+      const logged = errorSpy.mock.calls.flat().join(' ');
+      expect(logged).not.toContain(attackerSub);
+      expect(logged).not.toContain(userinfoSub);
+      expect(logged).not.toContain('victim-access-token');
+    });
+
+    it.each([
+      ['missing', {}],
+      ['empty', { sub: '' }],
+      ['non-string', { sub: 12345 }],
+    ])('refuses an id_token whose sub is %s, before calling userinfo', async (_label, payload) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({
+          accessToken: 'access-token',
+          idToken: fakeIdToken(payload),
+        } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'missing_sub' }),
+      );
+    });
+
+    it.each([
+      ['not three segments', 'only.two'],
+      ['a five-segment JWE', 'a.b.c.d.e'],
+      ['a payload that is not JSON', `x.${Buffer.from('not json').toString('base64url')}.y`],
+      ['a payload that is a JSON array', `x.${Buffer.from('["sub"]').toString('base64url')}.y`],
+      ['a payload that is JSON null', `x.${Buffer.from('null').toString('base64url')}.y`],
+    ])('refuses an undecodable id_token (%s), before calling userinfo', async (_label, idToken) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({ accessToken: 'access-token', idToken } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'undecodable_id_token' }),
+      );
+    });
+
+    /**
+     * Deliberate fail-closed choice (see the comment in `getUserInfo`): every
+     * legitimate caller supplies an id_token (the `openid` code flow and the
+     * id_token mode), so an access token with nothing to bind it to is refused.
+     */
+    it.each([
+      ['absent', undefined],
+      ['empty', ''],
+    ])('refuses when the id_token is %s, before calling userinfo', async (_label, idToken) => {
+      const config = getMpProviderConfig();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const fetchSpy = mockUserinfo(userinfoSub);
+
+      await expect(
+        config.getUserInfo!({ accessToken: 'access-token', idToken } as OAuth2Tokens),
+      ).resolves.toBeNull();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(loggedEvents(errorSpy.mock.calls)).toContainEqual(
+        expect.objectContaining({ event: 'auth.userinfo.sub_mismatch', reason: 'missing_id_token' }),
+      );
+    });
   });
 
   /**
@@ -693,6 +1169,7 @@ describe('Auth - disabled account-management endpoints', () => {
       '/set-password',
       '/delete-user',
       '/delete-user/callback',
+      '/link-social',
     ]);
   });
 
@@ -730,6 +1207,26 @@ describe('Auth - disabled account-management endpoints', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  /**
+   * `/link-social` carries its own id_token branch (see `disabledAuthPaths`).
+   * Negative control: with it removed from `disabledPaths` this request answers
+   * 401 (mounted, session-gated), not 404.
+   */
+  it('returns 404 for POST /link-social, including its id_token mode', async () => {
+    const response = await auth.handler(
+      new Request(`${authBase}/link-social`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'ministry-platform',
+          idToken: { token: 'x', accessToken: 'y' },
+        }),
       }),
     );
 
@@ -797,11 +1294,11 @@ describe('Auth - F2 account-linking behavioral guard', () => {
 
   it('refuses to implicitly link a second sub sharing an existing user\'s email', async () => {
     const context = await auth.$context;
-    // `storeAccountCookie: true` (src/lib/auth.ts) makes handleOAuthUserInfo
-    // write an account cookie via `ctx.setCookie`/`ctx.getCookie`, which only
-    // exist on the real request-endpoint context better-call builds per
-    // request. Stub the two the cookie store touches; no-ops are fine here —
-    // this test only cares about the account-linking decision, not cookies.
+    // `ctx.setCookie`/`ctx.getCookie` only exist on the real request-endpoint
+    // context better-call builds per request; stub them as no-ops in case
+    // handleOAuthUserInfo touches cookies (it writes an account cookie only
+    // when `storeAccountCookie` is on — it is off in src/lib/auth.ts). This
+    // test only cares about the account-linking decision, not cookies.
     const c = {
       context,
       headers: new Headers(),

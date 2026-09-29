@@ -13,9 +13,10 @@ import { render, screen } from "@testing-library/react";
  * passes, types pass, the pages still render. So the guard's presence AND its
  * position are asserted explicitly here.
  *
- * The rest of the tests pin the chrome contract: Providers wraps the page
- * content, Header is behind a Suspense boundary (it reads searchParams, so an
- * unsuspended Header opts the whole group out of static rendering), the
+ * The rest of the tests pin the chrome contract: ServerProviders (which starts
+ * the MP profile load) wraps the page content below the guard, Header sits
+ * behind a Suspense boundary whose fallback is the fixed HeaderSkeleton — never
+ * an in-flow placeholder, which pushed <main> down 64px on every load — the
  * breadcrumb is present, and the page children land in <main>.
  *
  * next/font/google is mocked because it is a build-time transform: unmocked it
@@ -45,14 +46,18 @@ vi.mock("@/components/layout", () => ({
     mockHeader();
     return <header data-testid="header">Header</header>;
   },
+  HeaderSkeleton: () => <header data-testid="header-skeleton" />,
   DynamicBreadcrumb: () => {
     mockBreadcrumb();
     return <nav data-testid="breadcrumb">Breadcrumb</nav>;
   },
+  SessionGuard: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="session-guard">{children}</div>
+  ),
 }));
 
-vi.mock("@/app/providers", () => ({
-  Providers: ({ children }: { children: React.ReactNode }) => {
+vi.mock("@/app/server-providers", () => ({
+  ServerProviders: ({ children }: { children: React.ReactNode }) => {
     mockProviders();
     return <div data-testid="providers">{children}</div>;
   },
@@ -102,6 +107,19 @@ describe("WebLayout", () => {
     expect(screen.getByTestId("providers")).toContainElement(screen.getByTestId("page"));
   });
 
+  it("puts the whole shell — header and page — inside the client SessionGuard", async () => {
+    // SessionGuard drops the page and leaves for /signed-out when the session
+    // ends in the browser (sign-out in another tab, expiry). Anything rendered
+    // outside it would stay on screen after sign-out.
+    await renderLayout();
+
+    const sessionGuard = screen.getByTestId("session-guard");
+    expect(sessionGuard).toContainElement(screen.getByTestId("page"));
+    expect(sessionGuard).toContainElement(screen.getByTestId("header"));
+    // Below the server-side guard and the providers, not above them.
+    expect(screen.getByTestId("providers")).toContainElement(sessionGuard);
+  });
+
   it("renders Header and DynamicBreadcrumb chrome", async () => {
     await renderLayout();
 
@@ -109,23 +127,34 @@ describe("WebLayout", () => {
     expect(screen.getByTestId("breadcrumb")).toBeInTheDocument();
   });
 
-  it("renders Header inside a Suspense boundary", async () => {
+  it("renders Header inside a Suspense boundary whose fallback is the header skeleton", async () => {
     const tree = await WebLayout({ children: null });
 
     // Walk the returned element tree rather than the DOM: Suspense leaves no
     // trace in the rendered output once its child has resolved.
-    const found = (function find(node: unknown): boolean {
-      if (!node || typeof node !== "object") return false;
-      const el = node as { type?: unknown; props?: { children?: unknown } };
+    type El = { type?: unknown; props?: { children?: unknown; fallback?: unknown } };
+    const suspense = (function find(node: unknown): El | undefined {
+      if (!node || typeof node !== "object") return undefined;
+      const el = node as El;
       if (typeof el.type === "symbol" && String(el.type).includes("react.suspense")) {
-        return true;
+        return el;
       }
       const children = el.props?.children;
-      if (Array.isArray(children)) return children.some(find);
+      if (Array.isArray(children)) {
+        for (const child of children) {
+          const hit = find(child);
+          if (hit) return hit;
+        }
+        return undefined;
+      }
       return find(children);
     })(tree);
 
-    expect(found).toBe(true);
+    expect(suspense).toBeDefined();
+    // The fallback must be the fixed skeleton: an in-flow placeholder (the old
+    // `<div className="h-16" />`) is what shifted <main> on every page load.
+    render(suspense!.props!.fallback as React.ReactElement);
+    expect(screen.getByTestId("header-skeleton")).toBeInTheDocument();
   });
 
   it("places the page children inside <main>", async () => {

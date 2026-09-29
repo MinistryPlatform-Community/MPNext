@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect } from "react";
+import { SignOutButton } from "@/components/user-menu";
+
+const SECONDARY_CLASS =
+  "inline-flex items-center justify-center rounded-md border border-gray-300 px-5 py-2.5 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300";
 
 /**
  * Error boundary for the routes that sit OUTSIDE the `(web)` route group —
- * `/signin`, `/session-error` and `/auth-error`.
+ * `/signin`, `/signed-out`, `/session-error` and `/auth-error`.
  *
  * Those pages render without the app shell (no Header, no user menu), so this
  * boundary matches their bare, centred layout rather than the shell card used by
@@ -15,6 +19,12 @@ import { useEffect } from "react";
  * session is already broken, with no way to sign out. It deliberately offers a
  * plain link to `/signin` alongside retry, because on these routes a retry of
  * the same broken state is often not the way out.
+ *
+ * It also catches anything thrown by the `(web)` shell ABOVE `(web)/error.tsx`
+ * — the Header and the layout itself — so it can be showing for a user who is
+ * still signed in. "Go to sign in" does not help them: `/signin` sees the
+ * session and sends them straight back into the same failure. Hence the
+ * sign-out button, so a shared machine can always be signed out from here.
  *
  * Note this does NOT catch errors thrown by the root `layout.tsx` itself —
  * `error.tsx` never wraps the layout of its own segment. That case is
@@ -62,10 +72,13 @@ export default function RootError({
           </button>
           <a
             href="/signin"
-            className="inline-flex items-center justify-center rounded-md border border-gray-300 px-5 py-2.5 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className={SECONDARY_CLASS}
           >
             Go to sign in
           </a>
+        </div>
+        <div className="mt-4">
+          <SignOutButton className={SECONDARY_CLASS} />
         </div>
       </div>
     </div>

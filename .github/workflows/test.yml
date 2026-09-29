@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: every job only reads the repository. Widen per job, never
+# here. (Actions are pinned to full commit SHAs; Dependabot bumps them via
+# .github/dependabot.yml — keep the `# vX.Y.Z` comment in step with the SHA.)
+permissions:
+  contents: read
+
 jobs:
   # Fails fast and legibly when package-lock.json drifts from what Linux
   # resolution produces. The `test` job's `npm ci` would also die on this, but
@@ -16,9 +22,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -26,24 +34,96 @@ jobs:
       - name: Check package-lock.json for platform drift
         run: node scripts/check-lockfile.mjs
 
-  test:
+  # ESLint (including the F5 `no-console` rule over src/, which nothing else
+  # enforces — `next build` does not run ESLint in Next 16) and a full type
+  # check.
+  lint:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
       - run: npm ci
 
+      - name: ESLint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+  # A production build, then a check that it prerendered (○) no app route other
+  # than Next's built-in `/_not-found` and `/_global-error`. A prerendered page
+  # carries no per-request CSP nonce, so under the enforced nonce-based CSP its
+  # scripts are blocked and it never hydrates — and `next build` reports that
+  # only as a ○ in its route table, never as a failure. The allowlist lives in
+  # scripts/check-prerender.mjs.
+  build:
+    runs-on: ubuntu-latest
+
+    # Dummy values: the build needs the variables to exist, not to work. It must
+    # never reach a real Ministry Platform. `.invalid` is a reserved TLD that
+    # never resolves (RFC 2606), so Better Auth's OIDC discovery fetch during
+    # "Collecting page data" fails fast and harmlessly (it logs "Discovery fetch
+    # failed … Provider skipped" and the build carries on). No secrets are used.
+    env:
+      MINISTRY_PLATFORM_BASE_URL: https://mp.invalid/ministryplatformapi
+      MINISTRY_PLATFORM_CLIENT_ID: ci-build-dummy
+      MINISTRY_PLATFORM_CLIENT_SECRET: ci-build-dummy
+      OIDC_CLIENT_ID: ci-build-dummy
+      OIDC_CLIENT_SECRET: ci-build-dummy
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ci-build-dummy-secret-not-used-for-anything-real
+      MP_SECURITY_ROLES: ci-build-dummy
+      NEXT_TELEMETRY_DISABLED: 1
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check no unexpected route was prerendered
+        run: npm run build:check-prerender
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Runs both Vitest projects once each: `src` (the app, coverage-gated) and
+      # `scripts` (the dev tooling in scripts/, outside the src/-only coverage
+      # denominator) — see vitest.config.mts.
       - name: Run tests with coverage
         run: npx vitest run --coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/coverage-final.json

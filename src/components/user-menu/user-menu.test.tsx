@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { redirect } from "next/navigation";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * UserMenu component tests.
@@ -43,12 +43,17 @@ import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
  * shape, so a mock would test the mock.
  */
 
-const { mockHandleSignOut } = vi.hoisted(() => ({
+const { mockHandleSignOut, mockBroadcastSignOut } = vi.hoisted(() => ({
   mockHandleSignOut: vi.fn(),
+  mockBroadcastSignOut: vi.fn(),
 }));
 
 vi.mock("./actions", () => ({
   handleSignOut: mockHandleSignOut,
+}));
+
+vi.mock("@/contexts/sign-out-broadcast", () => ({
+  broadcastSignOut: mockBroadcastSignOut,
 }));
 
 import { UserMenu } from "./user-menu";
@@ -127,23 +132,18 @@ async function captureUnhandledRejections(
   }
 }
 
-const profile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const profile: CurrentUserProfile = {
   First_Name: "Samuel",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: "555-0100",
   Image_GUID: null,
-  roles: ["Administrators"],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
 function renderMenu(
   overrides: {
-    userProfile?: MPUserProfile;
+    userProfile?: CurrentUserProfile | null;
     onClose?: () => void;
     children?: React.ReactNode;
   } = {}
@@ -386,6 +386,37 @@ describe("UserMenu", () => {
 
       fireEvent.click(menu.getByRole("menuitem", { name: /sign out/i }));
       await waitFor(() => expect(mockHandleSignOut).toHaveBeenCalledTimes(1));
+    });
+
+    it("opens and signs out with no profile at all (the load failed)", async () => {
+      const menu = await openMenu({ userProfile: null });
+
+      expect(menu.getByText(/profile couldn.t be loaded/i)).toBeInTheDocument();
+      fireEvent.click(menu.getByRole("menuitem", { name: /sign out/i }));
+      await waitFor(() => expect(mockHandleSignOut).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe("other tabs", () => {
+    it("broadcasts the sign-out once the action has settled", async () => {
+      const menu = await openMenu();
+
+      fireEvent.click(menu.getByRole("menuitem", { name: /sign out/i }));
+
+      await waitFor(() => expect(mockBroadcastSignOut).toHaveBeenCalledTimes(1));
+      expect(mockHandleSignOut.mock.invocationCallOrder[0]).toBeLessThan(
+        mockBroadcastSignOut.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("broadcasts on the redirecting (successful) path too", async () => {
+      mockHandleSignOut.mockRejectedValueOnce(makeRedirectSignal("https://mp.example.org/x"));
+
+      await captureUnhandledRejections(async () => {
+        const menu = await openMenu();
+        fireEvent.click(menu.getByRole("menuitem", { name: /sign out/i }));
+        await waitFor(() => expect(mockBroadcastSignOut).toHaveBeenCalledTimes(1));
+      });
     });
   });
 });

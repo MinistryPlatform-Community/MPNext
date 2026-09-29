@@ -16,6 +16,17 @@ A modern Next.js application integrated with Ministry Platform authentication an
 
 ## Security Notice
 
+MPNext is forked and copied, not installed, so no dependency alert will reach your copy. Check each item below against your fork:
+
+| Date | Item | Details |
+|------|------|---------|
+| 2026-09-12 | **High** — session-identity takeover (CVSS 8.1); forks must merge the fix | [Advisory](docs/security/2026-09-12-session-identity.md) · fork check below |
+| 2026-09-25 | Sign-in hardening — `callbackUrl` control-character bypass and ID-token sign-in | [Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md) |
+| 2026-09-28 | Authentication/authorization review record | [Auth Review](docs/security/2026-09-28-auth-review.md) |
+| 2026-09-28 | **Breaking:** `MP_SECURITY_ROLES` now fails closed — blank permits nobody (set `*` to keep the old behaviour) | [Environment Configuration](#3-environment-configuration) |
+
+Forks porting all of this at once can follow the [Downstream Hardening Playbook](docs/security/downstream-hardening-playbook.md). To report a vulnerability, see [SECURITY.md](SECURITY.md) — please don't open a public issue.
+
 > ### ⚠️ Forks must merge a session-identity fix (2026-09-12)
 >
 > A **High** severity vulnerability (CVSS 8.1) let any *authenticated* user reassign
@@ -36,7 +47,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 > git merge-base --is-ancestor 436466d HEAD && echo "has the fix"
 > ```
 >
-> Patching does **not** revoke sessions already forged — they survive in the JWT
+> Patching does **not** revoke sessions already forged — they survive in the
 > cookie cache for up to an hour. See the
 > **[full advisory](docs/security/2026-09-12-session-identity.md)** for
 > verification steps, incident response, and `dp_Audit_Log` guidance.
@@ -78,7 +89,7 @@ A modern Next.js application integrated with Ministry Platform authentication an
 - **Authorization**: Ministry Platform security-role gate on reads *and* writes, not just an authentication check
 - **Security Headers**: Nonce-based Content-Security-Policy, enforcing by default, applied per-request in the proxy
 - **Audit Attribution**: Writes carry the acting user's MP `User_ID`, so `dp_Audit_Log` records who actually did what
-- **Testing**: Vitest with 1,015 tests and enforced coverage thresholds in CI
+- **Testing**: Vitest with enforced coverage thresholds in CI
 
 ## Architecture
 
@@ -99,8 +110,8 @@ Custom provider located at `src/lib/providers/ministry-platform/` featuring:
 
 ### Authentication
 Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.ts`)
-- Stateless JWT cookie sessions (no database required)
-- Session enrichment via `customSession` (name split plus the MP `User_ID`); the full `MPUserProfile` is loaded client-side by `UserProvider`
+- Stateless sessions in an encrypted (JWE) cookie cache — no database required
+- Session enrichment via `customSession`: adds the MP `User_ID` and strips `token`/`ipAddress`/`userAgent` from the returned session (the session user has no first/last name). The six-field `CurrentUserProfile` DTO (`src/lib/dto/user-profile.ts`) is started server-side by `ServerProviders` and streamed to `UserProvider`
 - OIDC RP-initiated logout for proper session termination
 - Security-role authorization via `AuthorizationService`, gating reads as well as writes
 - Proxy-based route protection (`src/proxy.ts` — Next.js 16 replaces middleware with proxy)
@@ -108,7 +119,7 @@ Better Auth with Ministry Platform OAuth via genericOAuth plugin (`src/lib/auth.
 
 ## Prerequisites
 
-- **Node.js**: v20 LTS or higher (Next.js 16 and React 19 require a modern Node runtime). `npm run setup` enforces this minimum; CI builds and tests on Node 22.
+- **Node.js**: v22 LTS or higher (Node 20 reached end of life on 2026-04-30). The minimum is declared in `engines` in `package.json` and enforced by `npm run setup`; CI lints, type-checks, builds and tests on Node 22.
 - **Package Manager**: npm (comes with Node.js)
 - **Ministry Platform**: Active instance with API credentials and OAuth client configured (see [OAuth Setup](#oauth-setup))
 
@@ -121,28 +132,26 @@ Run `npm run setup` for an interactive guided setup, or follow the [Manual Setup
 ```bash
 git clone https://github.com/MinistryPlatform-Community/MPNext.git
 cd MPNext
-npm install
+npm ci
 npm run setup
 ```
 
 The interactive setup command will:
-1. Verify Node.js version (v20 LTS+ required)
+1. Verify Node.js version (v22 LTS+ required)
 2. Detect a template clone and offer to keep, reinitialize, or set a new git origin
 3. Check git status
 4. Create `.env.local` from `.env.example` (if needed)
-5. Prompt for missing environment variables — derives both `MINISTRY_PLATFORM_BASE_URL` and `NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL` from a single MP host input (avoiding the copy/paste mismatch risk in the [Manual Setup](#manual-setup) path), and offers to auto-generate `BETTER_AUTH_SECRET`
-6. Install dependencies (`npm install`)
-7. Apply non-breaking updates (`npm update`)
-8. Generate Ministry Platform types
-9. Run a production build to verify configuration
+5. Prompt for missing environment variables — derives both `MINISTRY_PLATFORM_BASE_URL` and `NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL` from a single MP host input (avoiding the copy/paste mismatch risk in the [Manual Setup](#manual-setup) path), and offers to auto-generate `BETTER_AUTH_SECRET` (a hand-entered one must be at least 32 characters). Values are quoted and escaped so Next loads them back exactly, and `.env.local` is written owner-only (`0600`)
+6. Install dependencies with `npm ci` — exactly the versions in `package-lock.json`; the lockfile is never rewritten
+7. Generate Ministry Platform types
+8. Run a production build to verify configuration
 
-> **If you intend to commit `package-lock.json` afterwards**, run `npm run deps:relock` first. The `npm update` in step 7 dedupes as a side effect, which on Windows produces a lockfile that fails CI on Linux — see [Known Issues](#known-issues).
+> **Setup never runs `npm install` or `npm update`.** An unreviewed `better-auth` minor has broken sign-in and identity in this repo before, and on Windows either command can rewrite the lockfile into one CI cannot install. Upgrade dependencies deliberately (the `/audit-deps` command, then the Better Auth Upgrade Checklist in [`.claude/references/auth.md`](.claude/references/auth.md)) and relock with `npm run deps:relock` — see [Known Issues](#known-issues).
 
 **Additional setup options:**
 ```bash
-npm run setup:check     # Validation only (no changes)
-npm run setup -- --clean       # Clean install (delete node_modules first)
-npm run setup -- --skip-install # Skip npm install/update
+npm run setup:check     # Validation only (no changes); checks the secret length as Next loads it
+npm run setup -- --skip-install # Skip the npm ci step
 npm run setup -- --verbose     # Extra output
 npm run setup -- --help        # Show all options
 ```
@@ -165,13 +174,10 @@ cd MPNext
 #### 2. Install Dependencies
 
 ```bash
-npm install
-npm update    # Apply non-breaking patch/minor updates (kept here to mirror the interactive setup flow)
+npm ci        # Installs exactly what package-lock.json pins (same as npm run setup)
 ```
 
-> **Note**: The interactive `npm run setup` flow runs `npm update` automatically. Running it here keeps the manual and automated flows aligned.
-
-> **Do not relock casually.** The commands above are fine for a fresh clone, but if you need to *regenerate* `package-lock.json`, use `npm run deps:relock` — a bare `npm install`/`npm dedupe` on Windows produces a lockfile that fails CI on Linux. See [Known Issues](#known-issues).
+> **Do not relock casually.** Don't use `npm install` or `npm update` here: `npm update` can pull an unreviewed `better-auth` minor, and on Windows a bare `npm install`/`npm update`/`npm dedupe` produces a lockfile that fails CI on Linux. If you need to *regenerate* `package-lock.json`, use `npm run deps:relock`. See [Known Issues](#known-issues).
 
 #### 3. Environment Configuration
 
@@ -184,24 +190,28 @@ cp .env.example .env.local
 Update `.env.local` with your configuration:
 
 ```env
-# Better Auth Configuration (used for end-user OAuth login)
-OIDC_CLIENT_ID=TM.Widgets
+# Better Auth Configuration (used ONLY for end-user OAuth login).
+# A dedicated MP API Client: Authorization Code flow only, exact redirect URIs.
+OIDC_CLIENT_ID=MPNext
 OIDC_CLIENT_SECRET=your_client_secret
 
-# Generate with: openssl rand -base64 32
+# At least 32 characters. Generate with: openssl rand -base64 32
+# If typed by hand, wrap it in double quotes and write each $ as \$.
 BETTER_AUTH_SECRET=your_generated_secret
 
 # Update for production
 BETTER_AUTH_URL=http://localhost:3000
 
-# MinistryPlatform API Configuration (used for server-side API access)
-MINISTRY_PLATFORM_CLIENT_ID=MPNext
+# MinistryPlatform API Configuration (used for server-side API access).
+# A SEPARATE MP API Client: Client Credentials flow only, least-privilege Client User.
+MINISTRY_PLATFORM_CLIENT_ID=MPNext.API
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 
 # Authorization — comma-separated MP security role names allowed to use the
-# contact features (reads AND writes). Blank means any MP security role will do.
-MP_SECURITY_ROLES=
+# contact features (reads AND writes). Blank permits NOBODY; "*" permits any
+# MP security role.
+MP_SECURITY_ROLES="Administrators,Pastoral Staff"
 
 # Public Keys
 NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=https://your-instance.ministryplatform.com/ministryplatformapi/files
@@ -212,27 +222,50 @@ NEXT_PUBLIC_APP_NAME=MPNextApp
 CSP_ENFORCE=
 ```
 
-> **`MP_SECURITY_ROLES` is the access control.** Leaving it blank means *any* Ministry Platform security role can use the gated features. A signed-in user holding no security role at all can still see the app shell but is redirected to `/no-access`. A deprecated write-only predecessor, `MP_WRITE_SECURITY_ROLES`, is still honored when `MP_SECURITY_ROLES` is unset — so an existing deployment is not silently widened — but it now governs reads too. New deployments should set only `MP_SECURITY_ROLES`. See [`.claude/references/auth.md`](.claude/references/auth.md) for the full policy.
+> **`MP_SECURITY_ROLES` is the access control, and it fails closed.** Leaving it unset or blank (or setting a value that names no roles, such as `,`) means *nobody* can use the gated features: every signed-in user is redirected to `/no-access`, and the server logs an `mp.authz.config` warning once. To permit anyone who holds at least one Ministry Platform security role, set `MP_SECURITY_ROLES=*` explicitly — `*` must be the whole value. `npm run setup` prompts for it and `npm run setup:check` warns when it is blank.
+>
+> ⚠️ **Breaking change (2026-09-28) for existing deployments and forks:** blank used to mean "any MP security role". If you relied on that, set `MP_SECURITY_ROLES=*` (or, better, a list of role names) before upgrading, or everyone loses access to the contact features.
+>
+> A deprecated write-only predecessor, `MP_WRITE_SECURITY_ROLES`, is still honored when `MP_SECURITY_ROLES` yields no usable value, but it now governs reads too. New deployments should set only `MP_SECURITY_ROLES`. See [`.claude/references/auth.md`](.claude/references/auth.md) for the full policy.
+>
+> Roles are matched by **name** (trimmed, case-insensitive), not by `Role_ID`. MP role names are editable and need not be unique, so anyone who can create, rename or assign Security Roles in Ministry Platform can satisfy the gate — restrict who can edit Security Roles there. A role whose name contains a comma cannot be listed.
 
 > **`CSP_ENFORCE` is inverted on purpose.** Anything other than the literal string `false` — including leaving it unset — enforces the policy. A typo therefore fails loud (too strict) rather than silent (no policy at all). Set it to `false` only to diagnose a violation.
 
-> **Note**: `OIDC_CLIENT_ID` and `MINISTRY_PLATFORM_CLIENT_ID` may be the same value or different. The example above uses the common pattern of sharing the `TM.Widgets` OAuth client for congregant-facing login and a scoped server-side client (`MPNext`) for API access. See the comments in `.env.example` for details.
+> **Use two dedicated API Clients.** `OIDC_CLIENT_ID` is the sign-in client (`MPNext` above: Authorization Code only). `MINISTRY_PLATFORM_CLIENT_ID` is the server-side data client (`MPNext.API` above: Client Credentials only). Do **not** reuse a shared client such as `TM.Widgets` for sign-in, and don't enable Implicit, Hybrid or Resource Owner flows on either client. Ministry Platform does not support PKCE, so a dedicated client with exact redirect URIs is the main defence against authorization-code injection — see the [Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md). Both are set up below, under [API Client Setup](#api-client-setup).
+
+> **Quoting values by hand.** Next's env loader treats an unquoted `#` as the start of a comment and expands `$NAME`, so an unquoted `Xy9$Qz7Lm#Kp2…` loads as `Xy9`. Wrap values that contain `$`, `#` or spaces in double quotes and write each `$` as `\$`. `npm run setup` does this for you, and `npm run setup:check` reports the length of `BETTER_AUTH_SECRET` as the app will actually load it.
 
 
 #### API Client Setup
 
-Before running the application, you must configure an OAuth 2.0 / OpenID Connect (OIDC) client in Ministry Platform.
+Before running the application, you must configure **two** API Clients in Ministry Platform: one OAuth 2.0 / OpenID Connect (OIDC) client for user sign-in, and one for the app's server-side data access.
 
 Log in to your Ministry Platform instance as an administrator and navigate to **Administration > API Clients**.
 
-Create a new API Client with the following configuration:
+##### 1. Sign-in client (`OIDC_CLIENT_ID`)
 
-##### Basic Settings
+Create a new API Client dedicated to MPNext sign-in. Do not reuse a shared client such as `TM.Widgets`.
+
 - **Client ID**: `MPNext` (or your custom client ID)
-- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local`)
+- **Client Secret**: Generate a secure secret (save this securely - you'll need it for `.env.local` as `OIDC_CLIENT_SECRET`)
 - **Display Name**: `MPNext` (or your preferred name)
-- **Client User**: Create a scoped user or use API User
-- **Authentication Flow**: use the default: Authorization Code, Implicit, Hybrid, Client Credentials, or Resource Owner
+- **Authentication Flow**: **Authorization Code only.** Do not enable Implicit, Hybrid, Client Credentials or Resource Owner on this client. MPNext never refreshes the user's token (it doesn't request `offline_access`), so it doesn't need refresh tokens either.
+- **Redirect URIs** and **Post-Logout Redirect URIs**: exactly the entries below, for each environment. No wildcards and no extra entries.
+
+> **Why a dedicated client?** Ministry Platform does not support PKCE, and MP never returns the `nonce` claim. MPNext relies on this being a confidential client with a private secret and tightly registered redirect URIs — that's the main defence against authorization-code injection. A shared client, or one that allows implicit or hybrid flows, raises the risk described in the [Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md).
+
+##### 2. Data-access client (`MINISTRY_PLATFORM_CLIENT_ID`)
+
+Create a second API Client for the app's server-side calls (every MP read and write, including the security-role gate).
+
+- **Client ID**: `MPNext.API` (or your custom client ID)
+- **Client Secret**: Generate a secure secret (`MINISTRY_PLATFORM_CLIENT_SECRET`)
+- **Client User**: a dedicated, least-privilege MP user. Every server-side read and write runs with this user's permissions.
+- **Authentication Flow**: **Client Credentials only.**
+- **Redirect URIs**: none needed.
+
+The redirect URIs below belong on the **sign-in** client.
 
 ##### Redirect URIs (Required)
 Add these authorized redirect URIs where users will be sent after authentication - separate each entry by ending with a semi-colon(;):
@@ -304,28 +337,33 @@ Generating TypeScript types from Ministry Platform schema...
 Fetching table metadata from Ministry Platform...
 Found 301 tables
 Cleaning output directory: src/lib/providers/ministry-platform/models
-   Removed 605 existing type files
+   Removed 603 existing type files
 Generating type definitions...
   Contacts.ts (Contacts) [51 columns]
   Events.ts (Events) [57 columns]
   ...
-Successfully generated 301 table types + 301 Zod schemas (602 total files)
+  ✓ index.ts (barrel export)
+Successfully generated 301 table types + 301 Zod schemas (602 total files) in src/lib/providers/ministry-platform/models
 ```
+
+The "total files" count is the types plus schemas; with the barrel `index.ts` that makes the 603 files on disk (and the 603 removed on a re-run).
 
 **Advanced options:**
 ```bash
 # Generate types for specific tables only
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -s "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -s "Contact"
 
 # Generate without Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types
 
 # Generate with detailed mode (samples records for better type inference)
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -d --sample-size 10
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -d --sample-size 10
 
 # See all options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
+
+> **`--conditions=react-server` is required.** The generator imports `MPHelper`, whose MP client is guarded by `server-only`; plain `tsx` fails with "This module cannot be imported from a Client Component module". The `npm run mp:generate*` scripts already pass it.
 
 > **Note**: Field names containing special characters (like `Allow_Check-in`) are automatically quoted in the generated types for valid TypeScript syntax.
 
@@ -354,12 +392,14 @@ npm run dev
 
 When deploying to production:
 
-1. Update `BETTER_AUTH_URL` to your production domain
+1. Update `BETTER_AUTH_URL` to your production origin. It is required and validated at startup (`src/lib/env.ts`): an origin only (no path, query or credentials), and `https://` for every real host — plain `http://` is accepted only for loopback (`localhost`, `127.0.0.1`, `[::1]`). `MINISTRY_PLATFORM_BASE_URL` must likewise be `https://` (loopback `http` only outside production)
 2. Add production redirect URI (`https://yourdomain.com/api/auth/callback/ministry-platform`) to Ministry Platform OAuth client
 3. Add production post-logout redirect URIs
 4. Ensure environment variables are set in your hosting provider
 5. Enable HTTPS/SSL certificates
 6. Test the complete authentication flow in production environment
+
+> `next build` loads the auth module while collecting page data, so better-auth makes its read-only OIDC discovery `GET` to `MINISTRY_PLATFORM_BASE_URL` during the build. With a real `.env.local` that contacts your real MP discovery endpoint; if it fails, the build logs "Discovery fetch failed" and carries on (CI builds against an unresolvable `mp.invalid` URL on purpose).
 
 ## Project Structure
 
@@ -380,11 +420,13 @@ MPNext/
 │   │   ├── api/auth/[...all]/            # Better Auth API routes (deny-by-default allowlist)
 │   │   ├── auth-error/                   # Failed MP OAuth callback landing page
 │   │   ├── session-error/                # Recovery for a session with no userGuid
+│   │   ├── signed-out/                   # Post-sign-out landing (does not restart OAuth)
 │   │   ├── signin/                       # Sign-in page
 │   │   ├── error.tsx                     # Root segment error boundary
 │   │   ├── global-error.tsx              # Replaces the document on a root throw
 │   │   ├── layout.tsx                    # Root layout
-│   │   └── providers.tsx                 # App providers wrapper
+│   │   ├── providers.tsx                 # App providers wrapper
+│   │   └── server-providers.tsx          # Starts the MP profile load, streams it to UserProvider
 │   │
 │   ├── components/                       # React components
 │   │   ├── contact-logs/                 # Contact logs feature (CRUD)
@@ -412,16 +454,19 @@ MPNext/
 │   │
 │   ├── contexts/                         # React Context providers
 │   │   ├── session-context.tsx           # useAppSession()
+│   │   ├── sign-out-broadcast.ts         # Cross-tab sign-out hint (BroadcastChannel)
 │   │   ├── user-context.tsx              # UserProvider / useUser()
 │   │   └── index.ts
 │   │
 │   ├── lib/                              # Shared libraries
 │   │   ├── auth.ts                       # Better Auth server configuration
 │   │   ├── auth-client.ts                # Better Auth client (React hooks)
+│   │   ├── env.ts                        # Validates BETTER_AUTH_URL / MINISTRY_PLATFORM_BASE_URL
 │   │   ├── security-headers.ts           # CSP + security header policy
 │   │   ├── dto/                          # Application DTOs/ViewModels
 │   │   │   ├── contacts.ts
 │   │   │   ├── contact-logs.ts
+│   │   │   ├── user-profile.ts           # CurrentUserProfile
 │   │   │   └── index.ts
 │   │   ├── utils.ts                      # General utilities
 │   │   └── providers/
@@ -433,7 +478,8 @@ MPNext/
 │   │           │   ├── communication.service.ts
 │   │           │   ├── file.service.ts
 │   │           │   ├── metadata.service.ts
-│   │           │   └── domain.service.ts
+│   │           │   ├── domain.service.ts
+│   │           │   └── guards.ts         # Input guards for interpolated path segments
 │   │           ├── models/               # Generated: 301 types + 301 Zod schemas + barrel
 │   │           ├── types/                # Type definitions
 │   │           ├── utils/                # HTTP client, filter sanitization
@@ -452,29 +498,34 @@ MPNext/
 │   │   ├── sessionContextService.ts      # Acting MP User_ID for audit attribution
 │   │   └── userService.ts
 │   │
+│   ├── test-utils/                       # Shared test helpers (mock MP OIDC provider)
+│   ├── auth.*.test.ts                    # Auth-module suites (test src/lib/auth.ts)
 │   ├── proxy.ts                          # Next.js 16 proxy (route protection)
 │   └── test-setup.ts                     # Vitest setup
 │
 ├── .claude/                              # Claude AI configuration
 │   ├── commands/                         # Claude Code skills (/audit-deps, /release)
 │   ├── references/                       # Documentation references
-│   ├── playbooks/                        # Porting playbooks
-│   └── reports/                          # Past dependency audit reports
+│   └── playbooks/                        # Porting playbooks
 ├── .githooks/                            # pre-commit lockfile guard
-├── .github/workflows/                    # CI: tests + lockfile drift check
+├── .github/workflows/
+│   ├── test.yml                          # CI: tests, lint + tsc, build + prerender check, lockfile drift check
+│   └── discord-release-notification.yml  # Posts published releases to Discord
+├── .github/dependabot.yml                # Weekly SHA bumps for GitHub Actions
 ├── docs/
 │   ├── OAUTH_LOGOUT_SETUP.md
-│   └── security/                         # Security advisories
-├── scripts/                              # setup.ts, check-lockfile.mjs
+│   └── security/                         # Advisories, auth review record, hardening notes, downstream playbook
+├── scripts/                              # setup.ts (+ setup-env.ts, its .env.local writer), check-lockfile.mjs, check-prerender.mjs
 ├── public/                               # Static assets
-├── coverage/                             # Test coverage reports
 ├── .env.example                          # Environment template
 ├── CLAUDE.md                             # Development guide
+├── SECURITY.md                           # Security policy / vulnerability reporting
+├── LICENSE                               # MIT license
 ├── eslint.config.mjs                     # Flat ESLint config (incl. no-console rule)
 ├── vitest.config.mts                     # Vitest configuration + coverage gates
 ├── components.json                       # shadcn/ui configuration
 ├── next.config.ts                        # Next.js configuration
-├── tailwind.config.js                    # Tailwind CSS configuration
+├── postcss.config.mjs                    # PostCSS (Tailwind v4 plugin)
 ├── tsconfig.json                         # TypeScript configuration
 └── package.json                          # Dependencies and scripts
 ```
@@ -536,8 +587,11 @@ await mp.updateTableRecords('Contact_Log', records, {
 // ContactLogService derives them from the authorized session, never from the
 // caller. They are shown literally here only to keep the example self-contained.
 
-// Execute stored procedures
-const results = await mp.executeProcedureWithBody('api_Custom_Procedure', {
+// Execute stored procedures — deny-all by default. A procedure runs only if the
+// helper instance that calls it lists it (exact name, fixed in code, never from
+// request input):
+const procs = new MPHelper({ allowedProcedures: ['api_Custom_Procedure'] });
+const results = await procs.executeProcedureWithBody('api_Custom_Procedure', {
   '@ContactID': 12345
 });
 
@@ -554,10 +608,12 @@ const files = await mp.getFilesByRecord({
 |---------|---------|-------------|
 | **Table Service** | CRUD operations | `getTableRecords`, `createTableRecords`, `updateTableRecords`, `deleteTableRecords` |
 | **Procedure Service** | Stored procedures | `getProcedures`, `executeProcedure`, `executeProcedureWithBody` |
-| **Communication Service** | Email/SMS | `createCommunication`, `sendMessage` |
+| **Communication Service** | Email/SMS | `createCommunication(content, sender, attachments?)`, `sendMessage(content, sender, attachments?)` |
 | **File Service** | File management | `getFilesByRecord`, `uploadFiles`, `updateFile`, `deleteFile`, `getFileContentByUniqueId`, `getFileMetadata`, `getFileMetadataByUniqueId` |
 | **Metadata Service** | Schema info | `getTables`, `refreshMetadata` |
 | **Domain Service** | Domain config | `getDomainInfo`, `getGlobalFilters` |
+
+The communication methods take the sender as a separate, required argument; any author/From fields left on the content are ignored. Build `sender` only from trusted server state — the `User_ID` returned by `AuthorizationService.requireSecurityRole` and a contact looked up server-side — never from request input: the service account can send as anyone.
 
 ### Type Generation
 
@@ -568,13 +624,13 @@ Generate TypeScript interfaces and Zod schemas from your Ministry Platform datab
 npm run mp:generate:models
 
 # Generate types for specific tables
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
 
 # Generate to a custom directory with Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types --zod
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o ./types --zod
 
 # See all options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --help
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --help
 ```
 
 **CLI Options:**
@@ -643,7 +699,9 @@ All services follow the singleton pattern; all except `SessionContextService` us
 
 ## Testing
 
-The project uses **Vitest 4** — 1,015 tests at 99.74% statement coverage, gated in CI.
+The project uses **Vitest 4**, with coverage thresholds gated in CI. Current figures are on the [Codecov badge](https://codecov.io/gh/MinistryPlatform-Community/MPNext); `npm run test:coverage` reports them locally.
+
+The dev tooling in `scripts/` has its own small Node-only suite — `scripts/setup-env.test.ts` (the setup script's `.env.local` writer, round-tripped through Next's real env loader) and `scripts/check-prerender.test.ts` (the CI prerender guard). It is the `scripts` project in `vitest.config.mts`, so `npm test`, `npm run test:run` and `npm run test:coverage` run it alongside the app suite; `npm run test:scripts` runs it alone. It sits outside the `src/`-only coverage denominator, so it does not affect the coverage gates.
 
 ### Test Infrastructure
 
@@ -668,16 +726,15 @@ npm run test:coverage
 
 Tests are co-located with the code they cover — `foo.ts` sits next to `foo.test.ts`.
 
-| Area | Coverage |
-|------|----------|
-| Overall | 99.74% statements, 97.21% branches (gated in CI) |
-| Services (`src/services/`) | 100% |
-| Server actions (`**/actions.ts`) | 100% |
-| App routes (`src/app/**`) | 100% |
-| React components | 99.69% |
-| MP provider + sub-services | 99.72% |
+The enforced minimums (from `vitest.config.mts`):
 
-**Total**: 1,015 tests across 59 test files — 99.74% statements, 97.21% branches, 99.31% functions, 99.91% lines.
+| Glob | Statements | Branches | Functions | Lines |
+|------|-----------|----------|-----------|-------|
+| `src/app/**`, `src/components/**/*.tsx`, `src/services/**` | 95% | 90% | 95% | 95% |
+| `src/components/**/actions.ts`, `src/contexts/**` | 95% | 85% | 95% | 95% |
+| `src/lib/**/*.ts` | 95% | 85% | 90% | 95% |
+| `src/proxy.ts` | 100% | 100% | 100% | 100% |
+| Global (all of `src/`) | 98% | 95% | 97% | 98% |
 
 ### Test Configuration
 
@@ -687,9 +744,16 @@ Tests are configured in `vitest.config.mts`:
 - `src/components/ui/` is excluded from the denominator — testing thin shadcn/Radix wrappers only asserts that Radix works
 - Supports TypeScript path aliases
 
-**Coverage is gated, not advisory.** `vitest.config.mts` sets per-area thresholds (`src/app/**`, `src/components/**/*.tsx`, `src/services/**`, `src/lib/**/*.ts`, `src/contexts/**`, and `src/proxy.ts` at 100%) plus a global backstop of 98% statements / 95% branches / 97% functions / 98% lines. The global gate is what catches a newly added, entirely untested file, since a new file inside a per-area glob would simply be diluted by everything already covered there.
+**Coverage is gated, not advisory.** `vitest.config.mts` sets per-area thresholds (the table above: 95% statements/lines with 85–90% branches for each area, and 100% only for `src/proxy.ts`) plus a global backstop of 98% statements / 95% branches / 97% functions / 98% lines. The global gate is what catches a newly added, entirely untested file, since a new file inside a per-area glob would simply be diluted by everything already covered there.
 
-CI (`.github/workflows/test.yml`) runs `npx vitest run --coverage` on Node 22, alongside a separate `lockfile` job described under [Known Issues](#known-issues). The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.** CI runs neither `tsc` nor `eslint`, so run those locally.
+CI (`.github/workflows/test.yml`) runs on Node 22 (a separate `discord-release-notification.yml` workflow only announces published releases to Discord):
+
+- `test` — `npx vitest run --coverage` (both Vitest projects, `src` and `scripts`, once each). The Codecov upload is pinned `fail_ci_if_error: false` and cannot fail the build — **the coverage thresholds are the actual PR gate.**
+- `lint` — `npm run lint` (including the `no-console` rule over `src/`) and `npx tsc --noEmit`.
+- `lockfile` — the platform-drift check described under [Known Issues](#known-issues).
+- `build` — `npm run build` with dummy environment values (a non-resolving `mp.invalid` Ministry Platform URL — the build never reaches a real instance), then `npm run build:check-prerender`, which fails if any app route other than Next's built-in `/_not-found` and `/_global-error` was prerendered as static (○). A prerendered page has no per-request CSP nonce, so under the enforced CSP it never hydrates. The allowlist is in `scripts/check-prerender.mjs`; after a local `npm run build` you can run the same check yourself.
+
+Every action is pinned to a full commit SHA (Dependabot keeps them current via `.github/dependabot.yml`), and each workflow declares `permissions: contents: read`.
 
 ## Development
 
@@ -712,6 +776,10 @@ npm run lint
 npm test              # Watch mode
 npm run test:run      # Single run
 npm run test:coverage # With coverage report
+npm run test:scripts  # Only the scripts/ (dev tooling) project
+
+# After a build: fail if a route other than /_not-found and /_global-error was prerendered
+npm run build:check-prerender
 
 # Generate MP types (basic, to custom location)
 npm run mp:generate
@@ -770,7 +838,7 @@ Performs a complete review of dependencies: real vulnerability exposure, availab
 /audit-deps --no-verify      # Skip the post-upgrade verification run
 ```
 
-> This command never reads or writes Ministry Platform data — it touches only local dependencies and report files. Past run reports are kept in `.claude/reports/`.
+> This command never reads or writes Ministry Platform data — it touches only local dependencies and report files. Run reports go to `.claude/reports/`, which is gitignored; lasting findings are recorded in [Dependency Known Issues](.claude/references/deps-known-issues.md).
 
 ### `/release` - GitHub Release
 
@@ -812,7 +880,15 @@ Command definitions are stored in `.claude/commands/`:
 - **[Testing Reference](.claude/references/testing.md)** - Vitest setup, mock patterns, coverage data, and test inventory
 - **[Security Headers](.claude/references/security-headers.md)** - The nonce-based CSP and the deliberate loosenings not to "tighten"
 - **[Dependency Known Issues](.claude/references/deps-known-issues.md)** - Lockfile platform drift and standing advisories
+- **[SQL Snippets](.claude/references/sql.db.md)** - Recipes for work done directly against the MP SQL database, outside the API safety rails
 - **[Session Identity Advisory](docs/security/2026-09-12-session-identity.md)** - The 2026-09-12 vulnerability, who is affected, and remediation
+- **[Sign-in Hardening Note](docs/security/2026-09-25-signin-hardening.md)** - The 2026-09-25 `callbackUrl` bypass and ID-token sign-in fixes, who is affected, and remediation
+- **[Auth Review Record](docs/security/2026-09-28-auth-review.md)** - The 2026-09-28 authentication/authorization review and its outcomes
+- **[Additional Security Hardening](docs/security/Additional_Security_Hardening.md)** - Open and accepted hardening decisions
+- **[Downstream Hardening Playbook](docs/security/downstream-hardening-playbook.md)** - What forks and copies must merge from the security work
+- **[Porting Playbooks](.claude/playbooks/)** - Playbooks for porting upstream changes into downstream forks
+- **[SECURITY.md](SECURITY.md)** - Supported versions and how to report a vulnerability privately
+- **[LICENSE](LICENSE)** - MIT license
 
 ## Code Style & Conventions
 
@@ -919,20 +995,35 @@ Also: **do not run `npm ci` while `next dev` is running.** It deletes `node_modu
 
 ### npm audit advisories
 
-`npm audit` currently reports **0 vulnerabilities across 720 packages** (verified 2026-09-12). The moderate `postcss` advisories this section used to describe were resolved upstream: `next@16.3.5` bundles `postcss@8.5.23` and the top-level `postcss` resolves to `8.5.28`, both well clear of the `< 8.5.10` threshold.
+Run `npm audit` (or `/audit-deps`) for the current picture rather than trusting a figure written here. Dated triage of past findings lives in [Dependency Known Issues](.claude/references/deps-known-issues.md).
 
 **Never run `npm audit fix --force`.** It still "fixes" bundled-dependency findings by downgrading `next` to a major version this codebase cannot run on.
 
-Re-check with `/audit-deps`, which triages each finding for real exploitability rather than treating the raw count as the signal. Triaged vendor advisories that `npm audit` does not surface are tracked in [Dependency Known Issues](.claude/references/deps-known-issues.md); past run reports are kept in `.claude/reports/`.
+Re-check with `/audit-deps`, which triages each finding for real exploitability rather than treating the raw count as the signal. Triaged vendor advisories that `npm audit` does not surface are tracked in [Dependency Known Issues](.claude/references/deps-known-issues.md).
 
 ## Contributing
 
-This project follows strict TypeScript conventions and code style. Please review [CLAUDE.md](CLAUDE.md) before contributing.
+This project follows strict TypeScript conventions and code style. Please review [CLAUDE.md](CLAUDE.md) before contributing — it holds the naming, export, authorization, logging and `$filter`-sanitization rules PRs are held to.
+
+Before opening a pull request, make sure these pass locally (CI runs the same checks):
+
+```bash
+npm run test:run
+npm run lint
+npx tsc --noEmit
+npm run deps:verify  # lockfile platform-drift check
+```
+
+If you change dependencies, regenerate the lockfile only with `npm run deps:relock` — see [Known Issues](#known-issues).
+
+**Security issues:** report them privately as described in [SECURITY.md](SECURITY.md), not as public GitHub issues.
 
 ## License
 
-Private
+[MIT](LICENSE). Fork it, customize it, and run it for your church; keep the copyright and license notice in your copy.
 
 ## Support
 
-For Ministry Platform API documentation, refer to your instance's API documentation portal.
+- **Bugs and questions**: open an issue on [MinistryPlatform-Community/MPNext](https://github.com/MinistryPlatform-Community/MPNext/issues).
+- **Security vulnerabilities**: see [SECURITY.md](SECURITY.md) — do not file a public issue.
+- **Ministry Platform API documentation**: refer to your instance's API documentation portal.

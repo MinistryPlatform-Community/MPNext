@@ -8,7 +8,7 @@ HSTS, no `Referrer-Policy`.
 
 | | `next.config.ts` | `src/proxy.ts` |
 |---|---|---|
-| **What** | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS | `Content-Security-Policy` |
+| **What** | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, HSTS (production build only) | `Content-Security-Policy` |
 | **Why there** | request-independent, so a build-time config can express it | carries a per-request nonce, which a build-time value cannot |
 | **Reaches** | every response, `/api` and static assets included | only paths the proxy matcher covers |
 
@@ -22,6 +22,13 @@ config reaches the routes the proxy skips, `frame-ancestors 'none'` in the CSP
 is the modern equivalent for the rest. They are *not* both CSP headers — two
 `Content-Security-Policy` headers on one response are enforced as an
 intersection, which is a miserable thing to debug.
+
+`next.config.ts` also sets `poweredByHeader: false` (no `X-Powered-By`) and
+`images.unoptimized: true`, which turns the `/_next/image` optimizer endpoint
+off (it 404s; every `next/image` here is `unoptimized` anyway). The
+`/api/auth` route handler adds `Cache-Control: no-store` to every response it
+returns (session JSON, redirects carrying state cookies, its own 404s), since
+better-auth sets it on only some of them.
 
 ## The CSP enforces
 
@@ -57,27 +64,38 @@ against a production build — `next dev` has deliberate relaxations
 | `connect-src` | `'self'` (+ `ws:` in dev) | Every MP call is server-side; the browser only ever talks to this origin. `ws:` is HMR. |
 | `object-src` | `'none'` | |
 | `frame-src` | `'none'` | |
-| `base-uri` | `'self'` | Stops an injected `<base>` re-pointing every relative URL on the page. |
+| `base-uri` | `'none'` | Stops an injected `<base>` re-pointing every relative URL on the page. Neither the app nor Next renders a `<base>`, so none is allowed. |
 | `form-action` | `'self'` + MP OAuth origin | See below. |
 | `frame-ancestors` | `'none'` | |
 | `upgrade-insecure-requests` | present | Production only, **and** omitted whenever the policy is report-only — browsers refuse to honor it there and log an error on every page, burying the reports report-only exists to surface. |
 
 The two origins come from `NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL` (`img-src`)
 and `MINISTRY_PLATFORM_BASE_URL` (`form-action`), reduced with `originOf()`,
-which returns `null` for a missing or malformed value rather than throwing —
+which returns `null` rather than throwing for a missing or malformed value,
+a non-http(s) scheme, or a hostname that is not plain `[a-z0-9.-]` (so
+`https://*` or `https://a;sandbox` cannot widen or inject into the policy) —
 the directive narrows, the request path never 500s.
 
 There is no `style-src-attr` (dropped as redundant) and no `report-uri`/
-`report-to`: violations surface in the browser console only.
+`report-to`: violations surface in the browser console only. **Known gap,
+decided 2026-09-29:** there is no CSP reporting endpoint, so a violation in a
+user's browser is never seen by the operators. A fork that wants it adds
+`report-to` and a collector of its own.
 
 ## Deliberate loosenings — do not "tighten" these
 
 - **`style-src 'self' 'unsafe-inline'`, with NO nonce** — Radix's dialog pulls
   in react-remove-scroll, which locks body scroll by **injecting a `<style>`
-  element at runtime**. A nonce cannot cover it (the element is created by
-  script, long after the server picked the nonce) and neither can a hash (the
+  element at runtime**, un-nonced as shipped. A hash cannot cover it (the
   content embeds the computed scrollbar width, so it varies by platform and
-  zoom — two different hashes appeared in one page view).
+  zoom — two different hashes appeared in one page view). A nonce *could*:
+  react-style-singleton stamps whatever `get-nonce`'s `setNonce()` was given
+  onto that `<style>`, so `setNonce(nonce)` on the client plus
+  `style-src-attr 'unsafe-inline'` for Radix's style attributes would work.
+  **Accepted 2026-09-29, kept for simplicity:** inline style cannot run
+  script, and the usual CSS exfiltration channel (selector-triggered `url()`
+  loads) is already shut by `img-src` and `font-src`, which allow no attacker
+  origin.
 
   The nonce must stay OUT of this directive: CSP3 browsers ignore
   `'unsafe-inline'` whenever a nonce is present in the same directive, which
@@ -114,6 +132,13 @@ header that the proxy sets on `NextResponse.next({ request: { headers } })`. A
 page prerendered at build time has no request, so no nonce, so under
 enforcement its bootstrap script is blocked and the page never hydrates.
 
+The proxy also sets the raw nonce as an `x-nonce` request header (the
+convention from Next's CSP guide). Nothing in `src/` reads it today — Next takes
+the nonce from the CSP header, not from `x-nonce` — so it is only there for a
+server component that needs to nonce its own `<script>` (read it with
+`(await headers()).get('x-nonce')`). It is a request header only; it never
+appears on the response.
+
 Two consequences:
 
 1. **Route segment config is ignored in a `"use client"` module.** This is why
@@ -124,12 +149,17 @@ Two consequences:
    page.test.tsx` pins both facts.
 2. **Check the build output after adding a route.** Anything printed with `○`
    is prerendered and will not hydrate under an enforced CSP. Every app route
-   is currently `ƒ` (verified against a production build, 2026-09-12) except
-   Next's built-in `/_not-found`, which is `○`: it renders its HTML but will
-   not hydrate under enforcement.
-   It has no interactivity to lose, so this is accepted rather than fixed; a
-   custom `src/app/not-found.tsx` server component would close it if the 404
-   ever needs client behavior.
+   is `ƒ` (`/signin`, `/session-error` and `/signed-out` each export
+   `dynamic = "force-dynamic"`; the rest are dynamic because they await
+   `searchParams` or, under `(web)`, `headers()` via `AuthWrapper`) except Next's
+   two built-ins, which are always `○` and cannot opt out: `/_not-found`
+   (renders its HTML but will not hydrate under enforcement; no interactivity
+   to lose, so accepted) and `/_global-error`, the 500 page wrapping
+   `src/app/global-error.tsx` — which is why that file recovers through a
+   plain link rather than a JS handler. CI enforces this: the `build` job runs
+   `scripts/check-prerender.mjs` (`npm run build:check-prerender`), which
+   fails if `.next/prerender-manifest.json` lists any route outside that
+   two-entry allowlist.
 
 ## Tests
 
@@ -144,5 +174,8 @@ Two consequences:
   path including redirects, the nonce forwarded on the request headers and
   matching the response policy, a fresh nonce per request, and the
   `CSP_ENFORCE` switch.
-- `src/app/signin/page.test.tsx` § rendering mode, and the matching test in
-  `src/app/session-error/page.test.tsx` — the prerendering opt-outs.
+- `src/app/signin/page.test.tsx` § rendering mode, and the matching tests in
+  `src/app/session-error/page.test.tsx` and `src/app/signed-out/page.test.tsx`
+  — the prerendering opt-outs.
+- `scripts/check-prerender.test.ts` — the CI prerender guard's allowlist is
+  exactly `/_not-found` and `/_global-error`, and any other static route fails.

@@ -31,7 +31,10 @@ Know exactly what you may do without asking:
 
 **Allowed without asking**
 - Every read-only command (`npm ls`, `npm audit`, `npm outdated`, `npm view`, `git status`, `git diff`).
-- `npm install` with **no package argument** (syncs the tree to the lockfile).
+- `npm install` with **no package argument** (syncs the tree to the lockfile). If it changes
+  `package-lock.json`, regenerate it with `npm run deps:relock` and check it with
+  `npm run deps:verify` — a bare Windows `npm install`/`npm dedupe` must never produce the
+  committed lockfile (CLAUDE.md § Dependency Rule).
 - **`npm update`** with no package argument — applies patch/minor updates inside the existing
   ranges. This is the phase 6 workhorse; it never edits `package.json`.
 - `npm run deps:relock` / `npm run deps:verify` — required after any `npm update`.
@@ -77,10 +80,13 @@ reading a single advisory.
 2. `node --version` and `npm --version` — note them in the report; some advisories and
    peer ranges are engine-dependent.
 3. `npm ls --all 2>&1 | grep -iE "invalid|missing|UNMET"` — any hit means the installed
-   tree does not satisfy `package.json`. Run `npm install`, then re-check.
+   tree does not satisfy `package.json`. Run `npm install`, then re-check. If that changed
+   `package-lock.json`, run `npm run deps:relock` then `npm run deps:verify` before going on.
 4. Confirm `package.json` and the lockfile agree. Prefer `npm ls` cleanliness plus
    `npm install --package-lock-only --dry-run` (non-destructive). Reach for `npm ci` only
-   if you must, and warn the user first — it **deletes and rebuilds `node_modules`**.
+   if you must, and warn the user first — it **deletes and rebuilds `node_modules`**. Have
+   the user stop `next dev` before it runs: a running dev server locks a native `.node`
+   file, so `npm ci` aborts after the delete and leaves `node_modules` half-installed.
 5. Only proceed once the tree matches `package.json`. State the baseline explicitly:
    "audited tree = package.json as of \<commit sha\>".
 
@@ -208,18 +214,22 @@ recommendation. Then ask.
 
 For each approved major, one at a time:
 
-1. Edit the range in `package.json`, `npm install`. Watch for `ERESOLVE` and for
-   `invalid:` in `npm ls <pkg>` — either means surrounding tooling hasn't adopted it.
+1. Edit the range in `package.json`, `npm install`, then `npm run deps:relock` and
+   `npm run deps:verify` (the bare install's lockfile is never the one you commit). Watch
+   for `ERESOLVE` and for `invalid:` in `npm ls <pkg>` — either means surrounding tooling
+   hasn't adopted it.
 2. Apply the code changes the migration guide requires.
 3. Run the full phase 7 verification.
 4. **On failure, revert cleanly and completely:** restore the `package.json` range,
    `git checkout -- package-lock.json`, `npm install`, then confirm `git status` is clean
-   for those files and the build passes again. Record the failure and its cause in the
+   for those files (if `npm install` rewrote the restored lockfile, discard that with
+   `git checkout -- package-lock.json` again rather than committing it — or relock and
+   verify) and the build passes again. Record the failure and its cause in the
    known-issues file with today's date so the next run doesn't retry it blindly.
 
 ## Phase 9 — Report, persist, commit
 
-**Report** (in chat, and written to `.claude/reports/deps-audit-<YYYY-MM-DD>.md`):
+**Report** (in chat, and written to `.claude/reports/deps-audit-<YYYY-MM-DD>.md`, which is gitignored: a local working copy, never committed — the durable record is `deps-known-issues.md`):
 
 ```markdown
 # Dependency Audit — <date>
@@ -263,8 +273,8 @@ longer applies. Keep dates on everything.
 - Separate commits per tier so a bisect is meaningful:
   - `fix(deps): resolve <N> advisories via in-range updates`
   - `chore(deps): bump <pkg> <old> -> <new>` (one per major)
-  - `docs(deps): audit report <date>`
-- Include the report path and the verification results in the commit body.
+  - `docs(deps): update known issues <date>`
+- Include the report summary and the verification results in the commit body.
 - Sign off as configured in CLAUDE.md's commit conventions.
 - **Do not push and do not open a PR.** Tell the user the branch is ready.
 
@@ -289,7 +299,7 @@ Lower security risk, watch for breaking majors:
 Dev/build-time only — real but lower urgency, often Windows-specific:
 - **vitest**, **@vitest/coverage-v8**, **@vitejs/plugin-react**, **esbuild** (transitive),
   **tsx**, **jsdom**, **eslint** / **eslint-config-next**, **typescript**, **postcss**,
-  **autoprefixer**, **@inquirer/prompts**, **chalk**, **@types/\***.
+  **@inquirer/prompts**, **chalk**, **@types/\***.
 
 Not in this project — don't chase advisories for them: `next-auth`, `jsonwebtoken`,
 `bcryptjs`, Drizzle, Prisma, AWS SDK, express.

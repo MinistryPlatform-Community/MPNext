@@ -1,4 +1,5 @@
 export { AuthWrapper } from './auth-wrapper';
-export { Header } from './header';
+export { Header, HeaderSkeleton } from './header';
 export { Sidebar } from './sidebar';
 export { DynamicBreadcrumb } from './dynamic-breadcrumb';
+export { SessionGuard } from './session-guard';

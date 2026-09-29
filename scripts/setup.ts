@@ -18,6 +18,17 @@ import { fileURLToPath } from 'node:url';
 import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { confirm, input, password, select } from '@inquirer/prompts';
+import * as nextEnv from '@next/env';
+import {
+  authSecretProblem,
+  encodeEnvValue,
+  EnvValueError,
+  MIN_AUTH_SECRET_LENGTH,
+  readEnvFile,
+  restrictEnvFilePermissions,
+  updateEnvFile,
+  writeEnvFileSecure,
+} from './setup-env';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,7 +39,6 @@ const __dirname = path.dirname(__filename);
 
 interface SetupOptions {
   check: boolean;
-  clean: boolean;
   skipInstall: boolean;
   verbose: boolean;
 }
@@ -74,7 +84,12 @@ const MODELS_PATH = path.join(
 );
 const NEXT_BUILD_PATH = path.join(PROJECT_ROOT, '.next');
 
-const REQUIRED_NODE_VERSION = 20;
+const REQUIRED_NODE_VERSION = 22;
+
+// Suggested client IDs for a new install: two dedicated MP API Clients, one per
+// flow (see README § API Client Setup). An existing .env.local value wins.
+const DEFAULT_OIDC_CLIENT_ID = 'MPNext';
+const DEFAULT_MP_API_CLIENT_ID = 'MPNext.API';
 
 // Patterns to detect if this is a clone of the MPNext template repository
 const TEMPLATE_REPO_PATTERNS = [
@@ -151,7 +166,6 @@ function parseArguments(): SetupOptions {
   const args = process.argv.slice(2);
   const options: SetupOptions = {
     check: false,
-    clean: false,
     skipInstall: false,
     verbose: false,
   };
@@ -162,7 +176,8 @@ function parseArguments(): SetupOptions {
         options.check = true;
         break;
       case '--clean':
-        options.clean = true;
+        // Kept so existing docs/scripts don't break: `npm ci` always starts
+        // from an empty node_modules, so there is nothing extra to clean.
         break;
       case '--skip-install':
         options.skipInstall = true;
@@ -192,15 +207,21 @@ Usage: npm run setup [options]
 
 Options:
   --check         Validation-only mode (no modifications)
-  --clean         Delete node_modules before install
-  --skip-install  Skip npm install/update steps
+  --skip-install  Skip the \`npm ci\` dependency install step
+  --clean         No-op, kept for compatibility (\`npm ci\` always installs clean)
   --verbose       Extra output
   -h, --help      Show this help message
+
+Dependencies are installed with \`npm ci\`, exactly as package-lock.json pins
+them. Setup never runs \`npm install\` or \`npm update\`: those can pull an
+unreviewed better-auth minor (see the Better Auth Upgrade Checklist in
+.claude/references/auth.md) and, on Windows, rewrite the lockfile into one CI
+cannot install. To upgrade dependencies, do it deliberately and relock with
+\`npm run deps:relock\`.
 
 Examples:
   npm run setup              # Interactive setup
   npm run setup:check        # Check configuration only
-  npm run setup -- --clean   # Clean install
 `);
 }
 
@@ -208,68 +229,12 @@ Examples:
 // Utility Functions
 // ============================================================================
 
+/**
+ * Reads `.env.local` the way Next's env loader will (quotes, `#` comments,
+ * `$NAME` expansion, `\$` escapes) — see scripts/setup-env.ts.
+ */
 function parseEnvFile(filePath: string): Map<string, string> {
-  const env = new Map<string, string>();
-
-  if (!fs.existsSync(filePath)) {
-    return env;
-  }
-
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // Skip empty lines and comments
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const equalIndex = trimmed.indexOf('=');
-    if (equalIndex === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, equalIndex).trim();
-    let value = trimmed.slice(equalIndex + 1).trim();
-
-    // Remove surrounding quotes if present
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    env.set(key, value);
-  }
-
-  return env;
-}
-
-function updateEnvFile(filePath: string, updates: Map<string, string>): void {
-  let content = '';
-
-  if (fs.existsSync(filePath)) {
-    content = fs.readFileSync(filePath, 'utf-8');
-  }
-
-  for (const [key, value] of updates) {
-    const regex = new RegExp(`^${key}=.*$`, 'm');
-    const newLine = `${key}=${value}`;
-
-    if (regex.test(content)) {
-      content = content.replace(regex, newLine);
-    } else {
-      // Add to end of file
-      if (content && !content.endsWith('\n')) {
-        content += '\n';
-      }
-      content += `${newLine}\n`;
-    }
-  }
-
-  fs.writeFileSync(filePath, content, 'utf-8');
+  return readEnvFile(filePath);
 }
 
 function execCommand(
@@ -547,7 +512,7 @@ function checkNodeVersion(): StepResult {
     return {
       success: false,
       message: `Node.js v${version} is below minimum required v${REQUIRED_NODE_VERSION}`,
-      details: 'Please upgrade Node.js to v20 or later',
+      details: `Please upgrade Node.js to v${REQUIRED_NODE_VERSION} or later`,
     };
   }
 
@@ -609,7 +574,7 @@ async function createEnvFile(): Promise<StepResult> {
   }
 
   const content = fs.readFileSync(ENV_EXAMPLE_PATH, 'utf-8');
-  fs.writeFileSync(ENV_LOCAL_PATH, content, 'utf-8');
+  writeEnvFileSecure(ENV_LOCAL_PATH, content);
 
   return {
     success: true,
@@ -662,6 +627,138 @@ function validateEnvVars(): {
   };
 }
 
+/**
+ * The environment exactly as `next dev` will see it: Next's own loader
+ * (`@next/env`), over `.env.development.local`, `.env.local`,
+ * `.env.development` and `.env`, with real environment variables winning.
+ * Checking the *loaded* value is the point — an unquoted `$` or `#` in the
+ * file silently truncates what the app receives.
+ *
+ * The loader writes into process.env (and marks it processed); `resetEnv()`
+ * undoes that so the later `mp:generate:models` / `next build` child processes
+ * load the files themselves, as they would without setup.
+ */
+function loadEnvLikeNext(): Record<string, string | undefined> {
+  try {
+    const { combinedEnv } = nextEnv.loadEnvConfig(
+      PROJECT_ROOT,
+      true,
+      { info: () => {}, error: (...args: unknown[]) => console.error(...args) },
+      true
+    );
+    return { ...combinedEnv };
+  } finally {
+    nextEnv.resetEnv();
+  }
+}
+
+function checkAuthSecret(env: Record<string, string | undefined>): StepResult {
+  const name = !env.BETTER_AUTH_SECRET && env.NEXTAUTH_SECRET ? 'NEXTAUTH_SECRET' : 'BETTER_AUTH_SECRET';
+  const secret = env.BETTER_AUTH_SECRET || env.NEXTAUTH_SECRET;
+  const problem = authSecretProblem(secret);
+
+  if (!problem) {
+    return {
+      success: true,
+      message: `${name} loads as ${secret!.length} characters (minimum ${MIN_AUTH_SECRET_LENGTH})`,
+    };
+  }
+
+  return {
+    success: false,
+    message: `${name} ${problem} — the app will refuse to start`,
+    details:
+      'Re-run `npm run setup` to generate one. If you typed it by hand, wrap it in double quotes in ' +
+      '.env.local and write each `$` as `\\$`: unquoted, Next treats `#` as a comment and expands `$NAME`.',
+  };
+}
+
+/** `@inquirer/prompts` validator: can this value be written to .env.local exactly? */
+function storableInEnvFile(value: string): true | string {
+  try {
+    encodeEnvValue(value);
+    return true;
+  } catch (error) {
+    if (error instanceof EnvValueError) return error.message;
+    throw error;
+  }
+}
+
+function validateManualAuthSecret(value: string): true | string {
+  const problem = authSecretProblem(value);
+  if (problem) {
+    return problem === 'is not set'
+      ? `Enter a secret of at least ${MIN_AUTH_SECRET_LENGTH} characters (or re-run and let setup generate one)`
+      : `This secret ${problem}. Generate one with: openssl rand -base64 32`;
+  }
+  return storableInEnvFile(value);
+}
+
+// ----------------------------------------------------------------------------
+// Security roles (MP_SECURITY_ROLES)
+//
+// Mirrors the parsing in src/services/authorizationService.ts, which is the
+// source of truth — keep the two in step. The gate FAILS CLOSED: unset, blank,
+// or a value naming no roles (e.g. ",") permits nobody; "*" (the whole value)
+// permits any MP security role; otherwise a comma-separated list of role names.
+// ----------------------------------------------------------------------------
+
+const SECURITY_ROLES_VAR = 'MP_SECURITY_ROLES';
+const LEGACY_SECURITY_ROLES_VAR = 'MP_WRITE_SECURITY_ROLES';
+
+type RoleValue =
+  | { kind: 'any' }
+  | { kind: 'list'; names: string[] }
+  | { kind: 'blank' }
+  | { kind: 'no_names' };
+
+function parseRoleValue(raw: string | undefined): RoleValue {
+  const trimmed = raw?.trim() ?? '';
+  if (!trimmed) return { kind: 'blank' };
+  if (trimmed === '*') return { kind: 'any' };
+  const names = trimmed
+    .split(',')
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+  return names.length > 0 ? { kind: 'list', names } : { kind: 'no_names' };
+}
+
+function checkSecurityRoles(env: Map<string, string>): StepResult {
+  const primary = parseRoleValue(env.get(SECURITY_ROLES_VAR));
+  if (primary.kind === 'any') {
+    return {
+      success: true,
+      message: `${SECURITY_ROLES_VAR}=* (any MP security role may use the contact features)`,
+    };
+  }
+  if (primary.kind === 'list') {
+    return {
+      success: true,
+      message: `${SECURITY_ROLES_VAR} permits: ${primary.names.join(', ')}`,
+    };
+  }
+
+  const legacy = parseRoleValue(env.get(LEGACY_SECURITY_ROLES_VAR));
+  if (legacy.kind === 'any' || legacy.kind === 'list') {
+    return {
+      success: true,
+      warning: true,
+      message: `Using deprecated ${LEGACY_SECURITY_ROLES_VAR}; rename it to ${SECURITY_ROLES_VAR}`,
+    };
+  }
+
+  return {
+    success: true,
+    warning: true,
+    message:
+      primary.kind === 'no_names'
+        ? `${SECURITY_ROLES_VAR} names no roles — nobody can use the contact features`
+        : `${SECURITY_ROLES_VAR} is blank — nobody can use the contact features`,
+    details:
+      'Set it to comma-separated MP security role names (e.g. "Administrators,Pastoral Staff"), or "*" for any MP security role',
+  };
+}
+
 function checkNodeModules(): StepResult {
   if (fs.existsSync(NODE_MODULES_PATH)) {
     return {
@@ -673,7 +770,7 @@ function checkNodeModules(): StepResult {
   return {
     success: false,
     message: 'node_modules not found',
-    details: 'Run npm install to install dependencies',
+    details: 'Run npm ci to install dependencies',
   };
 }
 
@@ -774,6 +871,17 @@ function runCheckMode(): number {
     console.log(chalk.red(`✗ Missing: ${issues.join(', ')}`));
   }
 
+  // Step 5b: Security roles — optional, but blank now means "nobody", so warn.
+  const rolesResult = checkSecurityRoles(parseEnvFile(ENV_LOCAL_PATH));
+  results.push({ name: 'Security roles', result: rolesResult });
+  printResult(rolesResult);
+
+  // Step 5c: Auth secret, as Next actually loads it (a non-empty line in the
+  // file can still load as a 3-character secret).
+  const secretResult = checkAuthSecret(loadEnvLikeNext());
+  results.push({ name: 'Auth secret', result: secretResult });
+  printResult(secretResult);
+
   // Step 6: Dependencies
   process.stdout.write(chalk.cyan('[6/8] Dependencies...           '));
   const depsResult = checkNodeModules();
@@ -823,7 +931,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   console.log(chalk.bold.blue('\nMPNext Setup'));
   console.log(chalk.blue('============'));
 
-  const totalSteps = 9;
+  const totalSteps = 8;
   let passedSteps = 0;
   let warnings = 0;
   let skippedSteps = 0;
@@ -835,7 +943,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   printResult(nodeResult);
 
   if (!nodeResult.success) {
-    console.log(chalk.red('\nSetup cannot continue without Node.js v20 or later.'));
+    console.log(chalk.red(`\nSetup cannot continue without Node.js v${REQUIRED_NODE_VERSION} or later.`));
     return 1;
   }
   passedSteps++;
@@ -964,6 +1072,10 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   if (!envFileResult.success) {
     failedSteps++;
   } else {
+    // An .env.local from an older setup (or `cp .env.example`) is 0644 on
+    // POSIX; it holds the client secrets, so tighten it even if nothing below
+    // ends up being written.
+    restrictEnvFilePermissions(ENV_LOCAL_PATH);
     passedSteps++;
   }
 
@@ -983,9 +1095,10 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   const currentBaseUrl = currentEnv.get('MINISTRY_PLATFORM_BASE_URL') || '';
   let currentHost = '';
   if (currentBaseUrl) {
-    // Extract host from existing URL (e.g., https://mpi.ministryplatform.com/ministryplatformapi -> mpi.ministryplatform.com)
+    // Extract host from existing URL (e.g., https://your-instance.ministryplatform.com/ministryplatformapi -> your-instance.ministryplatform.com)
     const match = currentBaseUrl.match(/https?:\/\/([^/]+)/);
-    if (match) {
+    // The .env.example placeholder is not a real host; don't offer it as the default.
+    if (match && match[1] !== 'your-instance.ministryplatform.com') {
       currentHost = match[1];
     }
   }
@@ -994,7 +1107,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   console.log(chalk.gray('  The OIDC, API, and File URLs will be derived from your MP host'));
 
   const mpHost = await input({
-    message: 'Enter your Ministry Platform host (e.g., mpi.ministryplatform.com):',
+    message: 'Enter your Ministry Platform host (e.g., your-instance.ministryplatform.com):',
     default: currentHost || undefined,
   });
 
@@ -1008,12 +1121,23 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   }
 
   // Always ask for OIDC_CLIENT_ID with default
-  console.log(chalk.yellow('\n  OAuth Client Configuration'));
-  const currentOidcClientId = currentEnv.get('OIDC_CLIENT_ID') || 'TM.Widgets';
+  console.log(chalk.yellow('\n  OAuth Client Configuration (user sign-in)'));
+  console.log(
+    chalk.gray(
+      '  Use a DEDICATED MP API Client for MPNext sign-in, not a shared one such as\n' +
+        '  TM.Widgets. Allow the Authorization Code flow only (no Implicit, Hybrid or\n' +
+        '  Resource Owner), and register exactly this redirect URI:\n' +
+        '    <BETTER_AUTH_URL>/api/auth/callback/ministry-platform\n' +
+        '  MP does not support PKCE, so a dedicated client with exact redirect URIs is\n' +
+        '  the main defence against authorization-code injection. See README § API Client Setup.'
+    )
+  );
+  const currentOidcClientId = currentEnv.get('OIDC_CLIENT_ID') || DEFAULT_OIDC_CLIENT_ID;
 
   const oidcClientId = await input({
-    message: 'Enter OIDC_CLIENT_ID (OAuth client ID for user authentication):',
+    message: 'Enter OIDC_CLIENT_ID (dedicated OAuth client for user sign-in):',
     default: currentOidcClientId,
+    validate: storableInEnvFile,
   });
 
   if (oidcClientId) {
@@ -1024,6 +1148,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   // Ask for OIDC_CLIENT_SECRET, showing the client ID for reference
   const oidcClientSecret = await password({
     message: `Enter OIDC_CLIENT_SECRET (${oidcClientId}):`,
+    validate: storableInEnvFile,
   });
 
   if (oidcClientSecret) {
@@ -1032,13 +1157,31 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   }
 
   // Always ask for MINISTRY_PLATFORM_CLIENT_ID with default
-  console.log(chalk.yellow('\n  Ministry Platform API Client Configuration'));
-  const currentMpClientId = currentEnv.get('MINISTRY_PLATFORM_CLIENT_ID') || 'MPNext';
+  console.log(chalk.yellow('\n  Ministry Platform API Client Configuration (server-side data access)'));
+  console.log(
+    chalk.gray(
+      '  Use a SEPARATE MP API Client from the sign-in client above, allowing the\n' +
+        '  Client Credentials flow only, with a least-privilege Client User: every\n' +
+        '  server-side read and write runs as that user.'
+    )
+  );
+  const currentMpClientId = currentEnv.get('MINISTRY_PLATFORM_CLIENT_ID') || DEFAULT_MP_API_CLIENT_ID;
 
   const mpClientId = await input({
-    message: 'Enter MINISTRY_PLATFORM_CLIENT_ID (API client ID for data access):',
+    message: 'Enter MINISTRY_PLATFORM_CLIENT_ID (Client Credentials client for data access):',
     default: currentMpClientId,
+    validate: storableInEnvFile,
   });
+
+  if (mpClientId && mpClientId === oidcClientId) {
+    console.log(
+      chalk.yellow(
+        '  ⚠ This is the same client as OIDC_CLIENT_ID. Prefer two clients: one Authorization Code\n' +
+          '    client for sign-in, one Client Credentials client for data access.'
+      )
+    );
+    warnings++;
+  }
 
   if (mpClientId) {
     updates.set('MINISTRY_PLATFORM_CLIENT_ID', mpClientId);
@@ -1048,11 +1191,45 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
   // Ask for MINISTRY_PLATFORM_CLIENT_SECRET, showing the client ID for reference
   const mpClientSecret = await password({
     message: `Enter MINISTRY_PLATFORM_CLIENT_SECRET (${mpClientId}):`,
+    validate: storableInEnvFile,
   });
 
   if (mpClientSecret) {
     updates.set('MINISTRY_PLATFORM_CLIENT_SECRET', mpClientSecret);
     console.log(chalk.green(`  ✓ MINISTRY_PLATFORM_CLIENT_SECRET = ********`));
+  }
+
+  // Ask which MP security roles may use the gated contact features. The gate
+  // fails closed, so leaving this blank locks everyone out of those pages.
+  console.log(chalk.yellow('\n  Authorization'));
+  console.log(
+    chalk.gray(
+      '  MP security roles permitted to read and write contacts and contact logs.\n' +
+        '  Comma-separated role names (e.g. Administrators,Pastoral Staff), or * for any\n' +
+        '  MP security role. Blank means nobody can use those features.'
+    )
+  );
+  const currentRoles = currentEnv.get(SECURITY_ROLES_VAR) ?? '';
+  const securityRoles = (
+    await input({
+      message: `Enter ${SECURITY_ROLES_VAR}:`,
+      default: currentRoles || undefined,
+      validate: (value) =>
+        parseRoleValue(value).kind === 'no_names'
+          ? 'That names no roles. Enter role names separated by commas, "*", or leave blank.'
+          : storableInEnvFile(value),
+    })
+  ).trim();
+
+  if (securityRoles !== currentRoles.trim()) {
+    updates.set(SECURITY_ROLES_VAR, securityRoles);
+  }
+  const rolesResult = checkSecurityRoles(
+    new Map([...currentEnv, [SECURITY_ROLES_VAR, securityRoles]])
+  );
+  printResult(rolesResult);
+  if (rolesResult.warning) {
+    warnings++;
   }
 
   // Variables handled specially (skip in regular loop)
@@ -1094,7 +1271,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
           console.log(chalk.green(`  ✓ Generated ${varDef.name}`));
         } else {
           const value = await password({
-            message: `Enter ${varDef.name}:`,
+            message: `Enter ${varDef.name} (at least ${MIN_AUTH_SECRET_LENGTH} characters):`,
+            validate: validateManualAuthSecret,
           });
           if (value) {
             updates.set(varDef.name, value);
@@ -1103,6 +1281,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
       } else if (varDef.sensitive) {
         const value = await password({
           message: `Enter ${varDef.name}:`,
+          validate: storableInEnvFile,
         });
         if (value) {
           updates.set(varDef.name, value);
@@ -1111,6 +1290,7 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
         const value = await input({
           message: `Enter ${varDef.name}:`,
           default: varDef.defaultValue,
+          validate: storableInEnvFile,
         });
         if (value) {
           updates.set(varDef.name, value);
@@ -1124,77 +1304,71 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     console.log(chalk.green(`\n  ✓ Updated .env.local with ${updates.size} variable(s)`));
   }
 
+  // The secret is judged as Next will load it. A non-empty line can still load
+  // short: an unquoted `Xy9$Qz7Lm#...` written by hand loads as "Xy9".
+  let secretResult = checkAuthSecret(loadEnvLikeNext());
+  if (!secretResult.success) {
+    printResult(secretResult);
+    const shouldRegenerate = await confirm({
+      message: 'Generate a new BETTER_AUTH_SECRET now?',
+      default: true,
+    });
+    if (shouldRegenerate) {
+      updateEnvFile(ENV_LOCAL_PATH, new Map([['BETTER_AUTH_SECRET', await generateAuthSecret()]]));
+      console.log(chalk.green('  ✓ Generated BETTER_AUTH_SECRET'));
+      secretResult = checkAuthSecret(loadEnvLikeNext());
+    }
+  }
+
   // Re-validate after all updates
   const revalidation = validateEnvVars();
   envVarsResult = revalidation.result;
-  if (envVarsResult.success) {
-    printResult(envVarsResult);
+  printResult(envVarsResult);
+  printResult(secretResult);
+  if (envVarsResult.success && secretResult.success) {
     passedSteps++;
   } else {
-    printResult(envVarsResult);
     failedSteps++;
   }
 
-  // Step 6: npm install
+  // Step 6: npm ci
+  //
+  // `npm ci`, never `npm install` / `npm update`: it installs exactly what
+  // package-lock.json pins and never rewrites the lockfile. `npm update` could
+  // pull an unreviewed better-auth minor (those have broken sign-in and
+  // identity before; see the Better Auth Upgrade Checklist in
+  // .claude/references/auth.md), and on Windows either command can rewrite the
+  // lockfile into one CI cannot install (CLAUDE.md § Dependency Rule).
   printStepHeader(6, totalSteps, 'Installing dependencies');
 
   if (options.skipInstall) {
     console.log(chalk.gray('  Skipped (--skip-install)'));
     passedSteps++;
   } else {
-    if (options.clean || !fs.existsSync(NODE_MODULES_PATH)) {
-      let doClean = options.clean;
-
-      if (!options.clean && fs.existsSync(NODE_MODULES_PATH)) {
-        doClean = await confirm({
-          message: 'Perform clean install (delete node_modules)?',
-          default: false,
-        });
-      }
-
-      if (doClean && fs.existsSync(NODE_MODULES_PATH)) {
-        console.log(chalk.gray('  Removing node_modules...'));
-        fs.rmSync(NODE_MODULES_PATH, { recursive: true, force: true });
-      }
-    }
-
-    console.log(chalk.gray('  Running npm install...'));
-    const installResult = await execCommandStreaming('npm', ['install'], options.verbose);
+    console.log(chalk.gray('  Running npm ci (exact versions from package-lock.json)...'));
+    console.log(chalk.gray('  Stop `next dev` first if it is running: npm ci replaces node_modules.'));
+    const installResult = await execCommandStreaming('npm', ['ci'], options.verbose);
 
     if (installResult.success) {
       console.log(chalk.green('  ✓ Dependencies installed'));
       passedSteps++;
     } else {
-      console.log(chalk.red('  ✗ npm install failed'));
+      console.log(chalk.red('  ✗ npm ci failed'));
       if (!options.verbose && installResult.output) {
         console.log(chalk.gray(installResult.output.slice(0, 500)));
       }
+      console.log(
+        chalk.yellow(
+          '    Hint: npm ci needs a package-lock.json that matches package.json. Do not "fix" it with\n' +
+            '    npm install; relock with `npm run deps:relock` (see README § Known Issues).'
+        )
+      );
       failedSteps++;
     }
   }
 
-  // Step 7: npm update
-  printStepHeader(7, totalSteps, 'Updating dependencies');
-
-  if (options.skipInstall) {
-    console.log(chalk.gray('  Skipped (--skip-install)'));
-    passedSteps++;
-  } else {
-    console.log(chalk.gray('  Running npm update...'));
-    const updateResult = await execCommandStreaming('npm', ['update'], options.verbose);
-
-    if (updateResult.success) {
-      console.log(chalk.green('  ✓ Dependencies updated'));
-      passedSteps++;
-    } else {
-      console.log(chalk.yellow('  ⚠ npm update had issues (non-critical)'));
-      warnings++;
-      passedSteps++;
-    }
-  }
-
-  // Step 8: MP type generation
-  printStepHeader(8, totalSteps, 'Generating Ministry Platform types');
+  // Step 7: MP type generation
+  printStepHeader(7, totalSteps, 'Generating Ministry Platform types');
   console.log(chalk.gray('  Running mp:generate:models...'));
 
   const generateResult = await execCommandStreaming(
@@ -1224,8 +1398,8 @@ async function runInteractiveSetup(options: SetupOptions): Promise<number> {
     failedSteps++;
   }
 
-  // Step 9: Build validation
-  printStepHeader(9, totalSteps, 'Building project');
+  // Step 8: Build validation
+  printStepHeader(8, totalSteps, 'Building project');
 
   if (!generateResult.success) {
     console.log(

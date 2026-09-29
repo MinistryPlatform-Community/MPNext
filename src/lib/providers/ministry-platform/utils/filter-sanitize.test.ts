@@ -21,6 +21,26 @@ describe('sanitizeFilterValue', () => {
   it('should not alter strings without quotes', () => {
     expect(sanitizeFilterValue('Hello World 123')).toBe('Hello World 123');
   });
+
+  it('should reject non-string input', () => {
+    expect(() => sanitizeFilterValue(['x'] as unknown as string)).toThrow('Invalid filter value: expected a string');
+    expect(() => sanitizeFilterValue(5 as unknown as string)).toThrow('expected a string');
+    expect(() => sanitizeFilterValue(undefined as unknown as string)).toThrow('expected a string');
+  });
+
+  it('should reject control characters without echoing the value', () => {
+    expect(() => sanitizeFilterValue('a\u0000b')).toThrow('control characters are not allowed');
+    expect(() => sanitizeFilterValue('a\nb')).toThrow('control characters are not allowed');
+    expect(() => sanitizeFilterValue('a\u007Fb')).toThrow('control characters are not allowed');
+    expect(() => sanitizeFilterValue('secret\n')).not.toThrow('secret');
+  });
+
+  it.each(['‘', '’', '‛', 'ʼ', '＇'])(
+    'should reject the quote look-alike U+%s',
+    (ch) => {
+      expect(() => sanitizeFilterValue(`O${ch}Brien`)).toThrow('quote look-alike');
+    },
+  );
 });
 
 describe('sanitizeLikeValue', () => {
@@ -50,6 +70,41 @@ describe('sanitizeLikeValue', () => {
 
   it('should handle empty string', () => {
     expect(sanitizeLikeValue('')).toBe('');
+  });
+
+  // T-SQL LIKE treats `[...]` as a character class, so an unescaped `[` would
+  // let a caller run pattern searches such as `[0-9][0-9][0-9]`.
+  it('should escape an opening bracket so a character class is matched literally', () => {
+    expect(sanitizeLikeValue('[0-9]')).toBe('\\[0-9]');
+    expect(sanitizeLikeValue('[^a]')).toBe('\\[^a]');
+    expect(sanitizeLikeValue('[0-9][0-9]')).toBe('\\[0-9]\\[0-9]');
+  });
+
+  it('should escape a backslash before a bracket without double-escaping it', () => {
+    expect(sanitizeLikeValue('\\[')).toBe('\\\\\\[');
+  });
+
+  it.each(['‘', '’', '‛', 'ʼ', '＇'])(
+    'should turn the quote look-alike U+%s into the single-character wildcard',
+    (ch) => {
+      expect(sanitizeLikeValue(`O${ch}Brien`)).toBe('O_Brien');
+    },
+  );
+
+  it('should keep a literal underscore escaped next to a look-alike wildcard', () => {
+    expect(sanitizeLikeValue('a_b’c')).toBe('a\\_b_c');
+  });
+
+  it('should reject non-string input', () => {
+    expect(() => sanitizeLikeValue(['x'] as unknown as string)).toThrow('Invalid search value: expected a string');
+    expect(() => sanitizeLikeValue({} as unknown as string)).toThrow('expected a string');
+    expect(() => sanitizeLikeValue(null as unknown as string)).toThrow('expected a string');
+  });
+
+  it('should reject control characters', () => {
+    expect(() => sanitizeLikeValue('\u0000')).toThrow('control characters are not allowed');
+    expect(() => sanitizeLikeValue('a\r\nb')).toThrow('control characters are not allowed');
+    expect(() => sanitizeLikeValue('tab\there')).toThrow('control characters are not allowed');
   });
 });
 
@@ -87,6 +142,16 @@ describe('sanitizeGuid', () => {
 
   it('should throw on GUID with invalid characters', () => {
     expect(() => sanitizeGuid('1234567g-1234-1234-1234-123456789abc')).toThrow('Invalid GUID format');
+  });
+
+  it('should throw on a one-element array even though it stringifies to a valid GUID', () => {
+    const guid = '12345678-1234-1234-1234-123456789abc';
+    expect(() => sanitizeGuid([guid] as unknown as string)).toThrow('Invalid GUID format');
+  });
+
+  it('should throw on non-string input', () => {
+    expect(() => sanitizeGuid(undefined as unknown as string)).toThrow('Invalid GUID format');
+    expect(() => sanitizeGuid(42 as unknown as string)).toThrow('Invalid GUID format');
   });
 });
 

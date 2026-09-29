@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { use } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 
 /**
  * Sidebar navigation tests.
@@ -25,8 +26,15 @@ import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
  *    read from the SERVER-COMPUTED flag and not re-derived on the client from
  *    `roles`, and that it fails closed when the profile is absent.
  *
+ * 4. Entries must be `next/link`, not `<a>`. A plain anchor reloads the whole
+ *    document, remounting the app shell and reloading the MP profile on every
+ *    click — which is what made navigation flicker like a refresh.
+ * 5. Only the gated entry may wait on the profile: the drawer and Dashboard
+ *    must render while `useUser()` is still suspended.
+ *
  * `@/contexts` is mocked: the real UserProvider calls a server action that
- * reaches Ministry Platform, and nothing in this file may touch MP.
+ * reaches Ministry Platform, and nothing in this file may touch MP. `next/link`
+ * is mocked to a marked anchor so the tests can tell it from a plain `<a>`.
  *
  * Note: this component takes no route input and has no active-link state, so
  * there is no "current page" highlight to test. Open/closed is expressed purely
@@ -41,20 +49,27 @@ vi.mock("@/contexts", () => ({
   useUser: mockUseUser,
 }));
 
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a data-next-link="" href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 import { Sidebar } from "./sidebar";
 
-const baseProfile: MPUserProfile = {
-  User_ID: 7,
-  User_GUID: "ab12cd34-ef56-7890-abcd-ef1234567890",
-  Contact_ID: 42,
+const baseProfile: CurrentUserProfile = {
   First_Name: "Sam",
   Nickname: "Sam",
   Last_Name: "Ortiz",
   Email_Address: "sam@example.com",
-  Mobile_Phone: null,
   Image_GUID: null,
-  roles: [],
-  userGroups: [],
+  canAccessContactFeatures: false,
 };
 
 /** Stubs `useUser()` with a profile carrying the given access flag. */
@@ -79,6 +94,24 @@ describe("Sidebar", () => {
       ["Dashboard", "/"],
       ["Contact Lookup", "/contactlookup"],
     ]);
+  });
+
+  it("navigates with next/link, not a document-reloading <a>", () => {
+    render(<Sidebar isOpen onClose={() => {}} />);
+
+    for (const link of screen.getAllByRole("link")) {
+      expect(link).toHaveAttribute("data-next-link");
+    }
+  });
+
+  it("renders the drawer and Dashboard while the profile is still loading", () => {
+    const never = new Promise<never>(() => {});
+    mockUseUser.mockImplementation(() => use(never));
+    render(<Sidebar isOpen onClose={() => {}} />);
+
+    expect(screen.getByRole("heading", { name: "Menu" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Contact Lookup" })).toBeNull();
   });
 
   it("labels the drawer and exposes an accessible close control", () => {
@@ -175,15 +208,16 @@ describe("Sidebar", () => {
     });
 
     it("does not derive access from the role list on the client", () => {
-      // Policy must come from the server-computed flag. A profile carrying
-      // roles but `canAccessContactFeatures: false` (e.g. MP_SECURITY_ROLES
-      // names other roles) must still hide the link.
+      // Policy must come from the server-computed flag. `CurrentUserProfile`
+      // no longer carries roles at all; even a stray role list alongside
+      // `canAccessContactFeatures: false` (e.g. MP_SECURITY_ROLES names other
+      // roles) must still hide the link.
       mockUseUser.mockReturnValue({
         userProfile: {
           ...baseProfile,
           roles: ["Administrators", "Pastoral Staff"],
           canAccessContactFeatures: false,
-        },
+        } as CurrentUserProfile,
         refreshUserProfile: vi.fn(),
       });
       render(<Sidebar isOpen onClose={() => {}} />);

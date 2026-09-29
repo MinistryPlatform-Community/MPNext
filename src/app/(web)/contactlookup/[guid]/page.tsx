@@ -1,4 +1,9 @@
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import {
+  AuthorizationService,
+  UnauthorizedError,
+} from "@/services/authorizationService";
 import { ContactLookupDetails } from "@/components/contact-lookup-details";
 import {
   getContactDetails,
@@ -15,6 +20,29 @@ interface ContactLookupDetailPageProps {
 export default async function ContactLookupDetailPage({
   params,
 }: ContactLookupDetailPageProps) {
+  // Self-gating, before ANY data call. The `/contactlookup` layout's check is
+  // only a UX redirect: Next renders this page as its own segment, in
+  // parallel with the layout, and a layout `redirect()` does not stop it
+  // running or reaching the RSC payload (node_modules/next/dist/docs/01-app/
+  // 02-guides/authentication.md, "Layouts and auth checks"). Without this
+  // gate the page's safety would rest entirely on each action it calls being
+  // gated — true today, but one ungated call away from leaking member data.
+  // `requireSecurityRole` (not `hasSecurityRole`) because this IS an
+  // enforcement point, so a refusal is logged as `mp.read.unauthorized`.
+  try {
+    await AuthorizationService.getInstance().requireSecurityRole({
+      table: "Contacts",
+      operation: "read",
+    });
+  } catch (err) {
+    // Only a refusal becomes a redirect. A failed role read still throws to
+    // the error boundary. (A session / MP `User_ID` resolution failure does
+    // surface as a refusal — `no_mp_user` — and so as /no-access; see the
+    // known gap on `AuthorizationService.hasSecurityRole`.)
+    if (err instanceof UnauthorizedError) redirect("/no-access");
+    throw err;
+  }
+
   const { guid } = await params;
 
   const contactPromise = getContactDetails(guid);

@@ -72,7 +72,8 @@ Prerequisites:
   - MINISTRY_PLATFORM_CLIENT_ID
   - MINISTRY_PLATFORM_CLIENT_SECRET
 
-  Supports .env.local, .env.development, and .env files (loaded in that order)
+  Put credentials in .env.local (git-ignored). .env.development and .env are also
+  read, in that order, for compatibility, but .env.local is the supported place.
 
 Options:
   -o, --output <path>    Output file path (default: .claude/references/ministryplatform.storedprocs.md)
@@ -98,7 +99,7 @@ function validateEnvironment() {
   if (missing.length > 0) {
     console.error("Missing required environment variables:");
     missing.forEach(envVar => console.error(`  - ${envVar}`));
-    console.error("\nPlease ensure your environment variables are set in .env.local, .env.development, .env, or your system environment.");
+    console.error("\nPlease ensure your environment variables are set in .env.local (git-ignored) or your system environment.");
     process.exit(1);
   }
 }
@@ -244,10 +245,10 @@ async function main() {
     if (error instanceof Error) {
       if (error.message.includes('undefined/oauth/connect/token')) {
         console.error("Environment configuration issue - MINISTRY_PLATFORM_BASE_URL is not set properly.");
-        console.error("Please check your .env file and ensure MINISTRY_PLATFORM_BASE_URL is defined.");
+        console.error("Please check your .env.local file and ensure MINISTRY_PLATFORM_BASE_URL is defined.");
       } else if (error.message.includes('Failed to get client credentials token')) {
         console.error("Authentication failed - please check your Ministry Platform credentials.");
-        console.error("Verify MINISTRY_PLATFORM_CLIENT_ID and MINISTRY_PLATFORM_CLIENT_SECRET in your .env file.");
+        console.error("Verify MINISTRY_PLATFORM_CLIENT_ID and MINISTRY_PLATFORM_CLIENT_SECRET in your .env.local file.");
       } else {
         console.error(error.message);
       }

@@ -29,12 +29,32 @@ const {
   mockGetContactDetails,
   mockGetContactLogsByContactId,
   mockGetMpTimezone,
+  mockRequireSecurityRole,
+  mockRedirect,
+  MockUnauthorizedError,
   captured,
 } = vi.hoisted(() => ({
   mockGetContactDetails: vi.fn(),
   mockGetContactLogsByContactId: vi.fn(),
   mockGetMpTimezone: vi.fn(),
+  mockRequireSecurityRole: vi.fn(),
+  // Mirror next/navigation's redirect(), which halts execution by throwing.
+  mockRedirect: vi.fn((url: string) => {
+    throw new Error(`REDIRECT:${url}`);
+  }),
+  MockUnauthorizedError: class UnauthorizedError extends Error {},
   captured: { props: null as Record<string, unknown> | null },
+}));
+
+vi.mock("next/navigation", () => ({
+  redirect: mockRedirect,
+}));
+
+vi.mock("@/services/authorizationService", () => ({
+  AuthorizationService: {
+    getInstance: () => ({ requireSecurityRole: mockRequireSecurityRole }),
+  },
+  UnauthorizedError: MockUnauthorizedError,
 }));
 
 vi.mock("@/components/contact-lookup-details/actions", () => ({
@@ -81,6 +101,7 @@ describe("/contactlookup/[guid] page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captured.props = null;
+    mockRequireSecurityRole.mockResolvedValue(99);
     mockGetMpTimezone.mockResolvedValue("America/New_York");
     mockGetContactDetails.mockResolvedValue({ Contact_ID: 42, Display_Name: "Ortiz, Sam" });
     mockGetContactLogsByContactId.mockResolvedValue([{ Contact_Log_ID: 501 }]);
@@ -180,5 +201,50 @@ describe("/contactlookup/[guid] page", () => {
     ).rejects.toThrow("Domain not configured");
 
     expect(captured.props).toBeNull();
+  });
+
+  /**
+   * The page gates itself. The `/contactlookup` layout's redirect does not
+   * stop this segment rendering in Next 16, so this check — not the layout —
+   * is what keeps a role-less user's request from running the data calls.
+   */
+  describe("its own authorization gate", () => {
+    it("checks read access to Contacts before any data call", async () => {
+      await renderPage();
+
+      expect(mockRequireSecurityRole).toHaveBeenCalledWith({
+        table: "Contacts",
+        operation: "read",
+      });
+      expect(mockRequireSecurityRole.mock.invocationCallOrder[0]).toBeLessThan(
+        mockGetContactDetails.mock.invocationCallOrder[0]
+      );
+    });
+
+    it("redirects a refused user to /no-access without fetching anything", async () => {
+      mockRequireSecurityRole.mockRejectedValueOnce(
+        new MockUnauthorizedError("Not authorized")
+      );
+
+      await expect(
+        ContactLookupDetailPage({ params: Promise.resolve({ guid: GUID }) })
+      ).rejects.toThrow("REDIRECT:/no-access");
+
+      expect(mockGetContactDetails).not.toHaveBeenCalled();
+      expect(mockGetContactLogsByContactId).not.toHaveBeenCalled();
+      expect(mockGetMpTimezone).not.toHaveBeenCalled();
+      expect(captured.props).toBeNull();
+    });
+
+    it("surfaces an MP failure in the gate instead of redirecting", async () => {
+      mockRequireSecurityRole.mockRejectedValueOnce(new Error("MP unavailable"));
+
+      await expect(
+        ContactLookupDetailPage({ params: Promise.resolve({ guid: GUID }) })
+      ).rejects.toThrow("MP unavailable");
+
+      expect(mockRedirect).not.toHaveBeenCalled();
+      expect(mockGetContactDetails).not.toHaveBeenCalled();
+    });
   });
 });

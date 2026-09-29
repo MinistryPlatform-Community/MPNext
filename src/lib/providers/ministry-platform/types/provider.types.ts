@@ -34,12 +34,16 @@ export interface FileDescription {
 }
 
 /**
- * MP's `Platform.Messaging.CommunicationType` enum, exactly as
- * `POST /communications` accepts it.
+ * The `CommunicationType` values this template lets `POST /communications`
+ * send: a deliberate subset of MP's `Platform.Messaging.CommunicationType`
+ * enum, which is `Unknown | Email | SMS | RssFeed | GlobalMFA`.
  *
  * Verified against a live MP tenant on 2026-09-08 rather than taken from the
  * Swagger alone: `dp_Communication_Types` holds `1 Email`, `2 SMS Text`,
  * `3 RSS Feed` and `4 GlobalMFA`; `Unknown` is the zero value and has no row.
+ * Only `Email` and `SMS` are permitted: `Unknown` is not a real channel,
+ * `GlobalMFA` is MP's own multi-factor channel, and `RssFeed` is not a message
+ * to contacts. `CommunicationService` enforces the same list at runtime.
  *
  * This was previously typed `'Email' | 'Text' | 'Letter'`. Neither `'Text'`
  * nor `'Letter'` was ever a member, and MP rejects either with an opaque
@@ -54,15 +58,9 @@ export interface FileDescription {
  * `'Email'` happens to be a real member, and it is the only value anyone had
  * ever passed — which is why the other two went unnoticed.
  *
- * Do not extend this by hand: it mirrors an MP enum.
+ * Only ever add a value that is a member of MP's enum.
  */
-export const COMMUNICATION_TYPES = [
-  'Unknown',
-  'Email',
-  'SMS',
-  'RssFeed',
-  'GlobalMFA',
-] as const;
+export const COMMUNICATION_TYPES = ['Email', 'SMS'] as const;
 
 export type CommunicationType = (typeof COMMUNICATION_TYPES)[number];
 
@@ -99,7 +97,7 @@ export type CommunicationInfo =
       TextPhoneNumberId: number;
     })
   | (CommunicationInfoBase & {
-      CommunicationType: Exclude<CommunicationType, 'SMS'>;
+      CommunicationType: 'Email';
       TextPhoneNumberId?: number;
     });
 
@@ -116,6 +114,27 @@ export interface MessageInfo {
   Body: string;
   StartDate?: string;
 }
+
+/**
+ * What a caller of `MPHelper.createCommunication` supplies: a
+ * {@link CommunicationInfo} without the author/from fields, which are stamped
+ * from the separate trusted `CommunicationSender` argument instead. Values for
+ * them left on the object are ignored.
+ *
+ * The `Omit` is applied to each member of the union separately. A plain
+ * `Omit<CommunicationInfo, ...>` merges the members, so an `'SMS'` payload
+ * without `TextPhoneNumberId` would compile again.
+ */
+export type CommunicationContent = DistributiveOmit<CommunicationInfo, 'AuthorUserId' | 'FromContactId'>;
+
+/** `Omit` applied to each member of a union rather than to the merged union. */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * What a caller of `MPHelper.sendMessage` supplies: a {@link MessageInfo}
+ * without `FromAddress`, which comes from the trusted `MessageSender` argument.
+ */
+export type MessageContent = Omit<MessageInfo, 'FromAddress'>;
 
 export interface Communication {
   Communication_ID: number;
@@ -153,8 +172,11 @@ export interface GlobalFilterItem {
   Value: string;
 }
 
+/**
+ * `$ignorePermissions` is deliberately absent: requests already run as the
+ * admin-level service account, and `DomainService` never forwards it.
+ */
 export interface GlobalFilterParams {
-  $ignorePermissions?: boolean;
   $userId?: number;
 }
 

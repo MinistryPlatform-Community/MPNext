@@ -1,28 +1,34 @@
 #!/usr/bin/env tsx
 
-// Load environment variables in Next.js order of precedence
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
 
-// Load environment files in Next.js order of precedence
-const envFiles = [
-  '.env.local',
-  '.env.development', 
-  '.env',
-];
+/**
+ * Load environment files in Next.js order of precedence. Called from main()
+ * rather than at import time, so importing this module (the unit tests do)
+ * never pulls real credentials into process.env. Nothing reads the MP
+ * variables before main() runs: MPHelper reads them when constructed.
+ */
+function loadEnvFiles() {
+  const envFiles = [
+    '.env.local',
+    '.env.development',
+    '.env',
+  ];
 
-envFiles.forEach(file => {
-  const envPath = path.resolve(process.cwd(), file);
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  }
-});
+  envFiles.forEach(file => {
+    const envPath = path.resolve(process.cwd(), file);
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+    }
+  });
+}
 
 import { MPHelper } from "../helper";
 import type { TableMetadata, ParameterDataType } from "../types";
 
-interface ColumnMetadata {
+export interface ColumnMetadata {
   Name: string;
   DataType: ParameterDataType;
   IsRequired: boolean;
@@ -113,7 +119,8 @@ Prerequisites:
   - MINISTRY_PLATFORM_CLIENT_ID  
   - MINISTRY_PLATFORM_CLIENT_SECRET
   
-  Supports .env.local, .env.development, and .env files (loaded in that order)
+  Put credentials in .env.local (git-ignored). .env.development and .env are also
+  read, in that order, for compatibility, but .env.local is the supported place.
 
 Options:
   -o, --output <dir>     Output directory for generated types (default: ./generated-types)
@@ -137,13 +144,60 @@ function getTableName(table: TableMetadata): string | undefined {
   return extendedTable.Name ?? extendedTable.Table_Name;
 }
 
-function sanitizeTypeName(name: string): string {
+/*
+ * Escaping for MP metadata written into generated TypeScript.
+ *
+ * Table/column names, access levels, permissions and sizes all come from the
+ * MP API, and the output is committed source. Anyone who can edit MP schema
+ * metadata could otherwise inject code: a `"` in a column name closes the
+ * quoted key, `*` + `/` in SpecialPermissions closes the JSDoc block, a newline
+ * ends a `//` comment, and a non-numeric Size lands inside `.max(...)`. So every
+ * value is emitted through one of the helpers below, never interpolated raw.
+ */
+
+/** Longest comment fragment emitted for one metadata value. */
+const MAX_COMMENT_TEXT = 200;
+
+/**
+ * Makes a metadata value safe inside a `/* ... *\/` block or a `//` line
+ * comment: control characters (including CR/LF and U+2028/2029) become spaces,
+ * and every `*` followed by `/` is broken apart so the comment cannot be closed.
+ */
+export function commentText(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2027-\u202e\u2066-\u2069]/g, " ")
+    .replace(/\*\//g, "* /")
+    .slice(0, MAX_COMMENT_TEXT);
+}
+
+/**
+ * Makes a metadata value safe inside a Markdown inline code span on one line:
+ * no control characters and no backticks.
+ */
+export function docText(value: unknown): string {
+  return commentText(value).replace(/`/g, "'");
+}
+
+/**
+ * A column size usable as a number in generated code: a positive safe integer,
+ * or undefined for anything else (non-numeric, fractional, negative, huge).
+ */
+export function safeSize(size: unknown): number | undefined {
+  return typeof size === "number" && Number.isSafeInteger(size) && size > 0 ? size : undefined;
+}
+
+export function sanitizeTypeName(name: string): string {
   // Convert table name to PascalCase and remove special characters
-  let result = name
+  let result = String(name)
     .split(/[-_\s\/]+/) // Added slash to handle field names like "SSN/EIN"
     .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join("")
     .replace(/[^a-zA-Z0-9]/g, "");
+
+  // A name made only of special characters would leave an empty (invalid) identifier
+  if (result === "") {
+    result = "Unnamed";
+  }
 
   // Prefix with underscore if the name starts with a digit (invalid TS identifier)
   if (/^\d/.test(result)) {
@@ -153,31 +207,33 @@ function sanitizeTypeName(name: string): string {
   return result;
 }
 
-function isValidIdentifier(name: string): boolean {
+export function isValidIdentifier(name: string): boolean {
   // Check if the name is a valid JavaScript identifier
   // Must start with letter, underscore, or dollar sign
   // Can contain letters, digits, underscores, or dollar signs
   return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
 }
 
-function formatFieldName(name: string): string {
-  // Quote field names that aren't valid JavaScript identifiers
-  return isValidIdentifier(name) ? name : `"${name}"`;
+export function formatFieldName(name: string): string {
+  // Quote field names that aren't valid JavaScript identifiers. JSON.stringify
+  // yields a valid TS string literal with `"`, `\` and control characters escaped.
+  return isValidIdentifier(name) ? name : JSON.stringify(String(name));
 }
 
-function mapDataTypeToTypeScript(dataType: ParameterDataType, isRequired: boolean, size?: number): string {
+export function mapDataTypeToTypeScript(dataType: ParameterDataType, isRequired: boolean, size?: number): string {
+  const maxChars = safeSize(size);
   const baseType = (() => {
     switch (dataType) {
       case "String":
       case "Text":
       case "LargeString":
-        return size && size > 0 ? `string /* max ${size} chars */` : "string";
+        return maxChars ? `string /* max ${maxChars} chars */` : "string";
       case "Email":
-        return size && size > 0 ? `string /* email, max ${size} chars */` : "string /* email */";
+        return maxChars ? `string /* email, max ${maxChars} chars */` : "string /* email */";
       case "Phone":
         return "string /* phone number */";
       case "Url":
-        return size && size > 0 ? `string /* URL, max ${size} chars */` : "string /* URL */";
+        return maxChars ? `string /* URL, max ${maxChars} chars */` : "string /* URL */";
       case "Integer16":
         return "number /* 16-bit integer */";
       case "Integer32":
@@ -221,22 +277,24 @@ function mapDataTypeToTypeScript(dataType: ParameterDataType, isRequired: boolea
   return isRequired ? baseType : `${baseType} | null`;
 }
 
-function mapDataTypeToZod(col: ColumnMetadata): string {
+export function mapDataTypeToZod(col: ColumnMetadata): string {
   let zodType = "";
-  
+  // Only a validated integer is ever interpolated into `.max(...)`.
+  const maxChars = safeSize(col.Size);
+
   switch (col.DataType) {
     case "String":
     case "Text":
     case "LargeString":
       zodType = "z.string()";
-      if (col.Size > 0) {
-        zodType += `.max(${col.Size})`;
+      if (maxChars) {
+        zodType += `.max(${maxChars})`;
       }
       break;
     case "Email":
       zodType = "z.string().email()";
-      if (col.Size > 0) {
-        zodType += `.max(${col.Size})`;
+      if (maxChars) {
+        zodType += `.max(${maxChars})`;
       }
       break;
     case "Phone":
@@ -244,8 +302,8 @@ function mapDataTypeToZod(col: ColumnMetadata): string {
       break;
     case "Url":
       zodType = "z.string().url()";
-      if (col.Size > 0) {
-        zodType += `.max(${col.Size})`;
+      if (maxChars) {
+        zodType += `.max(${maxChars})`;
       }
       break;
     case "Integer16":
@@ -286,7 +344,7 @@ function mapDataTypeToZod(col: ColumnMetadata): string {
   return zodType;
 }
 
-function generateZodSchema(table: TableMetadata, tableName: string): string {
+export function generateZodSchema(table: TableMetadata, tableName: string): string {
   const typeName = sanitizeTypeName(tableName);
   const schemaName = `${typeName}Schema`;
   
@@ -335,7 +393,7 @@ function inferTypeFromValue(value: unknown): string {
   }
 }
 
-function generateDetailedTypeDefinition(
+export function generateDetailedTypeDefinition(
   table: TableMetadata, 
   sampleRecords?: Record<string, unknown>[],
   tableName?: string
@@ -352,22 +410,24 @@ function generateDetailedTypeDefinition(
     const fields = table.Columns
       .filter(col => col.DataType !== "Separator") // Skip separator fields
       .map(col => {
-        const fieldType = mapDataTypeToTypeScript(col.DataType, col.IsRequired, col.Size > 0 ? col.Size : undefined);
+        const maxChars = safeSize(col.Size);
+        const fieldType = mapDataTypeToTypeScript(col.DataType, col.IsRequired, maxChars);
         const optionalMarker = col.IsRequired ? "" : "?";
         const commentParts = [];
-        
+
         if (col.IsPrimaryKey) commentParts.push("Primary Key");
         if (col.IsForeignKey && col.ReferencedTable) {
-          commentParts.push(`Foreign Key -> ${col.ReferencedTable}.${col.ReferencedColumn}`);
+          // Line comment: commentText strips the newline that would end it.
+          commentParts.push(`Foreign Key -> ${commentText(col.ReferencedTable)}.${commentText(col.ReferencedColumn)}`);
         }
         if (col.IsReadOnly) commentParts.push("Read Only");
         if (col.IsComputed) commentParts.push("Computed");
         if (col.HasDefault) commentParts.push("Has Default");
-        
+
         // Add JSDoc comment for additional constraints
         let jsDocComment = "";
-        if (col.Size > 0 && ["String", "Text", "Email", "Url"].includes(col.DataType)) {
-          jsDocComment = `\n  /**\n   * Max length: ${col.Size} characters\n   */`;
+        if (maxChars && ["String", "Text", "Email", "Url"].includes(col.DataType)) {
+          jsDocComment = `\n  /**\n   * Max length: ${maxChars} characters\n   */`;
         }
         
         const inlineComment = commentParts.length > 0 ? ` // ${commentParts.join(", ")}` : "";
@@ -404,16 +464,18 @@ function generateDetailedTypeDefinition(
     fieldsDefinition = fields.join("\n");
   } else {
     // Basic fallback
-    fieldsDefinition = `  ${name}_ID?: number; // Primary key (assuming standard naming convention)
+    fieldsDefinition = `  ${formatFieldName(`${name}_ID`)}?: number; // Primary key (assuming standard naming convention)
   [key: string]: unknown; // Allow for additional fields`;
   }
-  
-  const permissions = table.SpecialPermissions ? `Special Permissions: ${table.SpecialPermissions}` : "";
-  const accessLevel = `Access Level: ${table.AccessLevel}`;
-  
+
+  // Everything below lands inside a JSDoc block, so it goes through commentText.
+  const permissions = table.SpecialPermissions ? `Special Permissions: ${commentText(table.SpecialPermissions)}` : "";
+  const accessLevel = `Access Level: ${commentText(table.AccessLevel)}`;
+  const commentName = commentText(name);
+
   return `/**
- * Interface for ${name}
-* Table: ${name}
+ * Interface for ${commentName}
+* Table: ${commentName}
  * ${accessLevel}
  * ${permissions}
  * ${sampleRecords ? `Generated from ${sampleRecords.length} sample records` : "Generated from column metadata"}
@@ -426,23 +488,25 @@ export type ${typeName} = ${interfaceName};
 `;
 }
 
-function generateTypeDefinition(table: TableMetadata, tableName?: string): string {
+export function generateTypeDefinition(table: TableMetadata, tableName?: string): string {
   return generateDetailedTypeDefinition(table, undefined, tableName);
 }
 
-function generateTableDocumentation(table: TableMetadata, tableName: string, outputDir: string): string {
+export function generateTableDocumentation(table: TableMetadata, tableName: string, outputDir: string): string {
+  // This Markdown is committed and read by LLM assistants, so MP metadata goes
+  // through docText (one line, no backticks) rather than straight in.
   const primaryKey = table.Columns?.find(col => col.IsPrimaryKey);
-  const primaryKeyName = primaryKey?.Name || `${tableName}_ID`;
+  const primaryKeyName = docText(primaryKey?.Name || `${tableName}_ID`);
 
   const foreignKeys = table.Columns?.filter(col => col.IsForeignKey && col.ReferencedTable) || [];
 
-  const accessInfo = table.AccessLevel ? `Access: ${table.AccessLevel}` : '';
-  const permissionsInfo = table.SpecialPermissions ? ` | Permissions: ${table.SpecialPermissions}` : '';
+  const accessInfo = table.AccessLevel ? `Access: ${docText(table.AccessLevel)}` : '';
+  const permissionsInfo = table.SpecialPermissions ? ` | Permissions: ${docText(table.SpecialPermissions)}` : '';
   const description = `${accessInfo}${permissionsInfo}` || 'Standard table';
 
   const typeName = sanitizeTypeName(tableName);
 
-  let md = `### ${tableName}\n\n`;
+  let md = `### ${docText(tableName)}\n\n`;
   md += `${description}\n\n`;
   md += `- **Primary Key:** \`${primaryKeyName}\`\n`;
   md += `- **Type:** \`${outputDir}/${typeName}.ts\`\n`;
@@ -451,7 +515,7 @@ function generateTableDocumentation(table: TableMetadata, tableName: string, out
   if (foreignKeys.length > 0) {
     md += `- **Foreign Keys:**\n`;
     foreignKeys.forEach(fk => {
-      md += `  - \`${fk.Name}\` -> \`${fk.ReferencedTable}.${fk.ReferencedColumn}\`\n`;
+      md += `  - \`${docText(fk.Name)}\` -> \`${docText(fk.ReferencedTable)}.${docText(fk.ReferencedColumn)}\`\n`;
     });
   }
 
@@ -459,7 +523,7 @@ function generateTableDocumentation(table: TableMetadata, tableName: string, out
   return md;
 }
 
-function generateSchemaDocument(tables: TableMetadata[], outputDir: string): string {
+export function generateSchemaDocument(tables: TableMetadata[], outputDir: string): string {
   const validTables = tables
     .filter(table => {
       const name = getTableName(table);
@@ -485,7 +549,7 @@ function generateSchemaDocument(tables: TableMetadata[], outputDir: string): str
   return md;
 }
 
-function generateIndexFile(tables: TableMetadata[], generatedFiles: string[]): string {
+export function generateIndexFile(tables: TableMetadata[], generatedFiles: string[]): string {
   // Filter tables to only include those that were successfully generated
   const validTables = tables.filter(table => {
     const name = getTableName(table);
@@ -522,7 +586,7 @@ function validateEnvironment() {
   if (missing.length > 0) {
     console.error("❌ Missing required environment variables:");
     missing.forEach(envVar => console.error(`  - ${envVar}`));
-    console.error("\nPlease ensure your environment variables are set in .env.local, .env.development, .env, or your system environment.");
+    console.error("\nPlease ensure your environment variables are set in .env.local (git-ignored) or your system environment.");
     console.error("You can create a .env.local file based on .env.example if it doesn't exist.");
     process.exit(1);
   }
@@ -536,7 +600,8 @@ async function main() {
     return;
   }
 
-  // Validate environment before proceeding
+  // Load, then validate, the environment before proceeding
+  loadEnvFiles();
   validateEnvironment();
 
   console.log("🚀 Generating TypeScript types from Ministry Platform schema...\n");
@@ -695,10 +760,10 @@ async function main() {
     if (error instanceof Error) {
       if (error.message.includes('undefined/oauth/connect/token')) {
         console.error("Environment configuration issue - MINISTRY_PLATFORM_BASE_URL is not set properly.");
-        console.error("Please check your .env file and ensure MINISTRY_PLATFORM_BASE_URL is defined.");
+        console.error("Please check your .env.local file and ensure MINISTRY_PLATFORM_BASE_URL is defined.");
       } else if (error.message.includes('Failed to get client credentials token')) {
         console.error("Authentication failed - please check your Ministry Platform credentials.");
-        console.error("Verify MINISTRY_PLATFORM_CLIENT_ID and MINISTRY_PLATFORM_CLIENT_SECRET in your .env file.");
+        console.error("Verify MINISTRY_PLATFORM_CLIENT_ID and MINISTRY_PLATFORM_CLIENT_SECRET in your .env.local file.");
       } else {
         console.error(error.message);
       }
@@ -710,6 +775,7 @@ async function main() {
   }
 }
 
-if (require.main === module) {
+// `require` is undefined when the module is loaded as ESM (the unit tests).
+if (typeof require !== "undefined" && require.main === module) {
   main().catch(console.error);
 }

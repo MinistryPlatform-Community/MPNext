@@ -5,6 +5,12 @@ on:
     types: [published]
   workflow_dispatch:
 
+# The job only reads the release event payload and posts to a Discord webhook
+# (authenticated by its own secret URL); it needs no GITHUB_TOKEN scope beyond
+# read. Widen per job, never here.
+permissions:
+  contents: read
+
 jobs:
   notify:
     runs-on: ubuntu-latest

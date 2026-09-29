@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { MPHelper } from '@/lib/providers/ministry-platform/helper';
 import type {
-  CommunicationInfo,
-  MessageInfo,
+  CommunicationContent,
+  MessageContent,
   FileUploadParams,
   FileUpdateParams,
 } from '@/lib/providers/ministry-platform/types/provider.types';
@@ -612,9 +612,11 @@ describe('MPHelper', () => {
         ContactID: 1,
       });
 
-      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Get_Contact_Info', {
-        ContactID: 1,
-      });
+      expect(mockExecuteProcedure).toHaveBeenCalledWith(
+        'api_Get_Contact_Info',
+        { ContactID: 1 },
+        undefined
+      );
       expect(result).toEqual(procedureResult);
     });
 
@@ -624,7 +626,7 @@ describe('MPHelper', () => {
 
       const result = await mpHelper.executeProcedure('api_Get_Stats');
 
-      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Get_Stats', undefined);
+      expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Get_Stats', undefined, undefined);
       expect(result).toEqual(procedureResult);
     });
 
@@ -645,7 +647,8 @@ describe('MPHelper', () => {
 
       expect(mockExecuteProcedureWithBody).toHaveBeenCalledWith(
         'api_Create_Contact_Log',
-        parameters
+        parameters,
+        undefined
       );
       expect(result).toEqual(procedureResult);
     });
@@ -657,16 +660,85 @@ describe('MPHelper', () => {
         mpHelper.executeProcedure('NonExistent')
       ).rejects.toThrow('Procedure not found');
     });
+
+    describe('allowedProcedures option', () => {
+      it('should forward the instance allowlist to both execute methods', async () => {
+        const helper = new MPHelper({ allowedProcedures: ['api_Fork_Get_Stats', 'api_Fork_Update'] });
+        mockExecuteProcedure.mockResolvedValueOnce([[]]);
+        mockExecuteProcedureWithBody.mockResolvedValueOnce([[]]);
+
+        await helper.executeProcedure('api_Fork_Get_Stats', { Id: 1 });
+        await helper.executeProcedureWithBody('api_Fork_Update', { Id: 1 });
+
+        expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Fork_Get_Stats', { Id: 1 }, [
+          'api_Fork_Get_Stats',
+          'api_Fork_Update',
+        ]);
+        expect(mockExecuteProcedureWithBody).toHaveBeenCalledWith('api_Fork_Update', { Id: 1 }, [
+          'api_Fork_Get_Stats',
+          'api_Fork_Update',
+        ]);
+      });
+
+      it('should keep its own copy, so mutating the caller\'s array later changes nothing', async () => {
+        const names = ['api_Fork_Get_Stats'];
+        const helper = new MPHelper({ allowedProcedures: names });
+        names.push('api_Delete_Everything');
+        mockExecuteProcedure.mockResolvedValueOnce([[]]);
+
+        await helper.executeProcedure('api_Fork_Get_Stats');
+
+        const forwarded = mockExecuteProcedure.mock.calls[0][2] as string[];
+        expect(forwarded).toEqual(['api_Fork_Get_Stats']);
+        expect(Object.isFrozen(forwarded)).toBe(true);
+      });
+
+      it('should not share one instance\'s allowlist with another instance', async () => {
+        new MPHelper({ allowedProcedures: ['api_Fork_Get_Stats'] });
+        mockExecuteProcedure.mockResolvedValueOnce([[]]);
+
+        await mpHelper.executeProcedure('api_Fork_Get_Stats');
+
+        expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Fork_Get_Stats', undefined, undefined);
+      });
+
+      it.each(['../procs/x', 'api Get', '', 'api;DROP', 'a'.repeat(129)])(
+        'should refuse a non-identifier name at construction: %j',
+        (bad) => {
+          expect(() => new MPHelper({ allowedProcedures: [bad] })).toThrow(
+            'Invalid allowed procedure name'
+          );
+        }
+      );
+
+      it('should refuse a non-string name at construction', () => {
+        expect(
+          () => new MPHelper({ allowedProcedures: [42 as unknown as string] })
+        ).toThrow('Invalid allowed procedure name');
+      });
+
+      it('should accept an empty list (same as the default: nothing extra)', async () => {
+        const helper = new MPHelper({ allowedProcedures: [] });
+        mockExecuteProcedure.mockResolvedValueOnce([[]]);
+
+        await helper.executeProcedure('api_Any');
+
+        expect(mockExecuteProcedure).toHaveBeenCalledWith('api_Any', undefined, []);
+      });
+    });
   });
 
   describe('Communication Service Methods', () => {
+    // Stand-ins for what a gated service method would build from the role
+    // gate's resolved User_ID; the provider is mocked, so nothing reaches MP.
+    const commSender = { authorUserId: 1, fromContactId: 123 };
+    const msgSender = { fromAddress: { DisplayName: 'Sender', Address: 'sender@example.com' } };
+
     it('should create communication without attachments', async () => {
-      const communicationInfo: CommunicationInfo = {
-        AuthorUserId: 1,
+      const communicationInfo: CommunicationContent = {
         Subject: 'Test Subject',
         Body: '<p>Test body</p>',
         StartDate: '2024-01-01',
-        FromContactId: 123,
         ReplyToContactId: 123,
         CommunicationType: 'Email',
         Contacts: [456, 789],
@@ -679,19 +751,17 @@ describe('MPHelper', () => {
       };
       mockCreateCommunication.mockResolvedValueOnce(createdCommunication);
 
-      const result = await mpHelper.createCommunication(communicationInfo);
+      const result = await mpHelper.createCommunication(communicationInfo, commSender);
 
-      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, undefined);
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, commSender, undefined);
       expect(result).toEqual(createdCommunication);
     });
 
     it('should create communication with attachments', async () => {
-      const communicationInfo: CommunicationInfo = {
-        AuthorUserId: 1,
+      const communicationInfo: CommunicationContent = {
         Subject: 'Test with Attachment',
         Body: '<p>See attached</p>',
         StartDate: '2024-01-01',
-        FromContactId: 123,
         ReplyToContactId: 123,
         CommunicationType: 'Email',
         Contacts: [456],
@@ -702,15 +772,14 @@ describe('MPHelper', () => {
       const createdCommunication = { Communication_ID: 1, ...communicationInfo };
       mockCreateCommunication.mockResolvedValueOnce(createdCommunication);
 
-      const result = await mpHelper.createCommunication(communicationInfo, [mockFile]);
+      const result = await mpHelper.createCommunication(communicationInfo, commSender, [mockFile]);
 
-      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, [mockFile]);
+      expect(mockCreateCommunication).toHaveBeenCalledWith(communicationInfo, commSender, [mockFile]);
       expect(result).toEqual(createdCommunication);
     });
 
     it('should send message without attachments', async () => {
-      const messageInfo: MessageInfo = {
-        FromAddress: { DisplayName: 'Sender', Address: 'sender@example.com' },
+      const messageInfo: MessageContent = {
         ToAddresses: [{ DisplayName: 'Recipient', Address: 'recipient@example.com' }],
         Subject: 'Test Message',
         Body: '<p>Hello</p>',
@@ -718,15 +787,14 @@ describe('MPHelper', () => {
       const sentMessage = { Communication_ID: 1, ...messageInfo };
       mockSendMessage.mockResolvedValueOnce(sentMessage);
 
-      const result = await mpHelper.sendMessage(messageInfo);
+      const result = await mpHelper.sendMessage(messageInfo, msgSender);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, msgSender, undefined);
       expect(result).toEqual(sentMessage);
     });
 
     it('should send message with attachments', async () => {
-      const messageInfo: MessageInfo = {
-        FromAddress: { DisplayName: 'Sender', Address: 'sender@example.com' },
+      const messageInfo: MessageContent = {
         ToAddresses: [{ DisplayName: 'Recipient', Address: 'recipient@example.com' }],
         Subject: 'Test with Attachment',
         Body: '<p>Please see attached</p>',
@@ -737,10 +805,25 @@ describe('MPHelper', () => {
       const sentMessage = { Communication_ID: 2, ...messageInfo };
       mockSendMessage.mockResolvedValueOnce(sentMessage);
 
-      const result = await mpHelper.sendMessage(messageInfo, [mockFile]);
+      const result = await mpHelper.sendMessage(messageInfo, msgSender, [mockFile]);
 
-      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, [mockFile]);
+      expect(mockSendMessage).toHaveBeenCalledWith(messageInfo, msgSender, [mockFile]);
       expect(result).toEqual(sentMessage);
+    });
+
+    it('should pass the sender through as given, never substituting payload fields', async () => {
+      // A spoofed author/from on the content travels untouched; the real
+      // CommunicationService ignores it and stamps from `sender` (tested there).
+      const spoofed = {
+        Subject: 'Hi',
+        AuthorUserId: 999,
+        FromContactId: 999,
+      } as unknown as CommunicationContent;
+      mockCreateCommunication.mockResolvedValueOnce({ Communication_ID: 3 });
+
+      await mpHelper.createCommunication(spoofed, commSender);
+
+      expect(mockCreateCommunication.mock.calls[0][1]).toBe(commSender);
     });
   });
 

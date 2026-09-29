@@ -15,8 +15,7 @@ import type { ContactLogDisplay } from "@/lib/dto";
  *                                    close the dialog or signal a refresh as if
  *                                    it had succeeded
  *
- * See `.claude/TODO/contact-logs-component-untested.md` (the original gap) and
- * `.claude/references/testing.md`.
+ * See `.claude/references/testing.md`.
  */
 
 const {
@@ -63,14 +62,11 @@ const MP_TZ = "America/New_York";
 const logs: ContactLogDisplay[] = [
   {
     Contact_Log_ID: 501,
-    Contact_ID: 42,
     Contact_Date: "2026-08-20T14:30:00",
     Notes: "Called about the new members class.",
     Contact_Log_Type: "Phone Call",
-    Contact_Log_Type_ID: 1,
     // Deliberately a DIFFERENT user than the acting one: the component offers
     // edit/delete on other people's logs, matching the decided policy.
-    Made_By: 12345,
     MadeByContact: [
       {
         Contact_ID: 12345,
@@ -233,6 +229,14 @@ describe("ContactLogs", () => {
           Notes: "Left a voicemail.",
         })
       );
+      // Only the fields the form edits (plus the subject contact) — the
+      // cross-record links and flags the service no longer accepts are not sent.
+      expect(Object.keys(mockCreateContactLog.mock.calls[0][0]).sort()).toEqual([
+        "Contact_Date",
+        "Contact_ID",
+        "Contact_Log_Type_ID",
+        "Notes",
+      ]);
       await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
     });
   });
@@ -357,12 +361,9 @@ describe("ContactLogs", () => {
     const variedLogs: ContactLogDisplay[] = [
       {
         Contact_Log_ID: 601,
-        Contact_ID: 42,
         Contact_Date: "2026-08-21T09:00:00",
         Notes: "Sent the welcome email.",
         Contact_Log_Type: "Email",
-        Contact_Log_Type_ID: 2,
-        Made_By: 1,
         // No nickname — the byline falls back to the first name.
         MadeByContact: [
           {
@@ -378,41 +379,29 @@ describe("ContactLogs", () => {
       },
       {
         Contact_Log_ID: 602,
-        Contact_ID: 42,
         Contact_Date: "2026-08-22T10:15:00",
         Notes: "Met after the service.",
         Contact_Log_Type: "Meeting",
-        Contact_Log_Type_ID: 3,
-        Made_By: 1,
         MadeByContact: [],
       },
       {
         Contact_Log_ID: 603,
-        Contact_ID: 42,
         Contact_Date: "2026-08-23T11:00:00",
         Notes: "Dropped by the house.",
         Contact_Log_Type: "Visit",
-        Contact_Log_Type_ID: 4,
-        Made_By: 1,
       },
       {
         Contact_Log_ID: 604,
-        Contact_ID: 42,
         Contact_Date: "2026-08-24T12:00:00",
         Notes: "Coffee downtown.",
         Contact_Log_Type: "Coffee",
-        Contact_Log_Type_ID: 99,
-        Made_By: 1,
       },
       {
         Contact_Log_ID: 605,
-        Contact_ID: 42,
         Contact_Date: "2026-08-25T13:00:00",
         // A log MP left untyped, with no notes.
         Notes: "",
         Contact_Log_Type: null,
-        Contact_Log_Type_ID: null,
-        Made_By: 1,
       },
     ];
 
@@ -646,7 +635,7 @@ describe("ContactLogs", () => {
       mockUpdateContactLog.mockResolvedValueOnce({ Contact_Log_ID: 501 });
       const form = await openEditDialog({
         contactLogs: [
-          { ...logs[0], Contact_Log_Type: "Email", Contact_Log_Type_ID: 2 },
+          { ...logs[0], Contact_Log_Type: "Email" },
         ],
       });
 
@@ -716,7 +705,6 @@ describe("ContactLogs", () => {
             ...logs[0],
             Notes: "",
             Contact_Log_Type: null,
-            Contact_Log_Type_ID: null,
           },
         ],
       });

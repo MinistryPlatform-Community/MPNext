@@ -18,9 +18,15 @@ import Link from "next/link";
  *
  * `error_description` is NEVER rendered. It's better-auth/provider-controlled
  * text, not something this app validates, so only the short `error` CODE is
- * ever shown, and only when it is one of the codes mapped below; anything
- * else (including a code we don't recognize) falls back to the generic
- * message with no raw value echoed at all.
+ * ever shown. `?error=` is attacker-controlled too (anyone can link here, or
+ * chain it through `/signin?callbackUrl=/auth-error?error=...` so it lands
+ * after a genuine MP login), so the code is echoed only when it is one of the
+ * codes mapped below or at least *looks* like a machine code
+ * (`CODE_SHAPE`: lowercase letters, digits and `_`, at most 64 characters —
+ * a future better-auth code still shows up for support). Anything else —
+ * free text such as "Your account is locked. Call 555-0100" — gets the
+ * generic message with no raw value echoed at all, so the page can't be used
+ * to put arbitrary prose on this app's own origin.
  *
  * Lives outside the (web) route group, like src/app/session-error/page.tsx,
  * so it is not wrapped by AuthWrapper (there is no session yet to check) and
@@ -48,6 +54,11 @@ const KNOWN_ERROR_MESSAGES: Record<string, string> = {
   nonce_binding_missing: "Sign-in didn't complete. Please try again.",
 };
 
+// Shape of a better-auth/OAuth error code. Excludes spaces, punctuation and
+// uppercase, so a spoofed sentence can't pass as a "code". Every key of
+// KNOWN_ERROR_MESSAGES matches it (the test suite pins that).
+const CODE_SHAPE = /^[a-z0-9_]{1,64}$/;
+
 const GENERIC_MESSAGE =
   "Something went wrong signing you in with Ministry Platform. Please try again.";
 
@@ -60,9 +71,16 @@ export default async function AuthErrorPage({
 }: AuthErrorPageProps) {
   const params = await searchParams;
   const rawCode = params.error;
-  const code = typeof rawCode === "string" ? rawCode : undefined;
+  const code =
+    typeof rawCode === "string" && CODE_SHAPE.test(rawCode)
+      ? rawCode
+      : undefined;
+  // hasOwn, not a bare lookup: `?error=constructor` matches CODE_SHAPE and
+  // would otherwise pick up Object.prototype.constructor.
   const message =
-    (code && KNOWN_ERROR_MESSAGES[code]) || GENERIC_MESSAGE;
+    code && Object.hasOwn(KNOWN_ERROR_MESSAGES, code)
+      ? KNOWN_ERROR_MESSAGES[code]
+      : GENERIC_MESSAGE;
 
   return (
     <div className="flex items-center justify-center min-h-screen px-4">

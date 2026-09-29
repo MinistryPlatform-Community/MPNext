@@ -81,9 +81,66 @@ describe("/auth-error page", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders the raw error code as plain text only, not the description", async () => {
+  it("echoes a code-shaped but unrecognized code for support", async () => {
     await renderWithParams({ error: "some_future_better_auth_code" });
 
-    expect(screen.getByText(/some_future_better_auth_code/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Error code: some_future_better_auth_code"),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    "unable_to_get_user_info",
+    "account_not_linked",
+    "email_not_found",
+    "invalid_code",
+    "state_not_found",
+    "state_mismatch",
+    "nonce_binding_missing",
+  ])("shows the known code %s alongside its message", async (known) => {
+    await renderWithParams({ error: known });
+
+    expect(screen.getByText(`Error code: ${known}`)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/something went wrong signing you in/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["free text", "Your account is locked. Call 555-0100"],
+    ["short free text", "Call 555"],
+    ["uppercase", "STATE_MISMATCH"],
+    ["punctuation", "state-mismatch"],
+    ["over 64 characters", "a".repeat(65)],
+    ["a 5,000-character message", "x ".repeat(2554)],
+    ["an empty string", ""],
+  ])("does not echo %s as an error code", async (_label, spoof) => {
+    await renderWithParams({ error: spoof });
+
+    expect(screen.queryByText(/Error code/)).not.toBeInTheDocument();
+    if (spoof.trim()) {
+      expect(screen.queryByText(spoof, { exact: false })).not.toBeInTheDocument();
+    }
+    expect(
+      screen.getByText(/something went wrong signing you in/i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not echo a repeated ?error= (array value)", async () => {
+    const jsx = await AuthErrorPage({
+      searchParams: Promise.resolve({ error: ["state_mismatch", "Call 555"] }),
+    });
+    render(jsx);
+
+    expect(screen.queryByText(/Error code/)).not.toBeInTheDocument();
+  });
+
+  it("does not resolve Object.prototype members as known messages", async () => {
+    await renderWithParams({ error: "constructor" });
+
+    expect(
+      screen.getByText(/something went wrong signing you in/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Error code: constructor")).toBeInTheDocument();
   });
 });

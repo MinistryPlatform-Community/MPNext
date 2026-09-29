@@ -1,5 +1,10 @@
 # MPNext — Application & Unit Test Coverage Review
 
+> **Historical snapshot.** This review describes commit `5bc505a` as of 2026-09-12 and is not kept up
+> to date. The coverage gates that apply today are the thresholds in `vitest.config.mts`, documented in
+> [Testing Reference](../references/testing.md) § Coverage; run `npm run test:coverage` for current figures.
+> The `.claude/TODO/` folder it mentions no longer exists.
+
 **Date:** 2026-09-12
 **Reviewed commit:** `5bc505a` (branch `docs/release-readiness-refresh`)
 **Scope:** whole application — `src/**` excluding generated MP models, codegen scripts and `src/components/ui/`
@@ -30,7 +35,7 @@ Three things matter more than the headline number:
 |---|---|
 | **Measurement was inflated ~2.2×.** With no explicit `coverage.include`, every file no test imported dropped out of the denominator. | **Fixed.** `vitest.config.mts` now sets an explicit `include`, plus per-glob `thresholds` that fail the run on regression. |
 | **`testing.md` claimed 95.39% coverage** — not reproducible under any configuration. | **Fixed.** Rewritten against measured numbers, with the new mock patterns documented. |
-| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** Every finding in §5 is closed — §5.1 (filter injection), §5.2/§5.3 (missing auth), §5.4/§5.5 (missing authz, duplicated User_ID lookup), §5.6 (N+1 lookup), §5.7 (token lifetime), §5.8 (tests asserting against a copy of the logic). No test-derived item remains in `.claude/TODO/`. |
+| **Coverage was pointed away from the risk.** Two `'use server'` actions have no session check at all, and both sat at 100% line coverage. | **Documented, then fixed.** Every finding in §5 is closed — §5.1 (filter injection), §5.2/§5.3 (missing auth), §5.4/§5.5 (missing authz, duplicated User_ID lookup), §5.6 (N+1 lookup), §5.7 (token lifetime), §5.8 (tests asserting against a copy of the logic). No test-derived item remained in `.claude/TODO/` (since removed). |
 
 The shape of the original problem is worth restating, because the new number does not make it go
 away: **high coverage is not evidence of correctness.** The filter-injection path in §5.1 lived in a
@@ -176,7 +181,7 @@ safeguards), `contact-logs.tsx:387` and `user-menu.tsx:35`. None is worth the co
 
 **This is the most important section.** Each item below was fully covered by passing tests and was
 still wrong. The original coverage work **documented rather than fixed** them — one file per issue in
-`.claude/TODO/` — and the fixed items have since been closed out by follow-up work; each carries a
+`.claude/TODO/` (a folder that has since been removed) — and the fixed items have since been closed out by follow-up work; each carries a
 regression test that would have caught the defect.
 
 ### 5.1 Numeric IDs are interpolated into MP filters unsanitized ✅ FIXED
@@ -189,6 +194,8 @@ HTTP call. The probe tests were **kept** this time: `contactLogService.test.ts` 
 filter string and that `getTableRecords` is never called for each payload — the assertion the old
 100% coverage lacked. Behavior change: `searchContactLogs(0)` now throws instead of silently reading
 the whole table (the old `if (contactId)` truthiness check treated 0 as "no filter").
+(`searchContactLogs` itself, unused, was removed on 2026-09-29 along with the `contact-logs`
+read actions; the remaining sanitized interpolation sites are unchanged.)
 
 Was:
 
@@ -257,6 +264,10 @@ nothing for reads: MP's OIDC endpoint authenticates any `dp_Users` record, and t
 its own client-credentials service account, so MP's per-user record security never applied to what
 came back.
 
+**Changed 2026-09-28: the gate fails closed when unconfigured.** Blank, unset or separator-only
+`MP_SECURITY_ROLES` (with no usable legacy value) now permits nobody (`roles_not_configured`);
+`MP_SECURITY_ROLES=*` is the explicit "any MP security role" setting.
+
 ### 5.5 Contact-log actions bypass `SessionContextService` ✅ FIXED
 
 Resolved 2026-08-21. Both inline `dp_Users` lookups are gone. The acting `User_ID` now comes from
@@ -323,6 +334,8 @@ deleted. That is why `auth.ts` reported 18.5% despite the file containing 12 tes
 
 Now rewritten to call the real `enrichSessionUser`. Verified by mutation: changing
 `firstName: user.name?.split(" ")[0]` to a constant fails 6 tests. The old versions failed none.
+(The name split was later removed outright, 2026-09-29: `enrichSessionUser` now only adds `userId`
+and withholds `token`/`ipAddress`/`userAgent`; its tests call it the same way.)
 
 ---
 

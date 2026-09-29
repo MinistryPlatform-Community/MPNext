@@ -29,6 +29,12 @@ import type { MpOperation } from "@/services/authorizationService";
  * session by itself therefore proved nothing about whether the caller may see
  * pastoral records.
  *
+ * Only the actions the contact-log UI calls are exported. Every export of a
+ * `"use server"` file is a callable POST endpoint whether or not anything
+ * imports it, so the unused `getContactLogsByContactId` / `getContactLogById`
+ * reads were removed (2026-09-28). The contact detail page reads its logs
+ * through `@/components/contact-lookup-details/actions` instead.
+ *
  * `AuthorizationService` owns the gate; see `.claude/references/auth.md` for
  * the full rationale.
  */
@@ -42,13 +48,35 @@ import type { MpOperation } from "@/services/authorizationService";
  * acting user comes from `SessionContextService` via `AuthorizationService` —
  * the session already carries a resolved `userId` (baked in by `customSession`
  * and cached process-wide by `resolveMpUserId`), so this costs no `dp_Users`
- * round-trip, and the `dp_User_Roles` read is memoized per request.
+ * round-trip. The `dp_User_Roles` read is NOT shared with the service's own
+ * gate call: server actions run outside a React render, where the role memo's
+ * `cache()` is a passthrough, so each gate call here costs one role read.
  */
 async function requireContactLogAccess(operation: MpOperation): Promise<number> {
   return AuthorizationService.getInstance().requireSecurityRole({
     table: "Contact_Log",
     operation,
   });
+}
+
+/**
+ * Logs an action failure as ONE JSON line. `JSON.stringify` escapes newlines
+ * and quotes, so nothing inside the error — which can carry caller-supplied
+ * text — can forge a separate structured log line such as a fake
+ * `mp.write.unauthorized` event. Carries the action name and the error's name
+ * and message only: never the payload, which holds pastoral notes.
+ */
+function logActionError(action: string, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      event: "contact_log.action_failed",
+      action,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : { name: typeof error },
+    }),
+  );
 }
 
 export async function getContactLogTypes(): Promise<ContactLogTypes[]> {
@@ -60,7 +88,7 @@ export async function getContactLogTypes(): Promise<ContactLogTypes[]> {
 
     return types;
   } catch (error) {
-    console.error("Error fetching contact log types:", error);
+    logActionError("getContactLogTypes", error);
     throw error instanceof Error ? error : new Error("Failed to fetch contact log types");
   }
 }
@@ -78,13 +106,14 @@ export async function createContactLog(
 
     // `Made_By` is deliberately NOT assembled here. The service stamps it from
     // the authorization gate and strips any value the caller sent, so there is
-    // exactly one place authorship can come from (F4).
+    // exactly one place authorship can come from (F4). The service also drops
+    // every field outside its allowlist and checks the log type.
     const contactLogService = await ContactLogService.getInstance();
     const contactLog = await contactLogService.createContactLog(contactLogData);
 
     return contactLog;
   } catch (error) {
-    console.error("Error creating contact log:", error);
+    logActionError("createContactLog", error);
     throw error instanceof Error ? error : new Error("Failed to create contact log");
   }
 }
@@ -99,21 +128,20 @@ export async function updateContactLog(
 
     // Validates at the boundary. TypeScript's `number` is erased at runtime and a
     // caller controls this POST payload's shape, so the ID must be checked here
-    // rather than trusted downstream.
+    // rather than trusted downstream. (The service re-checks it too.)
     const logId = sanitizeNumericId(contactLogId, "Contact Log ID");
 
-    // Neither `Made_By` nor `Contact_ID` is forwarded from the caller. The
-    // service stamps `Made_By` from the authorization gate and never sends
-    // `Contact_ID` at all, so an edit can neither forge authorship nor move a
-    // log onto a different contact's record (F4). `Made_By` therefore reads as
-    // the staff member who last wrote the row; MP's audit trail additionally
-    // records every edit via `$userId`.
+    // Neither `Made_By` nor `Contact_ID` is forwarded from the caller, and the
+    // service sends neither in the PUT, so an edit can neither move a log onto
+    // a different contact's record nor rewrite who wrote it (F4, 2026-09-28).
+    // `Made_By` keeps meaning "the original author"; MP's audit trail records
+    // every edit, and who made it, via `$userId`.
     const contactLogService = await ContactLogService.getInstance();
     const contactLog = await contactLogService.updateContactLog(logId, contactLogData);
 
     return contactLog;
   } catch (error) {
-    console.error("Error updating contact log:", error);
+    logActionError("updateContactLog", error);
     throw error instanceof Error ? error : new Error("Failed to update contact log");
   }
 }
@@ -127,39 +155,7 @@ export async function deleteContactLog(contactLogId: number): Promise<void> {
     const contactLogService = await ContactLogService.getInstance();
     await contactLogService.deleteContactLog(logId);
   } catch (error) {
-    console.error("Error deleting contact log:", error);
+    logActionError("deleteContactLog", error);
     throw error instanceof Error ? error : new Error("Failed to delete contact log");
-  }
-}
-
-export async function getContactLogsByContactId(contactId: number): Promise<ContactLog[]> {
-  try {
-    await requireContactLogAccess("read");
-
-    const id = sanitizeNumericId(contactId, "Contact ID");
-
-    const contactLogService = await ContactLogService.getInstance();
-    const results = await contactLogService.getContactLogsByContactId(id);
-
-    return results;
-  } catch (error) {
-    console.error("Error fetching contact logs by contact ID:", error);
-    throw error instanceof Error ? error : new Error("Failed to fetch contact logs");
-  }
-}
-
-export async function getContactLogById(contactLogId: number): Promise<ContactLog | null> {
-  try {
-    await requireContactLogAccess("read");
-
-    const logId = sanitizeNumericId(contactLogId, "Contact Log ID");
-
-    const contactLogService = await ContactLogService.getInstance();
-    const result = await contactLogService.getContactLogById(logId);
-
-    return result;
-  } catch (error) {
-    console.error("Error fetching contact log by ID:", error);
-    throw error instanceof Error ? error : new Error("Failed to fetch contact log");
   }
 }

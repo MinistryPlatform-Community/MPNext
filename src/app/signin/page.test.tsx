@@ -45,6 +45,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: mockUseSearchParams,
 }));
 
+// Only rendered on the sign-in-loop error screen (covered in
+// src/components/sign-in/sign-in.test.tsx); stubbed so this suite never loads
+// the real sign-out server action or the server auth config behind it.
+vi.mock("@/components/user-menu/sign-out-button", () => ({
+  SignOutButton: () => <button type="button">Sign out</button>,
+}));
+
 import SignIn from "./page";
 
 /** Builds a stand-in for the ReadonlyURLSearchParams the page reads. */
@@ -57,6 +64,9 @@ describe("/signin page", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The page caps its automatic restarts per tab in sessionStorage; every
+    // test here is a fresh visit, so none may inherit another's count.
+    window.sessionStorage.clear();
     // The page navigates by assigning window.location.href; jsdom treats that
     // as a real navigation it cannot perform, so swap in a plain object we can
     // assert against.
@@ -209,6 +219,21 @@ describe("/signin page", () => {
       ["a backslash-escaped protocol-relative URL", "/\\evil.example"],
       ["a javascript: URL", "javascript:alert(1)"],
       ["a relative path with no leading slash", "evil.example"],
+      // The WHATWG URL parser strips tab/LF/CR from anywhere in the input
+      // before parsing, so each of these passes a naive `startsWith("//")`
+      // check and then navigates as `//evil.example` (or `/\evil.example`).
+      ["a tab-split protocol-relative URL", "/\t/evil.example"],
+      ["an LF-split protocol-relative URL", "/\n/evil.example"],
+      ["a CR-split protocol-relative URL", "/\r/evil.example"],
+      ["a tab-split backslash URL", "/\t\\evil.example"],
+      ["a double-tab-split protocol-relative URL", "/\t\t/evil.example"],
+      ["a path containing NUL", "/ok\u0000"],
+      ["a DEL-split protocol-relative URL", "/\u007f/evil.example"],
+      // Any backslash, not just a leading `/\` — special schemes read `\` as `/`.
+      ["a path with an embedded backslash", "/a\\b"],
+      // Encoded separators in the path can be decoded downstream into `//`.
+      ["an encoded-slash protocol-relative URL", "/%2F/evil.example"],
+      ["an encoded-backslash URL", "/%5Cevil.example"],
     ] as const;
 
     it.each(hostile)(
@@ -237,6 +262,84 @@ describe("/signin page", () => {
         expect(mockSignInSocial).toHaveBeenCalledWith({
           provider: "ministry-platform",
           callbackURL: "/",
+        })
+      );
+    });
+
+    it("refuses a tab smuggled in through the real query-string decode path", async () => {
+      // `%09` is decoded by URLSearchParams to a literal tab — this is exactly
+      // the shape an attacker would put in a link.
+      mockUseSearchParams.mockReturnValue(
+        searchParams("callbackUrl=/%09/evil.example")
+      );
+      expect(searchParams("callbackUrl=/%09/evil.example").get("callbackUrl")).toBe(
+        "/\t/evil.example"
+      );
+      mockGetSession.mockResolvedValue({ data: { user: { id: "ba-1" } } });
+
+      render(<SignIn />);
+
+      await waitFor(() => expect(window.location.href).toBe("/"));
+    });
+
+    it("refuses the same smuggled tab on the signed-out signIn.social path", async () => {
+      mockUseSearchParams.mockReturnValue(
+        searchParams("callbackUrl=/%09/evil.example")
+      );
+
+      render(<SignIn />);
+
+      await waitFor(() =>
+        expect(mockSignInSocial).toHaveBeenCalledWith({
+          provider: "ministry-platform",
+          callbackURL: "/",
+        })
+      );
+    });
+
+    // Legitimate destinations must come through byte-for-byte unchanged — in
+    // particular never as the `new URL()`-normalized form, which would turn
+    // `/.//evil.com` into the protocol-relative `//evil.com`.
+    const benign = [
+      "/",
+      "/dashboard",
+      "/contactlookup?x=1",
+      "/contactlookup/abc?tab=logs",
+      "/reports?year=2026#top",
+      // `//` and encoded separators are only dangerous in the path.
+      "/a?x=//evil.com",
+      "/a?next=%2F%2Fx",
+      // A literal `%09` (three characters), not a decoded tab.
+      "/%09/x",
+      "/.//evil.com",
+    ];
+
+    it.each(benign)(
+      "sends an already-signed-in visitor to %s unchanged",
+      async (raw) => {
+        mockUseSearchParams.mockReturnValue(
+          new URLSearchParams([["callbackUrl", raw]])
+        );
+        mockGetSession.mockResolvedValue({ data: { user: { id: "ba-1" } } });
+
+        render(<SignIn />);
+
+        await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
+        await waitFor(() => expect(window.location.href).toBe(raw));
+      }
+    );
+
+    it.each(benign)("hands %s to signIn.social unchanged", async (raw) => {
+      mockUseSearchParams.mockReturnValue(
+        new URLSearchParams([["callbackUrl", raw]])
+      );
+
+      render(<SignIn />);
+
+      await waitFor(() =>
+        expect(mockSignInSocial).toHaveBeenCalledWith({
+          provider: "ministry-platform",
+          callbackURL: raw,
         })
       );
     });

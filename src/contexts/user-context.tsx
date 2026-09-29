@@ -6,56 +6,89 @@ import {
   useState,
   useMemo,
   useCallback,
-  useEffect,
   use,
+  startTransition,
   ReactNode,
 } from "react";
-import { authClient } from "@/lib/auth-client";
-import { MPUserProfile } from "@/lib/providers/ministry-platform/types";
+import type { CurrentUserProfile } from "@/lib/dto";
 import { getCurrentUserProfile } from "@/components/shared-actions/user";
 
 interface UserContextValue {
-  userProfilePromise: Promise<MPUserProfile | null>;
+  userProfilePromise: Promise<CurrentUserProfile | null>;
   refreshUserProfile: () => void;
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
 
+/**
+ * Logs a failed profile load (identifiers and shape only — never the message,
+ * per the F5 logging policy) and degrades to "no profile".
+ */
+function profileLoadFailed(error: unknown): null {
+  console.error("user.profile.load_failed", {
+    name: error instanceof Error ? error.name : typeof error,
+  });
+  return null;
+}
+
+async function settleProfile(
+  profilePromise: PromiseLike<CurrentUserProfile | null>
+): Promise<CurrentUserProfile | null> {
+  try {
+    return await profilePromise;
+  } catch (error) {
+    return profileLoadFailed(error);
+  }
+}
+
 interface UserProviderProps {
+  /**
+   * The signed-in user's MP profile, started on the server by the `(web)`
+   * layout and streamed to the client un-awaited. Starting it there — rather
+   * than in an effect after hydration — is what keeps the header from
+   * flickering: the old client-side load waited for hydration, then a
+   * get-session fetch, then a server-action POST, and replaced the whole
+   * header with its Suspense fallback for the duration.
+   */
+  profilePromise: Promise<CurrentUserProfile | null>;
   children: ReactNode;
 }
 
-const RESOLVED_NULL: Promise<MPUserProfile | null> = Promise.resolve(null);
+export function UserProvider({ profilePromise, children }: UserProviderProps) {
+  // Only set by `refreshUserProfile`. Until then the server-started promise is
+  // the source of truth, including a fresh one from a server re-render
+  // (`router.refresh()`), which replaces the layout's props.
+  const [refreshedPromise, setRefreshedPromise] =
+    useState<Promise<CurrentUserProfile | null> | null>(null);
 
-export function UserProvider({ children }: UserProviderProps) {
-  const { data: session, isPending } = authClient.useSession();
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  // userGuid is the MP User_GUID stored as an additionalField on the Better Auth user.
-  // Better Auth generates its own internal user.id, so we use userGuid for MP lookups.
-  const userGuid = (session?.user as { userGuid?: string } | undefined)?.userGuid;
-
-  const [userProfilePromise, setUserProfilePromise] =
-    useState<Promise<MPUserProfile | null>>(RESOLVED_NULL);
-
-  // Server actions trigger router cache invalidation, so the fetch must be
-  // kicked off from an effect — calling during render would setState on the
-  // Router mid-render. set-state-in-effect is disabled because driving a
-  // Suspense-consumed promise into state is the React 19 pattern for this.
-  useEffect(() => {
-    if (isPending) return;
-    if (!userGuid) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setUserProfilePromise(RESOLVED_NULL);
-      return;
-    }
-    // No argument: the action reads the User_GUID from the session server-side.
-    // userGuid stays a dependency so switching users re-fetches.
-    setUserProfilePromise(getCurrentUserProfile().then((p) => p ?? null));
-  }, [userGuid, isPending, refreshKey]);
+  // A failed load resolves to `null` instead of rejecting. The header — the
+  // shell's only sign-out control — reads this promise and sits in
+  // `(web)/layout.tsx`, ABOVE `(web)/error.tsx`, so a rejection used to
+  // escape to the root boundary, replace the whole shell, and leave a
+  // signed-in user with no way to sign out ("Go to sign in" just bounced back
+  // to the same failure). As `null` it renders the no-profile header, whose
+  // menu still offers sign-out. Memoised so `use()` sees a stable promise.
+  //
+  // Not `profilePromise.catch(...)`: a promise streamed from a Server
+  // Component arrives as React Flight's `ReactPromise`, whose `then()` returns
+  // `undefined` instead of a new promise, so `.catch()` returned `undefined`
+  // and `use(undefined)` threw on every page. Awaiting it only relies on
+  // `then()` invoking its callbacks.
+  const safeServerPromise = useMemo(
+    () => settleProfile(profilePromise),
+    [profilePromise]
+  );
+  const userProfilePromise = refreshedPromise ?? safeServerPromise;
 
   const refreshUserProfile = useCallback(() => {
-    setRefreshKey((k) => k + 1);
+    // A transition, so components already showing a profile keep showing it
+    // until the new one resolves instead of dropping back to their Suspense
+    // fallbacks.
+    startTransition(() => {
+      setRefreshedPromise(
+        getCurrentUserProfile().then((p) => p ?? null, profileLoadFailed)
+      );
+    });
   }, []);
 
   const value = useMemo<UserContextValue>(
@@ -67,10 +100,16 @@ export function UserProvider({ children }: UserProviderProps) {
 }
 
 interface UseUserResult {
-  userProfile: MPUserProfile | null;
+  userProfile: CurrentUserProfile | null;
   refreshUserProfile: () => void;
 }
 
+/**
+ * Reads the signed-in user's MP profile. **Suspends** until it has loaded, so
+ * every caller must sit inside a `<Suspense>` whose fallback occupies exactly
+ * the space the loaded UI will — keep the boundary as tight as possible (the
+ * header wraps only its avatar), or loading the profile shifts the page.
+ */
 export function useUser(): UseUserResult {
   const context = useContext(UserContext);
   if (context === undefined) {

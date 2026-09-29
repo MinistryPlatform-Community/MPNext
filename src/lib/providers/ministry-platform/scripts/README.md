@@ -12,7 +12,7 @@ Two CLI utilities that read your Ministry Platform schema and write source/refer
 Both scripts require the same Ministry Platform configuration:
 
 ```env
-MINISTRY_PLATFORM_BASE_URL=https://your-domain.ministryplatformapi.com
+MINISTRY_PLATFORM_BASE_URL=https://your-instance.ministryplatform.com/ministryplatformapi
 MINISTRY_PLATFORM_CLIENT_ID=your_client_id
 MINISTRY_PLATFORM_CLIENT_SECRET=your_client_secret
 ```
@@ -43,39 +43,44 @@ Generates TypeScript interfaces and Zod schemas from your Ministry Platform data
 
 ## Usage
 
+> **Always pass `--conditions=react-server` to `tsx`.** The generators import `MPHelper`,
+> whose MP client starts with `import "server-only"`. Without the flag, `server-only`
+> resolves to its throwing entry and the script dies with "This module cannot be imported
+> from a Client Component module". The `npm run mp:generate*` scripts already pass it.
+
 ### Basic Usage
 
 ```bash
 # Generate types for all tables
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts
 
 # Generate with Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --zod
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --zod
 
 # Generate to models directory
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models
 ```
 
 ### Advanced Options
 
 ```bash
 # Generate detailed types by sampling records
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --detailed
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --detailed
 
 # Generate types for specific tables
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --search "Contact"
 
 # Custom output directory with Zod schemas
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --output ./src/types/mp --zod
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --output ./src/types/mp --zod
 
 # Detailed mode with custom sample size
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --detailed --sample-size 10
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --detailed --sample-size 10
 
 # Wipe the output directory before writing
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts --clean --zod
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts --clean --zod
 
 # Combine options
-npx tsx src/lib/providers/ministry-platform/scripts/generate-types.ts \
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts \
   --detailed \
   --search "Contact" \
   --output ./types \
@@ -222,10 +227,10 @@ by name prefix, with a compact signature listing and a per-procedure parameter t
 npm run mp:generate:storedprocs
 
 # Only procedures matching a search term
-npx tsx src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts -s "Contact"
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts -s "Contact"
 
 # Custom output file
-npx tsx src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts -o ./my-procs-reference.md
+npx tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts -o ./my-procs-reference.md
 ```
 
 ## Command Line Options
@@ -270,9 +275,9 @@ The repo already defines:
 ```json
 {
   "scripts": {
-    "mp:generate": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts",
-    "mp:generate:models": "tsx src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean",
-    "mp:generate:storedprocs": "tsx src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts"
+    "mp:generate": "tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts",
+    "mp:generate:models": "tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-types.ts -o src/lib/providers/ministry-platform/models --zod --clean",
+    "mp:generate:storedprocs": "tsx --conditions=react-server src/lib/providers/ministry-platform/scripts/generate-storedprocs.ts"
   }
 }
 ```

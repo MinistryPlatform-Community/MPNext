@@ -45,9 +45,17 @@ vi.mock('@/services/authorizationService', () => {
   };
 });
 
-import { ContactLogService } from '@/services/contactLogService';
+import {
+  ContactLogService,
+  CONTACT_LOGS_PER_CONTACT_LIMIT,
+} from '@/services/contactLogService';
 import { DomainTimezoneService } from '@/services/domainTimezoneService';
 import { UnauthorizedError } from '@/services/authorizationService';
+
+const KNOWN_LOG_TYPES = [
+  { Contact_Log_Type_ID: 1, Contact_Log_Type: 'Email', Description: null },
+  { Contact_Log_Type_ID: 2, Contact_Log_Type: 'Phone', Description: null },
+];
 
 describe('ContactLogService', () => {
   beforeEach(() => {
@@ -59,6 +67,12 @@ describe('ContactLogService', () => {
     mockRequireSecurityRole.mockReset();
     // Default: an authorized role-holder with MP User_ID 500.
     mockRequireSecurityRole.mockResolvedValue(500);
+    // Default lookup: the log types a write's Contact_Log_Type_ID is checked
+    // against. Tests that care about a specific read queue their own result
+    // with mockResolvedValueOnce, which takes precedence.
+    mockGetTableRecords.mockImplementation(async ({ table }: { table: string }) =>
+      table === 'Contact_Log_Types' ? KNOWN_LOG_TYPES : [],
+    );
     mockGetDomainInfo.mockResolvedValue({
       TimeZoneName: 'America/New_York',
       DisplayName: 'Test',
@@ -96,48 +110,6 @@ describe('ContactLogService', () => {
         orderBy: 'Contact_Log_Type',
       });
       expect(result).toEqual(mockTypes);
-    });
-  });
-
-  describe('searchContactLogs', () => {
-    it('should search with contactId filter when provided', async () => {
-      mockGetTableRecords.mockResolvedValueOnce([]);
-
-      const service = await ContactLogService.getInstance();
-      await service.searchContactLogs(42);
-
-      expect(mockGetTableRecords).toHaveBeenCalledWith(
-        expect.objectContaining({
-          table: 'Contact_Log',
-          filter: 'Contact_ID = 42',
-          top: 50,
-          orderBy: 'Contact_Date DESC',
-        })
-      );
-    });
-
-    it('should search with empty filter when no contactId', async () => {
-      mockGetTableRecords.mockResolvedValueOnce([]);
-
-      const service = await ContactLogService.getInstance();
-      await service.searchContactLogs();
-
-      expect(mockGetTableRecords).toHaveBeenCalledWith(
-        expect.objectContaining({
-          filter: '',
-        })
-      );
-    });
-
-    it('should respect custom limit', async () => {
-      mockGetTableRecords.mockResolvedValueOnce([]);
-
-      const service = await ContactLogService.getInstance();
-      await service.searchContactLogs(42, 10);
-
-      expect(mockGetTableRecords).toHaveBeenCalledWith(
-        expect.objectContaining({ top: 10 })
-      );
     });
   });
 
@@ -189,6 +161,16 @@ describe('ContactLogService', () => {
       );
       expect(result).toEqual(mockLogs);
     });
+
+    it('caps the read with an explicit $top', async () => {
+      const service = await ContactLogService.getInstance();
+      await service.getContactLogsByContactId(42);
+
+      expect(CONTACT_LOGS_PER_CONTACT_LIMIT).toBe(500);
+      expect(mockGetTableRecords).toHaveBeenCalledWith(
+        expect.objectContaining({ top: CONTACT_LOGS_PER_CONTACT_LIMIT })
+      );
+    });
   });
 
   /**
@@ -201,7 +183,6 @@ describe('ContactLogService', () => {
   describe('read authorization', () => {
     it.each([
       ['getContactLogTypes', 'Contact_Log_Types', (s: ContactLogService) => s.getContactLogTypes()],
-      ['searchContactLogs', 'Contact_Log', (s: ContactLogService) => s.searchContactLogs(42)],
       ['getContactLogById', 'Contact_Log', (s: ContactLogService) => s.getContactLogById(1)],
       [
         'getContactLogsByContactId',
@@ -219,7 +200,6 @@ describe('ContactLogService', () => {
 
     it.each([
       ['getContactLogTypes', (s: ContactLogService) => s.getContactLogTypes()],
-      ['searchContactLogs', (s: ContactLogService) => s.searchContactLogs(42)],
       ['getContactLogById', (s: ContactLogService) => s.getContactLogById(1)],
       [
         'getContactLogsByContactId',
@@ -247,10 +227,6 @@ describe('ContactLogService', () => {
         Contact_Date: '2026-05-17',
         Contact_Log_Type_ID: 1,
         Notes: 'Test note',
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       });
 
       expect(mockCreateTableRecords).toHaveBeenCalledWith(
@@ -285,10 +261,6 @@ describe('ContactLogService', () => {
           Contact_Date: '2026-05-17',
           Contact_Log_Type_ID: 1,
           Notes: 'Test note',
-          Planned_Contact_ID: null,
-          Contact_Successful: null,
-          Original_Contact_Log_Entry: null,
-          Feedback_Entry_ID: null,
         }),
       ).rejects.toThrow(UnauthorizedError);
 
@@ -305,10 +277,6 @@ describe('ContactLogService', () => {
         Contact_Date: '2026-05-17',
         Contact_Log_Type_ID: 1,
         Notes: 'Test note',
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       });
 
       expect(mockCreateTableRecords).toHaveBeenCalledWith(
@@ -328,10 +296,6 @@ describe('ContactLogService', () => {
         Contact_Date: '2026-05-17T03:33:00.000Z',
         Contact_Log_Type_ID: 1,
         Notes: 'Test',
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       });
 
       expect(mockCreateTableRecords).toHaveBeenCalledWith(
@@ -351,10 +315,6 @@ describe('ContactLogService', () => {
           Contact_Date: '2026-05-17',
           Contact_Log_Type_ID: 1,
           Notes: 'Test',
-          Planned_Contact_ID: null,
-          Contact_Successful: null,
-          Original_Contact_Log_Entry: null,
-          Feedback_Entry_ID: null,
         })
       ).rejects.toThrow('Failed to create contact log record');
     });
@@ -376,10 +336,6 @@ describe('ContactLogService', () => {
         Contact_Log_Type_ID: 1,
         Made_By: 999,
         Notes: 'Test note',
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       } as never);
 
       const [, records] = mockCreateTableRecords.mock.calls[0];
@@ -396,15 +352,91 @@ describe('ContactLogService', () => {
           Contact_Date: '2026-05-17',
           Contact_Log_Type_ID: 1,
           Notes: 'Test note',
-          Planned_Contact_ID: null,
-          Contact_Successful: null,
-          Original_Contact_Log_Entry: null,
-          Feedback_Entry_ID: null,
         } as never),
       ).rejects.toThrow();
 
       expect(mockCreateTableRecords).not.toHaveBeenCalled();
     });
+
+    // 2026-09-28 review: after Zod validation against the full ContactLogSchema
+    // these caller-chosen links and flags reached MP unchanged, so a
+    // role-holder could point a log at any other contact's log or feedback.
+    it('sends only the allowlisted fields — smuggled links and flags are dropped', async () => {
+      mockCreateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.createContactLog({
+        Contact_ID: 42,
+        Contact_Date: '2026-05-17',
+        Contact_Log_Type_ID: 1,
+        Notes: 'Test note',
+        Planned_Contact_ID: 77,
+        Contact_Successful: true,
+        Original_Contact_Log_Entry: 12345,
+        Feedback_Entry_ID: 67890,
+        Contact_Log_ID: 999,
+      } as never);
+
+      const [, records] = mockCreateTableRecords.mock.calls[0];
+      expect(records).toEqual([
+        {
+          Contact_ID: 42,
+          Contact_Log_Type_ID: 1,
+          Notes: 'Test note',
+          Contact_Date: '2026-05-17 00:00:00',
+          Made_By: 500,
+        },
+      ]);
+    });
+
+    it('accepts a create with no log type and does no type lookup', async () => {
+      mockCreateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.createContactLog({
+        Contact_ID: 42,
+        Contact_Date: '2026-05-17',
+        Notes: 'Test note',
+      });
+
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+      const [, records] = mockCreateTableRecords.mock.calls[0];
+      expect(records[0]).not.toHaveProperty('Contact_Log_Type_ID');
+    });
+
+    it('validates the log type against Contact_Log_Types without a second gate call', async () => {
+      mockCreateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.createContactLog({
+        Contact_ID: 42,
+        Contact_Date: '2026-05-17',
+        Contact_Log_Type_ID: 2,
+        Notes: 'Test note',
+      });
+
+      expect(mockGetTableRecords).toHaveBeenCalledWith(
+        expect.objectContaining({ table: 'Contact_Log_Types' })
+      );
+      // The create gate already covers this read.
+      expect(mockRequireSecurityRole).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([-7, 0, 3, 999])(
+      'rejects Contact_Log_Type_ID %s when it is not a known log type',
+      async (typeId) => {
+        const service = await ContactLogService.getInstance();
+        await expect(
+          service.createContactLog({
+            Contact_ID: 42,
+            Contact_Date: '2026-05-17',
+            Contact_Log_Type_ID: typeId,
+            Notes: 'Test note',
+          }),
+        ).rejects.toThrow('Invalid Contact Log Type ID');
+        expect(mockCreateTableRecords).not.toHaveBeenCalled();
+      },
+    );
 
     it('rejects invalid non-date fields via Zod validation', async () => {
       const service = await ContactLogService.getInstance();
@@ -511,7 +543,7 @@ describe('ContactLogService', () => {
 
     // --- F4: Made_By and Contact_ID are server-authoritative ---------------
 
-    it('F4: strips a caller-supplied Made_By and stamps the gate User_ID', async () => {
+    it('F4: strips a caller-supplied Made_By and sends none at all', async () => {
       mockRequireSecurityRole.mockResolvedValueOnce(4242);
       mockUpdateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
 
@@ -521,9 +553,10 @@ describe('ContactLogService', () => {
         Made_By: 999,
       } as never);
 
-      const [, records] = mockUpdateTableRecords.mock.calls[0];
-      expect(records[0].Made_By).toBe(4242);
-      expect(records[0].Made_By).not.toBe(999);
+      const [, records, options] = mockUpdateTableRecords.mock.calls[0];
+      expect(records[0]).not.toHaveProperty('Made_By');
+      // Who edited it still reaches MP's audit log.
+      expect(options).toEqual({ $userId: 4242 });
     });
 
     it('F4: never sends Contact_ID, so a log cannot be re-parented', async () => {
@@ -539,16 +572,76 @@ describe('ContactLogService', () => {
       expect(records[0]).not.toHaveProperty('Contact_ID');
     });
 
-    it('F4: stamps Made_By on an ordinary edit that sends neither field', async () => {
+    // 2026-09-28 review: stamping the editor into Made_By on every edit let
+    // any role-holder's trivial change erase who wrote the pastoral note. The
+    // PUT now omits it, so MP keeps the original author.
+    it('does not overwrite the original author on an ordinary edit', async () => {
       mockUpdateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
 
       const service = await ContactLogService.getInstance();
       await service.updateContactLog(1, { Notes: 'Updated note' });
 
-      const [, records] = mockUpdateTableRecords.mock.calls[0];
-      expect(records[0].Made_By).toBe(500);
-      expect(records[0]).not.toHaveProperty('Contact_ID');
+      const [, records, options] = mockUpdateTableRecords.mock.calls[0];
+      expect(records[0]).toEqual({ Notes: 'Updated note', Contact_Log_ID: 1 });
+      expect(options).toEqual({ $userId: 500 });
     });
+
+    it('sends only the allowlisted fields plus Contact_Log_ID', async () => {
+      mockUpdateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.updateContactLog(1, {
+        Contact_Date: '2026-05-17',
+        Contact_Log_Type_ID: 2,
+        Notes: 'Updated note',
+        Planned_Contact_ID: 77,
+        Contact_Successful: true,
+        Original_Contact_Log_Entry: 12345,
+        Feedback_Entry_ID: 67890,
+        Contact_Log_ID: 999,
+      } as never);
+
+      const [, records] = mockUpdateTableRecords.mock.calls[0];
+      expect(records[0]).toEqual({
+        Contact_Log_Type_ID: 2,
+        Notes: 'Updated note',
+        Contact_Date: '2026-05-17 00:00:00',
+        Contact_Log_ID: 1,
+      });
+    });
+
+    it('allows clearing the log type with null without a lookup', async () => {
+      mockUpdateTableRecords.mockResolvedValueOnce([{ Contact_Log_ID: 1 }]);
+
+      const service = await ContactLogService.getInstance();
+      await service.updateContactLog(1, { Contact_Log_Type_ID: null });
+
+      const [, records] = mockUpdateTableRecords.mock.calls[0];
+      expect(records[0]).toEqual({ Contact_Log_Type_ID: null, Contact_Log_ID: 1 });
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it.each([-7, 0, 999])(
+      'rejects Contact_Log_Type_ID %s when it is not a known log type',
+      async (typeId) => {
+        const service = await ContactLogService.getInstance();
+        await expect(
+          service.updateContactLog(1, { Contact_Log_Type_ID: typeId }),
+        ).rejects.toThrow('Invalid Contact Log Type ID');
+        expect(mockUpdateTableRecords).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['5 OR 1=1', [1], 0, -1, '1e3'])(
+      'rejects a non-ID contactLogId (%j) before any MP call',
+      async (bad) => {
+        const service = await ContactLogService.getInstance();
+        await expect(
+          service.updateContactLog(bad as never, { Notes: 'x' }),
+        ).rejects.toThrow('Invalid Contact Log ID');
+        expect(mockUpdateTableRecords).not.toHaveBeenCalled();
+      },
+    );
 
     it('throws when API returns empty result', async () => {
       mockUpdateTableRecords.mockResolvedValueOnce([]);
@@ -595,9 +688,29 @@ describe('ContactLogService', () => {
       const service = await ContactLogService.getInstance();
       await expect(service.deleteContactLog(999)).rejects.toThrow('Record not found');
     });
+
+    it.each(['5 OR 1=1', [1, 2], 0, -1, 1.5, '1e3'])(
+      'rejects a non-ID contactLogId (%j) before any MP call',
+      async (bad) => {
+        const service = await ContactLogService.getInstance();
+        await expect(service.deleteContactLog(bad as never)).rejects.toThrow(
+          'Invalid Contact Log ID',
+        );
+        expect(mockDeleteTableRecords).not.toHaveBeenCalled();
+      },
+    );
+
+    it('passes a digits-only string ID to MP as a number', async () => {
+      mockDeleteTableRecords.mockResolvedValueOnce(undefined);
+
+      const service = await ContactLogService.getInstance();
+      await service.deleteContactLog('42' as never);
+
+      expect(mockDeleteTableRecords).toHaveBeenCalledWith('Contact_Log', [42], { $userId: 500 });
+    });
   });
 
-  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`.
+  // Regression guard for the numeric-ID `$filter` injection fix.
   //
   // Every method here declares `number`, but that annotation is erased at
   // runtime and server actions compile to POST endpoints whose payload shape the
@@ -638,15 +751,6 @@ describe('ContactLogService', () => {
       expect(mockGetTableRecords).not.toHaveBeenCalled();
     });
 
-    it.each(injectionPayloads)('searchContactLogs rejects %j without calling MP', async (payload) => {
-      const service = await ContactLogService.getInstance();
-
-      await expect(
-        service.searchContactLogs(payload as unknown as number)
-      ).rejects.toThrow('Invalid Contact ID');
-      expect(mockGetTableRecords).not.toHaveBeenCalled();
-    });
-
     it('interpolates a digits-only string as a bare number', async () => {
       mockGetTableRecords.mockResolvedValueOnce([]);
 
@@ -656,27 +760,6 @@ describe('ContactLogService', () => {
       expect(mockGetTableRecords).toHaveBeenCalledWith(
         expect.objectContaining({ filter: 'Contact_Log_ID = 42' })
       );
-    });
-
-    it('searchContactLogs still reads unfiltered when the ID is omitted or null', async () => {
-      mockGetTableRecords.mockResolvedValue([]);
-
-      const service = await ContactLogService.getInstance();
-      await service.searchContactLogs();
-      await service.searchContactLogs(null as unknown as number);
-
-      expect(mockGetTableRecords).toHaveBeenNthCalledWith(1, expect.objectContaining({ filter: '' }));
-      expect(mockGetTableRecords).toHaveBeenNthCalledWith(2, expect.objectContaining({ filter: '' }));
-    });
-
-    it('searchContactLogs now rejects 0 instead of silently reading the whole table', async () => {
-      // Behavior change: the old `if (contactId)` truthiness check treated 0 as
-      // "no filter" and returned an unfiltered page. An explicit 0 is a caller
-      // bug, so it is now an error.
-      const service = await ContactLogService.getInstance();
-
-      await expect(service.searchContactLogs(0)).rejects.toThrow('Invalid Contact ID');
-      expect(mockGetTableRecords).not.toHaveBeenCalled();
     });
   });
 
@@ -702,10 +785,6 @@ describe('ContactLogService', () => {
         Contact_Date: '2026-05-17',
         Contact_Log_Type_ID: 1,
         Notes: sensitiveNotes,
-        Planned_Contact_ID: null,
-        Contact_Successful: null,
-        Original_Contact_Log_Entry: null,
-        Feedback_Entry_ID: null,
       });
 
       expect(logSpy).not.toHaveBeenCalled();

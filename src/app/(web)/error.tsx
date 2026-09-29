@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { SignOutButton } from "@/components/user-menu";
 import {
   Card,
   CardContent,
@@ -24,6 +25,10 @@ import {
  * menu and sign-out — keep rendering around this card. That is the same reasoning
  * as `/no-access`: a user who hits an error must still be able to leave. An
  * error boundary at `src/app/` would replace the shell instead.
+ *
+ * The card carries its own sign-out button as well, because the text tells the
+ * user to "sign out and back in" and the header's menu is behind an avatar
+ * they may not recognise as one.
  */
 export default function WebError({
   error,
@@ -70,7 +75,12 @@ export default function WebError({
               Reference code: <code className="font-mono">{error.digest}</code>
             </p>
           )}
-          <Button onClick={() => retry()}>Try again</Button>
+          <div className="flex flex-wrap items-start gap-3">
+            <Button onClick={() => retry()}>Try again</Button>
+            <div>
+              <SignOutButton className={buttonVariants({ variant: "outline" })} />
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -1,8 +1,8 @@
 # Downstream Hardening Playbook
 
-**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12)
+**Source:** MPNext, commits `436466d..5bc505a` (2026-09-12), follow-up `65a3225..cf5a824` (committed 2026-09-28; reported 2026-09-25), auth review follow-up 2026-09-28/29 (see [2026-09-29 follow-up](#2026-09-29-follow-up))
 **Audience:** maintainers of repos that were forked or copied from MPNext
-**Status of the source repo after this work:** all findings below closed except F8 (PKCE)
+**Status of the source repo after this work:** all findings below closed; F8 (no PKCE / nonce) is an accepted risk
 
 ---
 
@@ -18,6 +18,13 @@ verbatim: `src/lib/auth.ts`, `src/proxy.ts`, `src/app/api/auth/[...all]/route.ts
 the service layer, and the (previously empty) `next.config.ts`. Two of the
 highest-severity ones — **F-UPDATE-USER** and **F2** — let *any authenticated
 user* assume another user's Ministry Platform identity.
+
+On 2026-09-25 a downstream maintainer (Jonathon Huff, The Moody Church)
+privately reported two more, both verified upstream: **F3b**, a bypass of the F3
+open-redirect fix, and **F12**, an ID-token sign-in path that let an attacker
+holding a victim's MP access token sign in *as* that victim. If you already took
+the 2026-09-12 fixes, those two sections are the new work. Advisory:
+`docs/security/2026-09-25-signin-hardening.md`.
 
 If your fork diverged early, some of these will not apply. Each section starts
 with a **"Does this apply to me?"** check you can run in under a minute.
@@ -66,6 +73,14 @@ grep -rn "console\.log\|console\.debug\|console\.info" src/ --include="*.ts" --i
 
 # F3: is callbackUrl sanitized before it reaches location.href?
 grep -rn "callbackUrl" src/ | grep -i "location.href\|sanitize"
+# F3b: the 2026-09-12 sanitizer only checked a leading `//` and `/\` — tab/CR/LF bypass it
+grep -rqF 'startsWith("/\\")' src/ && echo "✗ F3b (weak leading-/\\ check)" || echo "✓ no weak check"
+grep -rqF '\u001f' src/components/sign-in/ src/app/signin/ 2>/dev/null && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
+
+# F12: is ID-token sign-in refused? (live whenever discoveryUrl is set on better-auth >= 1.7)
+grep -q "discoveryUrl" src/lib/auth.ts && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
+  && echo "✗ F12 (no hooks.before idToken guard)" || echo "✓ F12 guard (or no discoveryUrl)"
+grep -q "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts" && echo "✓ F12 route filter" || echo "✗ F12 (route filter)"
 
 # F4: can a caller smuggle attribution fields into a write?
 grep -rn "Made_By" src/services/ src/components/*/actions.ts
@@ -77,25 +92,27 @@ grep -rn "Made_By" src/services/ src/components/*/actions.ts
 
 | ID | Sev | What was wrong | Fix commit |
 |---|---|---|---|
-| **F-UPDATE-USER** | **Critical** | Any authenticated user could POST their own session a different MP `User_GUID` | `436466d` |
+| **F-UPDATE-USER** | **High** (CVSS 8.1) | Any authenticated user could POST their own session a different MP `User_GUID` | `436466d` |
 | **F2** | **High** | Two MP users sharing an email address merged onto one better-auth user | `85be4b3`, `7da14c5` |
 | **F1** | **High** | Contact/log **reads** were gated on "a session exists", which proves nothing | `afef3a9`, `16c3415` |
 | **F4** | Medium | Contact-log writes accepted `Made_By` / `Contact_ID` from the caller | `d7adaf8` |
 | **F5** | Medium | Member PII and pastoral notes written to logs at info level | `395e20c`, `04e97aa` |
 | **F9** | Medium | No CSP, no HSTS, no anti-framing, no Referrer-Policy | `cfeecab`, `67e1329` |
+| **F12** | Low (Low–Medium if the OIDC client is shared or allows implicit/hybrid) | `POST /sign-in/social` with an `idToken` body signed the caller in as whoever the supplied access token belonged to (reported 2026-09-25) | `cf5a824` |
 | **F3** | Medium | Open redirect via `?callbackUrl=` on `/signin` | `ee46343` |
+| **F3b** | Low–Medium | The F3 sanitizer was bypassable with a tab/CR/LF — `?callbackUrl=/%09/example.com` (reported 2026-09-25) | `b7dc8e6` |
 | **F7** | Low | ~30 better-auth endpoints publicly mounted; OAuth errors on a third-party page | `91d226f` |
 | **F10** | Low | `ContactService.updateContact` wrote with no authorization at all | `16c3415` |
 | **F11** | Low | `getMpTimezone` had no check of any kind | `16c3415` |
-| **F8** | Low | **Still open** — PKCE is `false` though MP advertises `S256` | — |
+| **F8** | Low | **Accepted risk** — MP supports neither PKCE nor the id_token `nonce`, so nothing binds a code to the browser that started the flow | — |
 
-Fix order, if you are doing this incrementally: **F-UPDATE-USER → F2 → F1 →
-F4 → F7 → F3 → F5 → F9**. The first three are identity; everything else is
-defense in depth on top of them.
+Fix order, if you are doing this incrementally: **F-UPDATE-USER → F2 → F12 →
+F1 → F4 → F7 → F3/F3b → F5 → F9**. The first four are identity; everything else
+is defense in depth on top of them.
 
 ---
 
-## F-UPDATE-USER (Critical) — session identity was reassignable
+## F-UPDATE-USER (High) — session identity was reassignable
 
 ### Does this apply to me?
 
@@ -148,6 +165,7 @@ export const disabledAuthPaths = [
   "/set-password",
   "/delete-user",
   "/delete-user/callback",
+  "/link-social",          // has its own id_token branch — see F12
 ];
 
 const options = {
@@ -173,13 +191,42 @@ The protection has to live at the endpoint layer.
 
 ### Incident response
 
-Patching does **not** revoke sessions already forged. They survive in the JWT
-cookie cache for up to an hour (`session.cookieCache.maxAge`), and with no
-database there is no session table to clear. **The only immediate revocation is
-rotating `BETTER_AUTH_SECRET`**, which signs every user out.
+*Corrected 2026-09-28: this previously said "up to an hour". See the erratum in
+`docs/security/2026-09-12-session-identity.md`.*
+
+Patching does **not** revoke sessions already forged. With no database,
+better-auth 1.7.4 silently enables `session.cookieCache.refreshCache`, so a
+forged `session_data` cookie re-signs itself from the cookie alone on
+`/get-session` until the session's `expiresAt` — **up to 7 days after the
+original sign-in** on the default config, plus process uptime on a long-running
+host whose in-memory row kept sliding `expiresAt`. There is no session table to
+clear. **Rotating `BETTER_AUTH_SECRET` is mandatory**: it is the only
+revocation that works regardless of config, and it signs every user out.
 
 Check `dp_Audit_Log` for the exposure window of *your* fork — from whenever you
-merged `c9d80d4` (or its equivalent) to whenever you deploy this fix.
+merged `c9d80d4` (or its equivalent) to **at least 7 days after** you deploy
+this fix (or to your secret rotation, if sooner).
+
+Then bound future sessions the way upstream did (2026-09-28, `src/lib/auth.ts`):
+
+```ts
+session: {
+  expiresIn: 12 * 60 * 60,        // absolute; default is 7 days
+  disableSessionRefresh: true,    // in-memory row never slides expiresAt
+  cookieCache: {
+    enabled: true,
+    maxAge: 60 * 60,
+    strategy: "jwe",              // encrypted (2026-09-28; was "jwt" — see 2026-09-29 follow-up)
+    refreshCache: false,          // MUST be explicit: stateless mode defaults it to true
+  },
+},
+```
+
+With these, no session outlives sign-in + 12 h, and a cookie with no live
+in-memory row (copied before sign-out, or forged) dies within 1 h. Upstream's
+`src/auth.session-lifetime.test.ts` pins both numbers with a clock walk. Also
+make the app refuse to boot without a real secret — better-auth falls back to a
+public default outside `NODE_ENV=production` (see `assertAuthEnvironment`).
 
 CVSS 8.1 (`AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`) — computed, not the reflexive
 8.8; there is no availability impact. `AC:L` reflects that this codebase treats
@@ -328,22 +375,29 @@ rendered. So gate at all three:
 
 | Layer | File | What it does |
 |---|---|---|
-| Page | `src/app/(web)/<feature>/layout.tsx` | `hasSecurityRole()` → `redirect("/no-access")` |
+| Page | every `page.tsx` that reads MP data | `requireSecurityRole()` before any data call; `UnauthorizedError` → `redirect("/no-access")` |
 | Action | `src/components/<feature>/actions.ts` | `requireSecurityRole()` replaces the session check |
 | Service | `src/services/*.ts` | `requireSecurityRole()` on every method, reads included |
 
-A layout gate covers its child pages for free — React renders the layout first
-and only renders `children` once it returns, so a `redirect()` there means the
-page component never runs.
+*Corrected 2026-09-29:* **a layout gate does not protect its child pages.** Next
+16 renders each segment independently — the page runs in parallel with the
+layout, which only receives a placeholder as `children` — so a `redirect()` in
+the layout does not stop the page's data calls or keep their output out of the
+RSC payload; layouts are also not re-rendered on client navigation. Upstream's
+`contactlookup/layout.tsx` (`hasSecurityRole()` → `redirect("/no-access")`) is a
+**UX redirect only**. Each page must gate itself (upstream:
+`contactlookup/[guid]/page.tsx`).
 
 The service copy of `AuthorizationService` is worth lifting wholesale. Key
 design points:
 
 ```ts
 // Per-REQUEST memoization, via React cache() — not a module-level or TTL cache.
-// The gate runs at up to three layers per request; this makes that one MP read.
-// Nothing crosses requests, which is what keeps a revoked role effective on the
-// user's very next request.
+// During an RSC render (page + the services it calls) this makes the gate one
+// MP read. It does NOT dedupe inside a server action — actions run outside a
+// React render, so each gate call there is one role read (extra cost, never a
+// wrong answer). Nothing crosses requests, which is what keeps a revoked role
+// effective on the user's very next request.
 const loadSecurityRoles = cache(async (userId: number) => /* dp_User_Roles read */);
 ```
 
@@ -355,10 +409,19 @@ const loadSecurityRoles = cache(async (userId: number) => /* dp_User_Roles read 
   one whose role list cannot be established.
 - **Infrastructure failures throw, they do not return `permitted: false`.** A
   caller must never mistake "MP is down" for "this user is not allowed".
+  Known gap: that holds for the role read, not one step earlier. If the session
+  lookup throws, or the `User_ID` could not be resolved at sign-in because MP
+  was unreachable (cached as `null` for 30 s), the gate reports `no_mp_user` and
+  the user sees "no access" rather than an error. Still fails closed.
 - **It returns the acting `User_ID`**, which becomes the single source of write
   attribution (see F4).
-- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset or blank
-  means "any MP security role will do". Tighten without a deploy.
+- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset, blank or separator-only (`","`)
+  fails closed: nobody is permitted. `*` means "any MP security role will do".
+  Changes take effect without a deploy. (Changed 2026-09-28 — blank used to mean "any role".)
+  Roles are matched by **name** (trimmed, case-insensitive), not `Role_ID`: MP
+  role names are editable and not unique, so anyone who can create, rename or
+  assign MP Security Roles can satisfy the gate. Upstream deferred ID matching
+  (2026-09-29) — restrict who can edit Security Roles in MP.
 
 **The UX layer is not a security control.** Upstream hides the sidebar entry and
 dashboard tile for users without access, so nobody is handed a link that only
@@ -413,9 +476,12 @@ const $userId = await AuthorizationService.getInstance()
   .requireSecurityRole({ table: "Contact_Log", operation: "create" });
 
 // A Zod object parse STRIPS keys it does not declare, so a smuggled key is
-// dropped rather than merely untyped.
+// dropped rather than merely untyped. Allowlist (pick), not blocklist (omit):
+// since 2026-09-28 the cross-record links (Planned_Contact_ID,
+// Feedback_Entry_ID, ...) are refused too. Contact_Date is converted separately.
 const validatedRest = ContactLogSchema
-  .omit({ Contact_Log_ID: true, Contact_Date: true, Made_By: true })
+  .pick({ Contact_ID: true, Contact_Log_Type_ID: true, Notes: true })
+  .partial({ Contact_Log_Type_ID: true })
   .parse(rest);
 
 const record = {
@@ -427,17 +493,19 @@ const record = {
 
 | Field | Create | Update |
 |---|---|---|
-| `Made_By` | gate's `User_ID` | gate's `User_ID` |
+| `Made_By` | gate's `User_ID` | **never sent** — MP keeps the original author |
 | `Contact_ID` | caller's subject, `sanitizeNumericId`'d | **never sent** — MP preserves the existing value |
+
+The update allowlist is only `Contact_Date`, `Contact_Log_Type_ID` and `Notes`.
 
 **The actions assemble neither field.** Attribution has exactly one source; two
 layers stamping it could drift, and a caller value could slip past whichever was
 checked second.
 
-Behavior change worth knowing: `Made_By` on an edited record now reads as
-whoever last wrote the row, not necessarily whoever originally made the contact.
-That was a deliberate call — MP's audit trail additionally records every edit via
-`$userId`.
+*Changed 2026-09-28:* the update path used to stamp `Made_By` with the editor,
+so any role-holder's trivial edit erased who wrote the note. `Made_By` now means
+"who wrote this note" and survives edits; who edited it is recorded in
+`dp_Audit_Log` via `$userId`.
 
 **Test them as adversarial inputs, not as types.** Drive the service with the
 shapes a crafted request can actually send: a smuggled `Made_By` on create and
@@ -492,7 +560,7 @@ Also strip response text out of *thrown* error messages — a GET failure that
 appends the response body echoes `$filter` values and record content into every
 downstream log and error reporter.
 
-Keep structured events. Upstream has four, and alerts grep on them:
+Keep structured events. Alerts grep on them; the main ones upstream:
 
 | Event | Emitted when |
 |---|---|
@@ -500,6 +568,11 @@ Keep structured events. Upstream has four, and alerts grep on them:
 | `mp.write.unauthorized` | role gate refuses a write |
 | `mp.write.non_user` | a write ran with no resolved acting user |
 | `auth.userinfo.invalid_sub` | MP userinfo returned no usable `sub` |
+| `auth.userinfo.sub_mismatch` | id_token `sub` missing or not equal to userinfo `sub` (F12) |
+| `auth.userinfo.id_token_claims_invalid` | id_token `exp` missing or past, or `azp` wrong (2026-09-28) |
+| `auth.userinfo.fetch_failed` | userinfo request failed, timed out or redirected (2026-09-28) |
+| `auth.session.user_id_unresolved` | `dp_Users` lookup for the session's `User_ID` failed (2026-09-28) |
+| `auth.discovery.rebuild` | the `auth` instance was rebuilt after a failed discovery (2026-09-29) |
 
 ### Make it enforced, not advisory
 
@@ -537,7 +610,7 @@ an immediate session-theft path. This is the defense-in-depth layer under F1/F2/
 
 | Where | Headers | Why there |
 |---|---|---|
-| `next.config.ts` on `/(.*)` | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS (prod only) | Request-independent, and reaches `/api` + the static paths the proxy matcher skips |
+| `next.config.ts` on `/(.*)` | `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, HSTS (prod only) | Request-independent, and reaches `/api` + the static paths the proxy matcher skips |
 | `src/proxy.ts` | `Content-Security-Policy` | The nonce must be fresh per request; a build-time value is a constant an attacker reads off any page |
 
 Anti-framing is expressed **twice on purpose** — `X-Frame-Options` reaches the
@@ -547,7 +620,14 @@ headers: two `Content-Security-Policy` headers on one response are enforced as a
 
 HSTS is production-only (`max-age=63072000; includeSubDomains`, **no `preload`** —
 that is a one-way submission to a browser-vendor list and the deploying church's
-call, not a repo default).
+call, not a repo default). "Production" means a production *build*: `next build`
+bakes it in, so a local `next start` sends it too.
+
+Also in `next.config.ts` (added 2026-09-29): `poweredByHeader: false`,
+`images.unoptimized: true` (the image optimizer is off; nothing uses it), and
+`logging.serverFunctions: false` (stops `next dev` logging server-action
+arguments — member data — to the terminal). The `/api/auth` route sends
+`Cache-Control: no-store` on every response.
 
 ### The CSP, with the loosenings that are deliberate
 
@@ -558,7 +638,7 @@ style-src 'self' 'unsafe-inline';          ← see below, do NOT add a nonce her
 img-src 'self' data: blob: <MP file origin>;
 font-src 'self';
 connect-src 'self' [dev: ws:];
-object-src 'none'; frame-src 'none'; base-uri 'self';
+object-src 'none'; frame-src 'none'; base-uri 'none';
 form-action 'self' <MP OAuth origin>;
 frame-ancestors 'none';
 upgrade-insecure-requests                   ← omit in dev AND in report-only
@@ -569,15 +649,19 @@ Three loosenings, each with a reason. Do not "tighten" them back into an outage:
 1. **`style-src 'unsafe-inline'`, with no nonce.** Radix's dialog pulls in
    react-remove-scroll, which locks body scroll by **injecting a `<style>`
    element** at runtime. That is an element, not an attribute, so `style-src-attr`
-   never applies and it falls through to `style-src` — where a nonce cannot
-   help, because the element is created by script long after the server chose the
-   nonce. A hash is not workable either: the content embeds the computed
-   scrollbar width, so it varies by platform and zoom (two different hashes in a
-   single page view). **The nonce must stay out of this directive** — CSP3
-   browsers ignore `'unsafe-inline'` whenever a nonce sits beside it, which is
-   exactly the trap that produced the broken policy. The cost is bounded:
-   inline *style* injection permits limited selector-based exfiltration, not
-   script execution. `script-src` keeps its nonce and `strict-dynamic`, which is
+   never applies and it falls through to `style-src`. A hash is not workable:
+   the content embeds the computed scrollbar width, so it varies by platform and
+   zoom (two different hashes in a single page view). **The nonce must stay out
+   of this directive** — CSP3 browsers ignore `'unsafe-inline'` whenever a nonce
+   sits beside it, which is exactly the trap that produced the broken policy.
+   *Corrected 2026-09-29:* a nonce *could* cover that element —
+   react-remove-scroll gets its nonce from `get-nonce`, so calling its
+   `setNonce()` with the request nonce would work. Upstream **accepted**
+   `'unsafe-inline'` instead, for simplicity (it is also what lets
+   `global-error.tsx` use inline styles; see Error boundaries). The cost is
+   small: inline *style* injection cannot run script, and the usual CSS
+   exfiltration channels are closed because `img-src` and `font-src` allow no
+   attacker origin. `script-src` keeps its nonce and `strict-dynamic`, which is
    the control that matters.
 2. **`form-action` includes the MP origin.** Sign-out is a form-driven server
    action ending in a redirect to MP's endsession endpoint, and browsers apply
@@ -599,11 +683,16 @@ server component that can actually opt out. Pin **both** the export and the
 absence of `"use client"` in tests — either one silently reverts the fix.
 
 Check your own build output for `○` (static) on any route that needs to hydrate.
+Upstream turns that into a CI failure: `scripts/check-prerender.mjs`
+(`npm run build:check-prerender`) reads `.next/prerender-manifest.json` and
+fails on any static route except `/_not-found` and `/_global-error`. Those two
+cannot opt out; `global-error.tsx` is written to work without JavaScript (a
+plain `<a href="/">`, and its retry button renders only once hydrated).
 
 ### Roll it out report-only first — but know what report-only misses
 
 Upstream shipped report-only, walked a **production build** in a real browser
-(dev's `'unsafe-eval'`/`'unsafe-inline'` relaxations hide violations), and the
+(dev's `'unsafe-eval'` and `ws:` relaxations hide violations), and the
 report-only pass was **completely clean**. Enforcing the *same* policy
 immediately blocked the injected `<style>` and killed the dialog with React error
 #441.
@@ -632,22 +721,76 @@ Two mechanics that cost time upstream:
   and log an error saying so on **every page** — burying the reports report-only
   exists to surface. Omit it whenever the policy is report-only.
 
+There is **no `report-uri`/`report-to`**: violations appear only in the
+viewer's browser console, so a blocked script in production is invisible to
+you. Upstream decided (2026-09-29) to ship no reporting endpoint — a known gap.
+Add one if you have somewhere to send reports.
+
 ---
 
-## F3 (Medium) — open redirect via `callbackUrl`
+## F3 / F3b (Medium / Low–Medium) — open redirect via `callbackUrl`
 
 `/signin?callbackUrl=https://evil.example` bounced the user off-site from a URL
 that looks like this app's own login page — a credible phishing hop.
 
+### Does this apply to me?
+
+```bash
+grep -rn "sanitizeCallbackUrl" -A6 src/components/sign-in/ src/app/signin/
+```
+
+No sanitizer → F3. A sanitizer whose only origin checks are
+`startsWith("//")` / `startsWith("/\\")` — the version upstream shipped on
+2026-09-12 — → **F3b**. Confirm while signed in: visit
+`/signin?callbackUrl=/%09/example.com`. Landing on `https://example.com/` means
+affected.
+
+### F3b — why the first fix was bypassable
+
+The WHATWG URL parser **strips ASCII tab, LF and CR from anywhere in the input
+before it parses** — that is, *after* every string check has already run.
+`?callbackUrl=/%09/example.com` decodes to `"/\t/example.com"`, which does not
+start with `//` or `/\`, so it passed; `window.location.href` then parsed it as
+`//example.com` and sent a signed-in user to `https://example.com/`.
+
+The **signed-out** path was never exploitable — but not because of the
+leading-`//` check. There the value travels as `callbackURL` to
+`signIn.social`, and better-auth's server-side `isSafeRelativeURL` refuses
+control characters and backslashes. The **signed-in** path is a bare
+`location.href` assignment with no server in the loop, so the sanitizer is the
+*only* check there.
+
+### Fix
+
+Mirror `isSafeRelativeURL`, so client and server agree on what "safe" means (a
+URL one accepts and the other rejects strands the user):
+
 ```ts
-function sanitizeCallbackUrl(raw: string | null | undefined): string {
-  if (!raw || !raw.startsWith("/")) return "/";
-  if (raw.startsWith("//") || raw.startsWith("/\\")) return "/";  // other origin
-  return raw;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;   // C0, DEL, C1
+const ENCODED_SEPARATOR = /%2f|%5c/i;
+const SENTINEL = "https://sentinel.invalid";            // RFC 2606 reserved
+
+export function sanitizeCallbackUrl(raw: string | null | undefined): string {
+  if (typeof raw !== "string" || !raw.startsWith("/")) return "/";
+  // `//` is protocol-relative. ANY backslash is refused, not just a leading
+  // `/\`: special-scheme URLs treat `\` as `/`.
+  if (raw.startsWith("//") || raw.includes("\\") || CONTROL_CHARS.test(raw)) return "/";
+  // `%2F`/`%5C` in the PATH can be decoded downstream into a real separator.
+  // Query string and fragment are ordinary data.
+  const pathEnd = raw.search(/[?#]/);
+  if (ENCODED_SEPARATOR.test(pathEnd === -1 ? raw : raw.slice(0, pathEnd))) return "/";
+  // Backstop: let the real parser resolve it and insist it stays on-origin.
+  try { if (new URL(raw, SENTINEL).origin !== SENTINEL) return "/"; } catch { return "/"; }
+  return raw;   // RAW — see below
 }
 ```
 
-`//` is protocol-relative; `/\` is normalized to `//` by browsers.
+**Return the raw value, never the URL-normalized form.** It is tempting to
+return `url.pathname + url.search + url.hash` from the backstop "for
+tidiness". Don't: dot-segment removal turns `/.//evil.com` into the pathname
+`//evil.com` — a fresh protocol-relative redirect manufactured by the
+sanitizer itself. Raw `/.//evil.com` resolves safely to this origin's
+`//evil.com` path.
 
 **Sanitize at the source, not at each sink.** The value feeds *both* the
 `location.href` assignment (where no server is involved at all) and the
@@ -657,6 +800,18 @@ future third use cannot miss it.
 Test that legitimate deep links still survive the round trip
 (`/contactlookup?x=1`, `/contactlookup/abc?tab=logs`) — a sanitizer that breaks
 deep links gets reverted.
+
+Tests worth having, and the mutations that must fail them:
+
+- Drive the hostile cases **through a real query string**
+  (`?callbackUrl=/%09/evil.example`, `%0A`, `%0D`), not only as pre-decoded
+  strings — the bug lives in the decoding. Also `/\evil.example`, `/a\b`,
+  `/%2F/evil.example`, `//evil.example`, `https://evil.example`, and a C1
+  character (`\u0085`).
+- `/.//evil.example` must come back **unchanged** and resolve to this origin.
+- Delete the `CONTROL_CHARS` rule → the tab case must fail. Return the
+  normalized form → the `/.//` case must fail. If either still passes, the test
+  is not protecting anything.
 
 ---
 
@@ -700,16 +855,187 @@ Two related pieces:
   auto-redirect** — so a failing OAuth loop lands somewhere stable.
 - **Allowlist `/auth-error` as public in the proxy.** Without it, an
   unauthenticated visit bounces to `/signin`, which auto-starts OAuth again,
-  looping forever. Same for any error page that sits outside your session gate.
+  looping forever. Same for any error page that sits outside your session gate (upstream also: `/signed-out`).
 
 ---
 
-## F8 (Low) — still open
+## F12 (Low) — ID-token sign-in bypassed the code exchange
 
-`pkce: false` in the genericOAuth config, even though MP's discovery document
-advertises `code_challenge_methods_supported: ["plain", "S256"]`. It can likely
-be flipped to `true`, but that is a separate, separately-testable change from the
-1.7 migration itself. It is the natural follow-up to the nonce change below.
+Reported privately on 2026-09-25 by Jonathon Huff (The Moody Church).
+Severity **Low**; **Low–Medium** if your MP OIDC client is shared with other
+applications or allows the implicit/hybrid flows (both make the attacker's
+precondition cheaper) — as rated in the advisory.
+
+### Does this apply to me?
+
+```bash
+grep -n "discoveryUrl" src/lib/auth.ts                        # set? the branch is live
+grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent? affected
+grep '"version"' node_modules/better-auth/package.json        # >= 1.7? affected
+grep -n "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts"   # absent? layer (a) missing
+```
+
+Affected = better-auth ≥ 1.7 **and** `discoveryUrl` set **and** no
+`hooks.before` guard. The F7 allowlist does **not** help — the attack goes
+through `POST /sign-in/social`, the one POST the allowlist must permit.
+
+Confirm against a **non-production** instance:
+
+```bash
+curl -i -X POST https://your-app.example.com/api/auth/sign-in/social \
+  -H 'Content-Type: application/json' \
+  --data '{"provider":"ministry-platform","idToken":{"token":"x","accessToken":"y"}}'
+```
+
+Fixed: a plain **404** from the route before better-auth runs (and, with the
+route filter removed, a 404 from the hook with code `ID_TOKEN_SIGN_IN_DISABLED`).
+Affected: an error from better-auth's **id-token verification** — which proves
+the branch is reachable.
+
+### What it is
+
+better-auth 1.7's `POST /sign-in/social` has an `idToken` branch: body
+`{ provider, idToken: { token, accessToken } }` creates a session directly —
+no `state`, no authorization code, no exchange. It is enabled for a
+genericOAuth provider whenever that provider has an id-token verification
+config, which it gets automatically because `auth.ts` sets `discoveryUrl`.
+**genericOAuth has no option to turn it off.**
+
+better-auth verifies the id_token (signature, issuer, audience = your
+`OIDC_CLIENT_ID`), then calls **our** `getUserInfo` with the
+**caller-supplied** `accessToken`. Identity — `sub` → `userGuid` — comes from
+MP's `/connect/userinfo` for that access token. **Nothing binds
+`id_token.sub` to `userinfo.sub`.**
+
+So: the attacker's *own* valid id_token for this client, plus a victim's MP
+access token from **any** MP client that `/connect/userinfo` accepts, yields an
+app session **as the victim** — their roles on every authorization check, their
+`User_ID` on every write. Reproduced upstream against a mock.
+
+### Fix — three layers
+
+**(b) Primary: refuse the branch in `hooks.before`** (`src/lib/auth.ts`). Hooks
+run for HTTP requests *and* in-process `auth.api.*` calls, so this is the one
+layer nothing routes around:
+
+```ts
+import { APIError, createAuthMiddleware } from "better-auth/api";
+
+hooks: {
+  before: createAuthMiddleware(async (ctx) => {
+    if (ctx.path !== "/sign-in/social") return;
+    const body: unknown = ctx.body;
+    // PRESENCE, not truthiness: `idToken: null` / `{}` must not slip past
+    if (typeof body === "object" && body !== null && "idToken" in body) {
+      // 404, not 400: from outside, this mode simply does not exist here
+      throw APIError.from("NOT_FOUND", {
+        message: "id_token sign-in is disabled",
+        code: "ID_TOKEN_SIGN_IN_DISABLED",
+      });
+    }
+  }),
+},
+```
+
+**(c) Bind the identity in `getUserInfo`.** Decode `tokens.idToken` (signature
+verification is better-auth's job; this is a binding check), and **return
+`null`** — fail closed, with a structured `auth.userinfo.sub_mismatch` log — when
+its `sub` is missing, not a string, or not equal to userinfo's `sub`. Compare
+case-insensitively; GUID case is not significant. Return `null`, don't throw,
+for the same reason as F2.
+
+```ts
+const idSub = subFromIdToken(tokens.idToken);          // undefined if absent/non-string
+if (!idSub || idSub.toLowerCase() !== sub.toLowerCase()) {
+  // reason: "missing_id_token" | "undecodable_id_token" | "missing_sub" | "mismatch"
+  // identifiers only — never the token or either GUID
+  console.error(JSON.stringify({ event: "auth.userinfo.sub_mismatch", reason }));
+  return null;
+}
+```
+
+This also fails the normal code flow closed if MP ever stops returning an
+id_token — keep `openid` in the scopes.
+
+**(a) Filter the body at the route** (`src/app/api/auth/[...all]/route.ts`),
+on top of the F7 allowlist. For `POST /sign-in/social`:
+
+```ts
+export const allowedSignInSocialKeys = ["provider", "callbackURL"] as const;
+
+// Plain 404 (same as a non-allowlisted path) unless ALL hold:
+//  - Content-Type media type is exactly `application/json`, and the header
+//    contains no comma
+//  - the body parses as a JSON object whose keys ⊆ allowedSignInSocialKeys
+//  - body.provider === "ministry-platform"
+```
+
+The Content-Type rule is not pedantry. better-call matches content type **by
+substring**, so a multi-valued header such as
+`application/json, application/x-www-form-urlencoded` is parsed by better-auth
+as **form data** — a filter that read the body as JSON would be inspecting
+different keys from the ones better-auth acts on. Read the body from
+`req.clone()` so the handler still gets it.
+
+The subset rule also refuses keys the app never sends — `scopes`,
+`errorCallbackURL`, `newUserCallbackURL`, `additionalParams`, `loginHint`,
+`additionalData`. On their own those are low impact (origin-checked, or they
+only affect the caller's own flow); the point is deny-by-default, same as F7.
+**Enumerate your own `signIn.social` call before copying the key list.**
+
+Why all three: (a) is HTTP-only and in-process `auth.api` calls skip it; (b)
+depends on better-auth keeping the key named `idToken`; (c) is what still holds
+if a future better-auth path reaches `getUserInfo` with caller-supplied tokens.
+
+Considered and **deferred**: dropping `discoveryUrl` would remove the id-token
+config and with it the branch — and would also remove the dependence on
+discovery at boot — but it loses JWKS verification of the normal flow's id_token
+(upstream now *requires* it: `requireIdTokenVerification: true`), and
+since 1.7 reads `profile.id` for non-OIDC providers it needs an
+`accountSubject` mapping. A separate trade-off, not part of this fix.
+
+### Tests, and the mutations that must fail them
+
+- **Hook:** drive `auth.handler` and `auth.api.signInSocial` with an `idToken`
+  body → 404 with code `ID_TOKEN_SIGN_IN_DISABLED`; control: the same call
+  without `idToken` still returns an authorization URL.
+- **`getUserInfo`:** mismatched `sub` → `null` + event; missing id_token,
+  non-string `sub` → `null`; same GUID, different case → accepted.
+- **Route:** extra key, `idToken`, wrong `provider`, `text/plain`,
+  `application/json, application/x-www-form-urlencoded`, malformed JSON, a JSON
+  array → refused **and the better-auth handler never called**;
+  `application/json; charset=utf-8` with `{provider, callbackURL}` → reaches it.
+- **Test each layer with the other two out of the way** (upstream:
+  `src/auth.id-token-sign-in.test.ts`). Three layers tested
+  only together prove only the strongest one.
+- Delete the hook, replace the `sub` comparison with `true`, drop the comma
+  check — each must turn a test red.
+
+---
+
+## F8 (Low) — accepted risk
+
+*Corrected 2026-09-29: this previously called PKCE a likely follow-up.*
+
+`pkce: false` in the genericOAuth config is **required**, not pending: Ministry
+Platform does not support PKCE, even though its discovery document lists
+`code_challenge_methods_supported`. better-auth 1.7 defaults `pkce` to `true`,
+so keep it explicitly `false`. MP also omits the id_token `nonce` (below).
+
+Stated plainly: with neither, **nothing binds an authorization code to the
+browser that started the flow**. An attacker who obtains a victim's code starts
+their *own* flow — with their own valid `state` cookie — and injects the
+victim's code; the app redeems it with its own client secret and signs the
+attacker in as the victim (authorization-code injection, RFC 9700 §4.5;
+reproduced upstream against a mock OIDC provider). Neither the `state` check
+nor being a confidential client stops that. The OAuth `state` is also not one-time
+use in cookie mode — the same cookie/state pair validates any number of
+callbacks for its 10 minutes — which makes a replay cheaper; only a server-side
+state store (`storeStateStrategy: "database"` + `secondaryStorage`) fixes that.
+
+Upstream accepts this. The remaining defences keep codes out of an attacker's
+reach: a **dedicated MP OIDC client** for this app with exact redirect URIs
+(not shared with other apps), `Referrer-Policy`, and no code-bearing URLs in logs.
 
 ---
 
@@ -731,16 +1057,19 @@ the claim is absent. **MP omits it.** So:
 disableIdTokenNonceBinding: true,
 ```
 
-What made this look intermittent is inverted from the obvious reading: **sign-in
-succeeded only when the boot-time discovery fetch had failed**, because that
-leaves the id_token config undefined and skips verification altogether. A
-*working* discovery meant a *broken* sign-in.
+What made this look intermittent is inverted from the obvious reading: on
+better-auth before 1.7.3, **sign-in succeeded only when the boot-time discovery
+fetch had failed**, because that left the id_token config undefined and skipped
+verification altogether. A *working* discovery meant a *broken* sign-in. On
+1.7.4 a failed discovery skips the provider instead (sign-in 404s
+`PROVIDER_NOT_FOUND`), and upstream sets `requireIdTokenVerification: true` so a
+discovery document missing `issuer` or `jwks_uri` is refused rather than
+silently skipping verification.
 
 What you give up: binding the id_token to this particular authorization request.
-Signature, issuer and audience are still verified against MP's JWKS. Residual
-replay risk is mitigated by the OAuth `state` cookie check and by this being a
-confidential client exchanging the code with a client secret. **Enabling PKCE
-(F8) narrows it further.**
+Signature, issuer and audience are still verified against MP's JWKS. The
+`state` cookie check and the client secret do **not** cover the gap, and PKCE
+is not available from MP — see F8 above: this is an accepted risk.
 
 ### A `useState` guard cannot stop a double OAuth flow
 
@@ -778,7 +1107,7 @@ Three boundaries, because **placement is the whole design**:
 | File | Catches | Why separate |
 |---|---|---|
 | `src/app/(web)/error.tsx` | anything below the `(web)` layout | renders **inside** the shell, so header, user menu and **sign-out survive** |
-| `src/app/error.tsx` | `/signin`, `/session-error`, `/auth-error` | those routes have no shell |
+| `src/app/error.tsx` | `/signin`, `/signed-out`, `/session-error`, `/auth-error` — **and** a throw in the `(web)` shell itself (its layout, the Header) | those routes have no shell; for a shell failure it is the nearest boundary above, so it offers a sign-out button — the user may still be signed in |
 | `src/app/global-error.tsx` | a throw in the root layout itself | replaces it |
 
 `error.tsx` never wraps the layout of its **own** segment, so one boundary will
@@ -801,6 +1130,11 @@ Three details that bite:
   styling is safe **only because** `style-src` is `'self' 'unsafe-inline'` with no
   nonce — a nonce-based `style-src` would silently drop all of it. The two
   changes are coupled; if you take one, check the other.
+- **`global-error.tsx` must work without JavaScript.** Next prerenders it as
+  `/_global-error` (the static 500 page), so it has no nonce and never hydrates
+  under the enforced CSP — and as a client component it cannot opt out. Make
+  the recovery control a plain `<a href="/">`, and render any `retry()` button
+  only after hydration.
 
 `npm run build` is what proves Next accepts these file conventions. A unit test
 of the component cannot.
@@ -845,14 +1179,18 @@ A green build proves nothing about a threshold that was never exercised.
 
 ```bash
 # Comma-separated MP security role names permitted to use gated features
-# (reads AND writes). Blank/unset = any MP security role will do.
-MP_SECURITY_ROLES=
+# (reads AND writes). Blank/unset = nobody (fails closed); "*" = any MP security role.
+MP_SECURITY_ROLES=*
 
 # CSP: enforces by default. Only the exact string "false" drops to report-only.
 CSP_ENFORCE=
 
 # Needed by the CSP for contact photos (img-src) — you likely already have it
 NEXT_PUBLIC_MINISTRY_PLATFORM_FILE_URL=
+
+# Required since 2026-09-29: the app's origin, https for every real host
+# (loopback http allowed). Also the exact post-logout redirect URI.
+BETTER_AUTH_URL=
 ```
 
 And in `CLAUDE.md` (or your agent-instruction equivalent), so the rules survive
@@ -867,6 +1205,9 @@ contact with future contributors and agents:
 > - **Sanitize every value interpolated into a `$filter`** — including
 >   `number`-typed parameters. Types are erased at runtime and server actions are
 >   caller-shaped POST endpoints.
+> - **better-auth endpoints accept body options the app never sends** — so
+>   `POST /sign-in/social` is filtered to known keys at the route, and `idToken`
+>   is refused in `hooks.before`. Re-check both on every better-auth upgrade.
 
 ---
 
@@ -878,6 +1219,13 @@ Before you call your fork done:
 - [ ] `POST /api/auth/list-accounts` (or any non-allowlisted path) returns **404**
 - [ ] A non-allowlisted path still routes when you *remove* the allowlist — i.e. you
       verified the negative control, not just that the tests pass
+- [ ] `POST /api/auth/sign-in/social` with an `idToken` body returns **404** — at the
+      route, and again from the hook (code `ID_TOKEN_SIGN_IN_DISABLED`) with the
+      route filter removed
+- [ ] The same body sent as `Content-Type: application/json, application/x-www-form-urlencoded`,
+      and a body with an extra key (`scopes`), are refused; a normal sign-in still works
+- [ ] Signed in, `/signin?callbackUrl=/%09/example.com` **stays on-site** (lands on `/`),
+      as do `%0A`, `%0D` and `/.//example.com`; `/contactlookup?x=1` still round-trips
 - [ ] Two MP users sharing one real email produce **two distinct** better-auth users
 - [ ] A role-less user can sign in, sees the shell, **can sign out**, and is
       redirected from gated pages to an explaining page
@@ -892,20 +1240,115 @@ Before you call your fork done:
 - [ ] The enforced-CSP browser walk is clean: sign-in, sign-out, images, and every
       Radix surface
 - [ ] `npm run build` succeeds and no route that needs to hydrate is marked static
+      (upstream: `npm run build:check-prerender`)
+- [ ] Every page that reads MP data gates itself — delete a layout's gate and a
+      direct request for the page is still refused
 - [ ] `BETTER_AUTH_SECRET` rotated if you were ever exposed to F-UPDATE-USER
+
+---
+
+## 2026-09-29 follow-up
+
+A second auth review (2026-09-28) found no Critical or High issues; the
+2026-09-12 and 2026-09-25 fixes all held. Its fixes landed on 2026-09-28/29
+(`dev/security-review-2026-09-28`). Worth taking, in brief:
+
+- **MP HTTP client:** timeouts on every MP fetch (10 s token, 20 s API, 60 s
+  upload) and `redirect: "error"`; single-flight token refresh with response
+  validation and a lifetime clamp; a 401 refreshes the token and retries once;
+  `buildUrl` refuses `..`, `?`, `#`, `\`, encoded separators and control
+  characters in endpoint paths; errors log names only.
+- **Provider services:** table/procedure names, IDs and GUIDs validated and
+  each path segment encoded; `$ignorePermissions` removed; codegen escaping.
+- **Auth core:** `requireIdTokenVerification: true`; id_token `exp`/`azp`
+  checks; userinfo never throws (timeout, no redirects); `session_data` is
+  encrypted (JWE); `User_ID` lookup failures negative-cached (30 s / 5 min);
+  `token`, `ipAddress` and `userAgent` stripped from `/get-session`; startup
+  guard on the secret; `AUTH_IP_ADDRESS_HEADERS` / `AUTH_TRUSTED_PROXIES` for
+  rate-limit IPs; 4 KB body cap on `/sign-in/social`.
+- **App services:** allowlists for contact-log and contact writes; `Made_By`
+  kept on update (see F4); `getUserProfile` self-only; LIKE `[` escaping and a
+  100-char search cap; no caller input echoed into errors or logs.
+- **HTTP boundary:** Content-Type checked on the raw header; `/api` matched
+  exactly (not `/apifoo`) and the proxy matcher anchored; `no-store` on auth
+  routes; COOP/CORP, `base-uri 'none'`, no `X-Powered-By`, image optimizer off,
+  `logging.serverFunctions: false` (see F9).
+- **Auth UI:** `/auth-error` shows only allowlisted codes; `/signin` error
+  states and a restart cap; sign-out always reachable; `global-error` works
+  without JS; each page self-gates (see F1); a public `/signed-out` page that
+  never starts OAuth, where ended sessions and cross-tab sign-out land.
+- **CI / setup:** actions pinned by SHA with `permissions: contents: read`;
+  lint + `tsc`, build + prerender-check jobs; `.env.local` written escaped and
+  0600; `npm ci`, no `npm update`.
+- **Env validation + discovery:** `src/lib/env.ts` validates both URLs at
+  startup. A failed discovery no longer disables sign-in for the life of the
+  process: the next sign-in or callback after a 30 s cooldown rebuilds the
+  `auth` instance (single-flight; `auth.discovery.rebuild` log event).
+- **Tests:** a mock OIDC provider (`src/test-utils/mock-oidc.ts`) drives the
+  real code flow; origin check, session config, rate limit and discovery
+  rebuild each have a suite that a mutation turns red.
+- **Dependencies:** Next 16.3.7 (GHSA-vcvr-r3jv-pc5j); `import "server-only"`
+  in `auth.ts`, the MP client and every service.
+
+A step-by-step port of all of this, with a triage script, per-phase checks
+and a verification list, is in `.claude/playbooks/port-security-review-2026-09-28.md`
+(written for Claude Code, readable by people).
+
+**Breaking for forks** — check each before merging:
+
+- The session user no longer has `firstName`/`lastName`; read names from the MP
+  profile.
+- `MPHelper.createCommunication` / `sendMessage(content, sender, attachments?)`
+  take a required, trusted sender (build it from `requireSecurityRole`'s
+  `User_ID`, never from the caller).
+- Stored procedures are deny-all: `executeProcedure(WithBody)` refuses any name
+  not passed as `new MPHelper({ allowedProcedures: [...] })`.
+- `getCurrentUserProfile` returns the six-field `CurrentUserProfile`
+  (`First_Name`, `Nickname`, `Last_Name`, `Email_Address`, `Image_GUID`,
+  `canAccessContactFeatures`) — no roles, groups, IDs or phone.
+- `BETTER_AUTH_URL` (or `NEXTAUTH_URL`) is required, origin only, and https for
+  every real host; loopback `http` is allowed. The MP base URL must be https
+  (loopback `http` outside production only).
+- `server-only` guards: importing `auth.ts`, the MP client or a service from a
+  client component now fails `next build`.
+- `mp:generate*` must run `tsx --conditions=react-server`; plain `tsx` fails.
+- The cookie-cache strategy change (JWT → JWE) invalidates every existing
+  `session_data` cookie once, on deploy. Where no in-memory session row backs
+  the request (a new process or another instance), those users sign in again.
 
 ---
 
 ## Known-open items upstream (not yet fixed anywhere)
 
-- **F8** — PKCE is `false` though MP advertises `S256`.
-- One transient **discovery failure at boot disables the OAuth provider for the
-  life of the process**, with no retry. Observed once during the nonce
-  investigation; it also inverts the sign-in failure mode (see above).
-- `/_not-found` is still prerendered and therefore nonce-less. Accepted: it is
-  Next's built-in 404, renders its HTML, and has no interactivity to lose.
-- Intermittent MP connectivity from some networks surfaces a
-  `ConnectTimeoutError` during a role lookup as a 500. No retry/backoff on that path.
+- **F8 (accepted)** — MP supports neither PKCE nor the id_token `nonce`, so
+  authorization-code injection is unmitigated; defences are a dedicated OIDC
+  client, `Referrer-Policy` and code-free logs. OAuth `state` is not one-time
+  use in cookie mode; only a server-side state store fixes that.
+- **Sign-out does not revoke a copied session (accepted 2026-09-29)** — up to
+  1 h after sign-out, 12 h on an instance that never saw it; the 12 h cookie is
+  persistent. See `docs/security/Additional_Security_Hardening.md` §1.
+- **Deleting or disabling an MP login** does not end a live app session before
+  the 12 h cap; **the role gate** ignores table/operation and MP's own rights.
+  Decisions pending — `Additional_Security_Hardening.md` §2–§3.
+- **Roles are matched by name (deferred 2026-09-29)** — restrict who can edit MP
+  Security Roles.
+- **No CSP reporting endpoint (decided 2026-09-29)** — violations show only in
+  the browser console.
+- `/_not-found` and `/_global-error` are prerendered and therefore nonce-less.
+  Accepted: neither can opt out; `/_not-found` has no interactivity to lose and
+  `/_global-error` recovers via a plain link. `scripts/check-prerender.mjs`
+  fails CI on any other static route.
+- An MP timeout during a role lookup now fails after 20 s to the error boundary
+  rather than hanging. There is still no retry/backoff on that path.
+- **F12 residue** — genericOAuth still has no usable switch for the `idToken`
+  branch; the fix *refuses* it rather than removing it. better-auth's
+  `disableIdTokenSignIn` is not an alternative: the normal code flow calls the
+  same `verifyProviderIdToken`, which returns `false` when that flag is set, so
+  it would break every sign-in. Re-check the hook and the route's key list on
+  every better-auth upgrade. Dropping `discoveryUrl` (which would remove the
+  branch, at the cost of JWKS verification) is deferred as a separate trade-off.
+- **better-auth's own logger** still logs callback `error`/`state`/`iss`/
+  `callbackURL` values verbatim (accepted; a custom `logger` would fix it).
 
 ---
 
@@ -917,6 +1360,7 @@ before you adapt any of this to a diverged fork:
 
 ```bash
 git log --no-merges --reverse 436466d..5bc505a
+git log --no-merges --reverse 65a3225..cf5a824   # the 2026-09-25 follow-up
 git show 436466d           # F-UPDATE-USER
 git show 85be4b3 7da14c5   # F2, both halves
 git show afef3a9 16c3415   # F1 / F10 / F11
@@ -925,6 +1369,8 @@ git show 395e20c 04e97aa   # F5
 git show cfeecab 67e1329   # F9, report-only then enforced
 git show 91d226f           # F7
 git show ee46343           # F3
+git show b7dc8e6            # F3b, control-character bypass
+git show cf5a824            # F12, ID-token sign-in refused (hook, userinfo binding, route filter)
 git show d201b10 f88a9f1   # the two sign-in root causes
 git show 07a2bd9           # error boundaries
 ```
@@ -936,5 +1382,7 @@ Reference docs in the upstream repo:
 - `.claude/references/security-headers.md` — the header set and the deliberate
   loosenings not to "tighten"
 - `docs/security/2026-09-12-session-identity.md` — the F-UPDATE-USER advisory
+- `docs/security/2026-09-25-signin-hardening.md` — the F3b / F12 security note
+- `SECURITY.md` — how to report a vulnerability privately
 - `.claude/references/testing.md` — the mock patterns and jsdom/Radix/React 19
   mechanics this work depended on
