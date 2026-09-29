@@ -1,5 +1,7 @@
 # Auth Security Review — 2026-09-28 (index)
 
+**Status: closed 2026-09-29.** Every finding is fixed, closed by decision, or recorded as accepted/known in the docs listed below. This file is the review record; nothing here is open.
+
 **Scope:** every authentication and authorization path — better-auth 1.7.4 config and internals, the MP OIDC sign-in flow, sessions/cookies/secrets, the `/api/auth` catch-all and `proxy.ts`, server actions and the role gate, the MP client-credentials service account and HTTP client, the auth UI pages, security headers, setup/config/CI, and the security docs.
 **Method:** six parallel read-only reviewers (OAuth/OIDC, sessions, HTTP boundary, authorization, MP service-account client, client/config). Claims were checked against `node_modules` source and reproduced where possible with mock OIDC/MP servers and stubbed `fetch`. **No Ministry Platform calls were made.** Key claims were spot-checked again when consolidating.
 **Baseline:** `main` @ `ea2e0ad`. Next 16.3.5, better-auth 1.7.4, better-call 1.4.0.
@@ -8,7 +10,7 @@
 
 ## Medium
 
-None open. The remaining parts of the three partly fixed Medium items (sign-out revocation, MP login re-validation, role granularity) need decisions and are tracked in [`docs/security/Additional_Security_Hardening.md`](../../docs/security/Additional_Security_Hardening.md).
+None open. The remaining parts of the three partly fixed Medium items live in [`docs/security/Additional_Security_Hardening.md`](../../docs/security/Additional_Security_Hardening.md): §1 sign-out revocation **accepted 2026-09-29**; §2 MP login re-validation and §3 role granularity (read/write split, MP rights) are future options that need a policy decision, not review work — §3's name-matching part is deferred.
 
 ## Fixed 2026-09-28 (branch `fix/security-review-2026-09-28-medium`)
 
@@ -24,7 +26,7 @@ None open. The remaining parts of the three partly fixed Medium items (sign-out 
 
 ## Fixed 2026-09-29 (branch `dev/security-review-2026-09-28`, wave 1 — child branches `security/a`…`security/g`)
 
-TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md).
+TODO files deleted; their doc edits landed in the docs sweep below.
 
 - **MP HTTP client (a):** timeouts + `redirect: "error"` on every MP fetch; single-flight token refresh, token-response validation, 401 → refresh + one retry; `buildUrl` path guard; name-only error logging — `mp-fetch-timeouts-and-redirects`, `mp-token-cache-hardening`
 - **Provider services (b):** identifier/ID/GUID validation + per-segment encoding in File/Table/Procedure services; trusted sender for communications; procedure allowlist; `$ignorePermissions` dropped; codegen escaping — `file-service-path-traversal`, `info-provider-logging-and-codegen`
@@ -55,12 +57,23 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | Signed-out page | **Implement** — a page that does not auto-start OAuth (wave 2) |
 | `shared-device-session-persistence` remainder, sign-out revocation (closed) | **Leave as is** — 12 h cap + 1 h replay bound accepted; document |
 | CSP reporting | **None** — known gap |
+| `style-src 'unsafe-inline'` | **Accepted** — a nonce could cover react-remove-scroll (`get-nonce` `setNonce()`); kept for simplicity, `img-src`/`font-src` already block CSS exfiltration |
+| Discovery failure | **Rebuild on failure** — shared `auth` rebuilt on the next sign-in/callback after a 30 s cooldown (wave 2) |
+| F8 authorization-code injection (MP supports neither PKCE nor `nonce`) | **Accepted** — defences are a dedicated OIDC client with exact redirect URIs, `Referrer-Policy`, no code-bearing URLs in logs |
+
+Where each decision is recorded: `CLAUDE.md` and `.claude/references/auth.md` (roles by name, scope, session lifetime, F8, OAuth state reuse, cookie residue, better-auth's verbatim logging), `README.md` and `.env.example` (`MP_SECURITY_ROLES`), `.claude/references/security-headers.md` (CSP reporting, `style-src`), `docs/security/Additional_Security_Hardening.md` §1/§3, and the playbook's known-open list.
+
+## Docs sweep (2026-09-29, branch `security/w4-docs-sweep`)
+
+The doc/comment carry-over of every wave (the former `security-review-2026-09-28-doc-sweep`, `security-docs-drift` and `security-info-session-and-oauth-hardening-notes` TODOs, now deleted) was applied against the merged code: `CLAUDE.md`, `README.md`, `.env.example`, `.claude/references/` (auth, testing, components, security-headers, deps-known-issues, datetime, query-syntax), `.claude/docs/TestCoverage.md`, `docs/security/` (playbook, Additional Security Hardening), `docs/OAUTH_LOGOUT_SETUP.md`, the provider and generator READMEs, the port playbook, and stale comments in `src/`. The decisions above are recorded where each area is documented. The playbook carries a "2026-09-29 follow-up" entry with the change summary and the breaking-for-forks list.
+
+**Breaking for forks:** `firstName`/`lastName` removed from the session user; `MPHelper.createCommunication`/`sendMessage(content, sender, attachments?)` need a trusted sender; stored procedures are deny-all unless `new MPHelper({ allowedProcedures })`; `getCurrentUserProfile` returns the six-field `CurrentUserProfile`; `BETTER_AUTH_URL` is required and must be https for real hosts; `server-only` guards on auth, the MP client and services; `mp:generate*` need `tsx --conditions=react-server`; the JWE `session_data` strategy invalidates existing cookie caches once.
 
 ## Open
 
-| Item | Remaining |
-|---|---|
-| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
+None.
+
+Optional follow-ups that are not findings: register `<origin>/signed-out` as a post-logout redirect URI in MP (needs an MP admin) and then point `post_logout_redirect_uri` at it — see `docs/OAUTH_LOGOUT_SETUP.md`; trim the now test-only `MPUserProfile` type; a future `MP_SECURITY_ROLE_IDS` if name matching is revisited.
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
 
