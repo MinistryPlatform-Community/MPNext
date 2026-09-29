@@ -1,3 +1,4 @@
+import "server-only";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 
 /**

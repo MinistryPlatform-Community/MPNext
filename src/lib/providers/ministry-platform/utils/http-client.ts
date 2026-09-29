@@ -1,3 +1,4 @@
+import "server-only";
 import { QueryParams, RequestBody } from "../types/provider.types";
 
 // Deadline for a JSON API call. Without one a stalled MP holds the request

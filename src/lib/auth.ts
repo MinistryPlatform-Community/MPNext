@@ -1,3 +1,7 @@
+// Build-time tripwire: importing this module (or the MP client / services,
+// which carry the same guard) from a "use client" file fails `next build`
+// instead of bundling the service-account code into browser JS.
+import "server-only";
 import { betterAuth, BetterAuthOptions } from "better-auth";
 import { genericOAuth } from "better-auth/plugins";
 import { customSession } from "better-auth/plugins";

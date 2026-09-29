@@ -1,3 +1,4 @@
+import "server-only";
 import { getMpBaseUrl } from "@/lib/env";
 import { getClientCredentialsToken } from "./auth/client-credentials";
 import { errorName, HttpClient } from "./utils/http-client";
