@@ -177,6 +177,46 @@ describe('contact-lookup-details actions', () => {
       expect(result[1].Contact_Log_Type).toBeNull();
     });
 
+    // Data minimization (2026-09-28 review): this used to spread the whole MP
+    // row — author IDs, the subject Contact_ID and cross-record links — into
+    // what is serialized to the browser, behind an `as` cast.
+    it('returns exactly the rendered fields, not the whole MP row', async () => {
+      mockGetContactLogsByContactId.mockResolvedValueOnce([
+        {
+          Contact_Log_ID: 7,
+          Contact_ID: 42,
+          Contact_Date: '2026-08-20T14:30:00',
+          Contact_Log_Type_ID: 1,
+          Made_By: 12345,
+          Notes: 'Called.',
+          Planned_Contact_ID: 3,
+          Contact_Successful: true,
+          Original_Contact_Log_Entry: 6,
+          Feedback_Entry_ID: 9,
+        },
+      ]);
+      mockGetContactLogTypes.mockResolvedValueOnce([
+        { Contact_Log_Type_ID: 1, Contact_Log_Type: 'Email' },
+      ]);
+
+      const result = await getContactLogsByContactId(42);
+
+      expect(result).toEqual([
+        {
+          Contact_Log_ID: 7,
+          Contact_Date: '2026-08-20T14:30:00',
+          Notes: 'Called.',
+          Contact_Log_Type: 'Email',
+        },
+      ]);
+      expect(Object.keys(result[0]).sort()).toEqual([
+        'Contact_Date',
+        'Contact_Log_ID',
+        'Contact_Log_Type',
+        'Notes',
+      ]);
+    });
+
     it('should handle unknown type ID gracefully', async () => {
       const mockLogs = [
         { Contact_Log_ID: 1, Contact_ID: 42, Contact_Log_Type_ID: 999, Notes: 'Unknown type' },

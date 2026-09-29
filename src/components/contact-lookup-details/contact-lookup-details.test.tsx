@@ -77,12 +77,9 @@ const contact: ContactLookupDetailsType = {
 const logs: ContactLogDisplay[] = [
   {
     Contact_Log_ID: 501,
-    Contact_ID: 42,
     Contact_Date: "2026-08-20T14:30:00",
     Notes: "Called about the new members class.",
     Contact_Log_Type: "Phone Call",
-    Contact_Log_Type_ID: 1,
-    Made_By: 12345,
   },
 ];
 
