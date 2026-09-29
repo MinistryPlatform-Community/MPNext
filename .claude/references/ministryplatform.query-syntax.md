@@ -269,6 +269,15 @@ and the network call. In both layers the **authorization gate runs first** and v
 caller without a permitted role gets one answer ("not authorized") and learns nothing about which
 arguments the endpoint would have accepted.
 
+The **path** is guarded too, independently of the filter. Table and procedure names must be plain
+identifiers (`sanitizeIdentifier` in `services/guards.ts`: `^[A-Za-z_][A-Za-z0-9_]*$`, ≤ 128 chars;
+throws `Invalid <field>`), so `GET /tables/{table}` cannot be pointed at another endpoint. Below that,
+`HttpClient` refuses any endpoint that does not start with `/` or that contains `..`, `?`, `#`, `\`,
+`%2e`/`%2f`/`%5c` (any case) or a control character, and re-checks that the resolved URL stays under
+the MP base URL — throwing `Refusing unsafe MP API endpoint` (or `Invalid MP API base URL` when the
+base URL itself is unset or unparseable). Query parameters go in the params object, never appended to
+the endpoint string.
+
 ## See also
 
 - `src/lib/providers/ministry-platform/helper.ts` — `MPHelper.getTableRecords` signature.
