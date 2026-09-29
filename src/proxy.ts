@@ -19,7 +19,8 @@ export async function proxy(request: NextRequest) {
   // instead, so that they also cover `/api` and the static-asset paths the
   // matcher at the bottom of this file excludes.
   //
-  // Ships as `Content-Security-Policy-Report-Only` until `CSP_ENFORCE=true`.
+  // Enforced (`Content-Security-Policy`) by default; only `CSP_ENFORCE=false`
+  // drops it to `Content-Security-Policy-Report-Only` (see `cspHeaderName`).
   const nonce = createNonce();
   const cspHeader = cspHeaderName();
   const csp = buildContentSecurityPolicy({
@@ -53,7 +54,19 @@ export async function proxy(request: NextRequest) {
   // bounce an unauthenticated visitor sent here (an OAuth failure) to
   // `/signin`, which immediately restarts OAuth — a loop that never lets the
   // user see why sign-in failed.
-  if (pathname.startsWith('/api') || pathname === '/signin' || pathname === '/auth-error') {
+  //
+  // `/api` exactly or under `/api/` — not a bare `startsWith('/api')`, which
+  // would also make a future `/apidocs` or `/api-keys` page public.
+  //
+  // Every other path needs a session cookie to be PRESENT; its value is not
+  // checked here. This is an optimistic redirect for signed-out visitors, not
+  // the gate: AuthWrapper and every server action re-validate the session.
+  if (
+    pathname === '/api' ||
+    pathname.startsWith('/api/') ||
+    pathname === '/signin' ||
+    pathname === '/auth-error'
+  ) {
     return withCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }
 
@@ -75,8 +88,19 @@ export async function proxy(request: NextRequest) {
   }
 }
 
+/**
+ * Every path except Next's static chunks, the image optimizer, the favicon and
+ * `public/assets/`. Each exclusion is escaped and anchored so it skips only the
+ * path it names: `/_next/static/` and `/assets/` as directories, `/_next/image`
+ * itself or under it, `/favicon.ico` exactly. The previous unescaped, prefix
+ * form also skipped `/faviconXico`, `/favicon.ico/x`, `/_next/imagefoo` and
+ * `/_next/staticX` — paths that then got no cookie redirect and no CSP.
+ *
+ * Pinned behaviourally in proxy.test.ts through Next's own
+ * `getMiddlewareMatchers`, which is how this string is compiled at build time.
+ */
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|assets/).*)',
+    '/((?!_next/static/|_next/image(?:$|/)|favicon\\.ico$|assets/).*)',
   ],
 };
