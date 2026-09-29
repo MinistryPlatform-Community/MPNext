@@ -1,0 +1,162 @@
+# Additional Security Hardening
+
+**Created:** 2026-09-28
+**Source:** Auth security review 2026-09-28. The Medium findings below were partly
+fixed on 2026-09-28. What is left for each one needs a decision (new infrastructure
+or a change of policy), so it is tracked here rather than as open TODOs.
+
+| # | Area | Shipped 2026-09-28 | Remaining | Decision needed |
+|---|---|---|---|---|
+| 1 | Sign-out revocation | 12 h session cap, `refreshCache: false` | A copied cookie still works for up to 1 h after sign-out | Add a server-side session store |
+| 2 | MP login re-validation | 12 h absolute cap, 15 min `userIdCache` TTL | Deleting or disabling an MP login doesn't end the app session | Fail closed on a confirmed-missing login? |
+| 3 | Role granularity | Blank `MP_SECURITY_ROLES` fails closed; `*` = any role | No read/write split; MP table and record rights not consulted | Separate role lists, or defer to MP's rights |
+
+---
+
+## 1. Sign-out cannot revoke a copied session cookie
+
+**Severity now:** Low (was Medium). The exposure is bounded but not closed.
+
+### Shipped
+
+Stateless mitigation in `src/lib/auth.ts`:
+
+- `session.expiresIn` is 12 h.
+- `disableSessionRefresh: true`.
+- `cookieCache.refreshCache: false`, set explicitly. In stateless mode better-auth
+  quietly defaulted it to `true`, which let a copied cookie re-sign itself for about
+  7 days.
+
+`src/auth.session-lifetime.test.ts` walks a fake clock through the real `auth`
+instance. It pins two things: no session outlives sign-in + 12 h, and a cookie pair
+copied before sign-out (or sent to an instance without the in-memory row) dies within
+1 h.
+
+Emergency "sign everyone out" levers are in `.claude/references/auth.md`
+§ Session lifetime and revocation: bump `cookieCache.version` and redeploy, or rotate
+`BETTER_AUTH_SECRET`.
+
+### Remaining
+
+- **Replay after sign-out:** a copied `session_token` + `session_data` pair still
+  validates for up to 1 h after the victim signs out.
+- **Long-running processes:** if a different instance handled the sign-out, the
+  in-memory row survives, and the pair validates up to the 12 h cap.
+
+### Option
+
+Add a server-side session store so that sign-out deletes the session everywhere:
+
+- better-auth `secondaryStorage` (Redis, Upstash or Vercel Marketplace KV), or a
+  database.
+- With a store present, better-auth no longer defaults `refreshCache` on. Then drop
+  `cookieCache.maxAge` to about 5 min.
+
+**Decision needed:** which store to use and who operates it.
+
+### How to verify
+
+1. Sign in through the mock code flow, as in `src/auth.session-lifetime.test.ts`.
+2. Sign out.
+3. Replay the old cookies to `/get-session` and expect `null` immediately.
+
+Removing the store must make the test fail.
+
+---
+
+## 2. A live session is not re-validated against the MP login (`dp_Users`)
+
+**Severity now:** Low (was Medium). The exposure is bounded to 12 h, not closed.
+
+### Shipped
+
+- **Absolute lifetime:** `session.expiresIn` 12 h plus `disableSessionRefresh: true`.
+  The in-memory path no longer slides `expiresAt` forward. The clock walk in
+  `src/auth.session-lifetime.test.ts` pins this on both the cookie-cache and the
+  in-memory-adapter paths.
+- **User ID cache:** `userIdCache` has a 15 min TTL (`USER_ID_CACHE_TTL_MS`). A
+  deleted `dp_Users` login therefore loses its `User_ID` attribution within 15 min
+  (`src/auth.user-id-cache.test.ts`).
+- **Incidental re-check on serverless:** with `refreshCache: false`, a request made
+  after the 1 h cookie cache that lands on an instance without the in-memory row sends
+  the user back through MP sign-in.
+
+### Remaining
+
+An MP admin who disables or deletes a compromised login, or resets its password, does
+not end that user's app session before the 12 h cap, on a process that holds the
+in-memory row. Only removing the user's roles (`dp_User_Roles`, re-read on every
+request) takes effect immediately.
+
+This was not done because it conflicts with the current design rule that a failed
+`dp_Users` lookup never blocks session creation. `resolveMpUserId` returns
+`userId: null` both when there is no row and when MP is unreachable.
+
+### Options
+
+- **Tell the two cases apart:** have `resolveMpUserId` distinguish "row definitely
+  absent, or a disabled-login flag set" from "lookup failed", and have
+  `customSession` return no session only in the first case. That fails open on
+  outages and closed on a confirmed-gone login. Check first which `dp_Users` column
+  marks a disabled login, with a read-only query.
+- **Use MP's token refresh:** refresh the user's MP token when the cookie is
+  re-minted, and fail the session if MP refuses the refresh.
+
+**Decision needed:** whether a confirmed-missing login should end the session, which
+changes the fail-open rule.
+
+### How to verify
+
+Two tests:
+
+- The `dp_Users` lookup starts returning nothing: the next session read after the TTL
+  returns `null`.
+- An MP outage (the lookup throws): a session is still returned.
+
+---
+
+## 3. The role gate ignores table and operation, and MP's own per-role rights
+
+**Severity now:** Low (was Medium) now that the default fails closed. The remaining
+risk is an operator choosing a broad role list or `*`.
+
+### Shipped
+
+- **Fail-closed default:** if `MP_SECURITY_ROLES` is unset or blank, and there is no
+  usable legacy `MP_WRITE_SECURITY_ROLES`, everyone is refused in every `NODE_ENV`
+  (`reason: roles_not_configured`). A one-time `mp.authz.config` warning is logged.
+- **Explicit "any role":** set `MP_SECURITY_ROLES=*`.
+- **Separator-only values:** `","` fails closed as well.
+- **Setup and docs:** `npm run setup` prompts for the value, and `setup:check` warns
+  when it is blank. `.env.example`, the README, `.claude/references/auth.md`
+  § Configuring the gate, and CLAUDE.md all document it.
+
+### Remaining
+
+In `src/services/authorizationService.ts` `hasSecurityRole`, `ctx.table` and
+`ctx.operation` play no part once a user holds a permitted role. Every permitted role
+gets read, create, update and delete on both `Contacts` and `Contact_Log`.
+
+The gate also ignores two MP-side controls:
+
+- MP's per-role table permissions (`vw_mp_User_Rights`).
+- MP record-level security (`dp_Record_Security`). `Contact_Log` carries the
+  SecureRecord flag, so records secured in MP are still returned to any permitted role.
+
+### Options
+
+- **Separate read and write role lists**, e.g. `MP_SECURITY_ROLES_READ` and
+  `MP_SECURITY_ROLES_WRITE`.
+- **Defer to MP's rights:** decide from `vw_mp_User_Rights`
+  (`Item_DB_Reference = 'Contact_Log'` plus its access level). Verify the view's
+  semantics first, with a **read-only** query and the user's confirmation, per
+  CLAUDE.md.
+- **Record-level security:** consider honouring `dp_Record_Security` for
+  `Contact_Log` reads.
+
+**Decision needed:** app-level role lists, or MP's own permission model.
+
+### How to verify
+
+A role that is permitted to read but not write `Contact_Log` can list logs, but is
+refused create, update and delete.

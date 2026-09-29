@@ -69,10 +69,123 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 
 ### Session Strategy
 
-- **Cookie cache**: JWT strategy, 1-hour TTL (`session.cookieCache`)
-- **Account cookie**: OAuth tokens stored in cookie (`storeAccountCookie: true`)
+- **Absolute lifetime**: 12 hours from sign-in (`session.expiresIn`), never extended (`session.disableSessionRefresh: true`)
+- **Cookie cache**: JWT strategy, 1-hour TTL (`session.cookieCache.maxAge`), `refreshCache: false` (explicit — see below)
+- **No account cookie**: `storeAccountCookie: false` (better-auth defaults it to `true` without a database). The user's MP tokens are never used — all MP data access is the service account — so they stay out of the browser, and `databaseHooks.account` (`stripUserOAuthTokens`) blanks the access/refresh tokens in the in-memory row too. Only the `id_token` is kept (not an API bearer; what a future RP-logout `id_token_hint` would use). Pinned by `src/auth.user-oauth-tokens.test.ts`.
 - **State**: OAuth state stored in cookie (`storeStateStrategy: "cookie"`)
 - **No database**: Uses in-memory adapter (data lost on server restart, users must re-login)
+
+### Session lifetime and revocation (stateless)
+
+There is no server-side session store, so **sign-out cannot revoke a copied
+cookie pair** — it deletes the in-memory row on the process that handled it and
+clears that browser's cookies, nothing more. The settings in `src/lib/auth.ts`
+(documented on `SESSION_EXPIRES_IN_SECONDS`) instead put hard ceilings on every
+session, pinned by the clock-walk suite `src/auth.session-lifetime.test.ts`
+(better-auth 1.7.4, real `auth` instance, mock OIDC code flow, fake clock):
+
+| Session | Ceiling |
+|---------|---------|
+| Any session, however often used, on either `/get-session` path | **sign-in + 12 h** (the check is `expiresAt < now`, so exactly 12 h is the last valid instant) |
+| A cookie pair *not* backed by a live in-memory row — copied before sign-out, forged from a leaked secret, or presented to a serverless instance that never saw the sign-in | **1 h after that `session_data` was minted** |
+
+Why each setting (verified in `node_modules/better-auth/dist/`):
+
+- **`refreshCache: false` must be explicit.** With no database, better-auth
+  `defu`-merges `{ refreshCache: true, strategy: "jwe", maxAge: expiresIn }`
+  *under* the app's `cookieCache` (`context/create-context.mjs`), so omitting it
+  silently turns it on. With it on, `/get-session` re-signs `session_data` from
+  the cookie alone in the last 20 % of `maxAge`, with no store lookup
+  (`api/routes/session.mjs`), so a copied pair survived sign-out and re-minted
+  itself until `expiresAt` — 7 days under the old defaults. Both values respect
+  `expiresAt`; `false` additionally forces a fall-through to the in-memory row
+  once the 1 h cache expires, so a copy outlives its row by at most an hour.
+- **`expiresIn: 12h`** — `expiresAt` is set once, at sign-in, and both paths
+  refuse a session past it. It also sets the `session_token` cookie Max-Age.
+  The default was 7 days.
+- **`disableSessionRefresh: true`** — otherwise the in-memory path slides
+  `expiresAt` forward by `expiresIn` once per `updateAge` (1 day), which kept a
+  session alive indefinitely on a long-running `next start`. Today `expiresIn`
+  (12 h) is shorter than `updateAge`, so this is defence in depth (its removal
+  is caught by the config pin, not the walk); it matters if `expiresIn` is ever
+  raised past a day.
+
+**Trade-off (serverless):** after the 1 h cache, a request that lands on an
+instance without the in-memory row gets no session and goes back through MP
+sign-in (usually silent while the MP session is alive). That is also an hourly
+re-check against MP: a disabled or deleted MP login fails it. On a single
+long-running process the row is there and the session runs to the 12 h cap.
+
+**Emergency "sign everyone out" levers:**
+
+1. **Redeploy with a bumped `session.cookieCache.version`** (e.g. `version: "2"`).
+   Every existing `session_data` is refused on its next read, and the redeploy
+   wipes the in-memory rows, so nothing can re-mint it. OAuth state and account
+   cookies keep decrypting. (A plain redeploy without the bump also ends every
+   session, but only within 1 h — the cookie-cache TTL.)
+2. **Rotate `BETTER_AUTH_SECRET`.** Invalidates every signed cookie at once —
+   including one forged with the old secret, which a version bump would *not*
+   stop (a forger can sign any `version`). Mandatory if the secret may have
+   leaked or a forged session is suspected. Everyone must sign in again.
+
+The real fix remains a server-side store (better-auth `secondaryStorage` or a
+database): with one present, `refreshCache` is no longer defaulted on and
+sign-out actually deletes the session. See Known Limitations § 1.
+
+### Secret and environment guard
+
+`assertAuthEnvironment` (`src/lib/auth.ts`) runs at module load in **every**
+environment — development, production, or `NODE_ENV` unset — and refuses to
+start when:
+
+- neither `BETTER_AUTH_SECRET` nor `NEXTAUTH_SECRET` is set (better-auth would
+  otherwise sign with its public `DEFAULT_SECRET`, and only refuses that when
+  `NODE_ENV=production`);
+- the secret *is* better-auth's `DEFAULT_SECRET`, or is shorter than 32 chars;
+- `BETTER_AUTH_SECRETS` is set (better-auth silently prefers it over the
+  validated secret; versioned secrets are not supported here);
+- `TEST` is truthy while `NODE_ENV=production` (better-auth's `isTest()` would
+  skip its own secret validation).
+
+`advanced.disableOriginCheck: false` is pinned so `TEST` cannot switch the
+Origin/callbackURL check off either (left undefined, better-auth uses
+`isTest()`). The only exemption from the guard is Vitest (`process.env.VITEST`);
+`src/auth.secret-guard.test.ts` clears it to prove the import throws. `next build`
+imports this module, so a build environment needs a real secret too.
+
+The same secret is the raw HMAC key for `session_token` and the HS256 key for
+`session_data`, so rotating it always signs everyone out. better-auth's
+versioned `secrets` would allow graceful rotation but is deliberately not
+enabled (see the `BETTER_AUTH_SECRETS` refusal above).
+
+### Rate limiting and client IP
+
+better-auth rate-limits only in production, in memory, per instance; `/sign-in*`
+is 3 requests per 10 s per client IP, and in-process `auth.api` calls are never
+limited. By default it trusts only a single, valid IP in `x-forwarded-for`. No
+header, an appended chain (`client, proxy`) or Azure's `ip:port` all resolve to
+no IP, and every such client shares one bucket (`no-trusted-ip|<path>`): about
+one request every 3 s then blocks sign-in for everyone. Conversely, on a
+`next start` exposed directly, a client sets `x-forwarded-for` itself and can
+rotate past the limit or lock out a victim's IP.
+
+The trustworthy source is host-specific, so `parseIpAddressOptions` in
+`src/lib/auth.ts` maps two env vars onto `advanced.ipAddress`:
+
+| Host | Setting (verify on your host) |
+|---|---|
+| Vercel | Blank (Vercel overwrites `x-forwarded-for`), or `AUTH_IP_ADDRESS_HEADERS=x-real-ip` |
+| Cloudflare | `AUTH_IP_ADDRESS_HEADERS=cf-connecting-ip` |
+| Azure App Service | `AUTH_IP_ADDRESS_HEADERS=x-client-ip` (`x-forwarded-for` carries `ip:port`) |
+| nginx / proxy that appends to `x-forwarded-for` | `AUTH_TRUSTED_PROXIES=<proxy IPs/CIDRs>` |
+| `next start` exposed directly | No trustworthy header; put a proxy in front |
+
+Only name a header the edge always **overwrites**. Invalid header names or
+proxy entries refuse startup (better-auth itself only warns and ignores a bad
+proxy entry, which would silently fall back to the shared bucket). The
+sign-in UI's handling of a 429 is tracked separately. Pinned by
+`src/auth.ip-address.test.ts`, which includes a real rate-limited instance
+showing one client locking out another when unconfigured.
 
 ### Email is never a key (synthetic `email`, real address in `mpEmail`)
 
@@ -151,7 +264,7 @@ The cast is needed because `customSessionClient` type inference doesn't include 
 |---------|-------|-------|
 | `providerId` | `"ministry-platform"` | Used in OAuth URLs and `signIn.social({ provider })` |
 | `discoveryUrl` | `${MP_BASE_URL}/oauth/.well-known/openid-configuration` | OIDC auto-discovery |
-| `scopes` | `openid`, `offline_access`, `http://www.thinkministry.com/dataplatform/scopes/all` | Full MP API access. The third scope is the literal URI MP expects, not a short name |
+| `scopes` | `openid`, `http://www.thinkministry.com/dataplatform/scopes/all` | The second scope is the literal URI MP expects, not a short name. No `offline_access`: no refresh token is ever used. Whether userinfo works with a narrower scope than `scopes/all` is unverified (needs a non-production MP) |
 | `pkce` | `false` | Explicitly disabled — 1.7 defaults this to `true` (see 1.7 notes below) |
 | `disableIdTokenNonceBinding` | `true` | **Required.** MP does not echo `nonce` back in the `id_token`, and better-auth rejects a missing claim. See [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off) |
 | `authorizationUrlParams` | `{ realm: "realm" }` | Extra query parameter MP's authorize endpoint expects |
@@ -190,12 +303,14 @@ way it does:
 > every existing user silently becomes a new account. Details and the resulting
 > `>= 1.7.3` version floor: [Version Notes](#173--account-identity-reverted-breaking).
 
-> ℹ️ **RP-initiated logout is available but unused.** MP's discovery document
-> exposes `end_session_endpoint`, so 1.7 can build the provider logout URL
-> itself (including `id_token_hint`, which our hand-rolled URL omits).
-> `handleSignOut()` still constructs the URL manually and ignores the `url` that
-> `auth.api.signOut()` now returns — a possible simplification, deliberately
-> left out of the 1.7 migration.
+> ℹ️ **RP-initiated logout: only the `id_token` is taken from better-auth.**
+> MP's discovery document exposes `end_session_endpoint`, so 1.7 builds a
+> provider logout URL (with `id_token_hint`) and `auth.api.signOut()` returns it
+> as `url` when called with `disableRedirect: true`. `handleSignOut()` reads
+> `id_token_hint` from that URL (MP origin only) and builds the final URL
+> itself, so `post_logout_redirect_uri` stays exactly `BETTER_AUTH_URL` —
+> better-auth would normalise it with a trailing slash, which would not match
+> the value registered in MP. See [Logout Flow](#logout-flow).
 
 #### `nonce` binding is off, and must stay off
 
@@ -422,8 +537,10 @@ APIs, and the authorization gate needs the same value. Baking it into the sessio
 **Why that is the *only* API call.** `customSession` runs on every `getSession()` once
 the cookie cache expires, so anything expensive here is paid constantly.
 `resolveMpUserId` is guarded by a process-wide `Map<User_GUID, User_ID>`
-(`userIdCache`) — the mapping is stable per user, so it costs at most one MP call per
-(user × container). A failed lookup is **not** cached and never blocks session
+(`userIdCache`) with a 15-minute TTL (`USER_ID_CACHE_TTL_MS`), so it costs at most one
+MP call per (user × container × 15 min). The TTL means a deleted or re-pointed
+`dp_Users` login loses its attributed `User_ID` within 15 minutes instead of never; it
+does **not** end the session. A failed lookup is **not** cached and never blocks session
 creation: it logs and returns `userId: null`, which the write path then surfaces as
 `mp.write.non_user` and the gate refuses as `no_mp_user`. The full MP profile (name,
 photo, roles, groups) is still loaded client-side by `UserProvider`, not here.
@@ -524,14 +641,18 @@ exposes.
 
 ```
 1. User clicks sign out → calls handleSignOut() server action
-2. auth.api.signOut() → clears Better Auth session cookie
+2. auth.api.signOut({ body: { disableRedirect: true } }) → clears the Better
+   Auth session and returns better-auth's provider logout URL (when this
+   instance holds the account row)
 3. Redirect to MP endsession endpoint:
-   ${MP_BASE_URL}/oauth/connect/endsession?post_logout_redirect_uri=${APP_URL}
+   ${MP_BASE_URL}/oauth/connect/endsession
+     ?post_logout_redirect_uri=${APP_URL}&client_id=${OIDC_CLIENT_ID}
+     [&id_token_hint=<id_token>]
 4. MP clears its session → redirects back to app
 5. App loads without session → proxy redirects to /signin
 ```
 
-No `id_token_hint` is passed (optional in OIDC spec). The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
+`client_id` is always sent and `id_token_hint` whenever it is available. Without either, an IdentityServer-style OP (MP) cannot tell which client's post-logout URIs to check: it shows a "log out?" prompt and does not redirect, so a user who closes the tab there leaves the MP SSO session alive on a shared PC. The `id_token` comes only from the in-memory account row of the instance that handled sign-in (there is no account cookie — see Account cookie above), so on another serverless instance only `client_id` is sent. Whether MP honours the redirect on `client_id` alone is **unverified** (needs a non-production MP). `handleSignOut()` throws, after clearing the local session, if `MINISTRY_PLATFORM_BASE_URL`, `BETTER_AUTH_URL`/`NEXTAUTH_URL` or `OIDC_CLIENT_ID` is unset — there is no localhost fallback. The `post_logout_redirect_uri` must be registered in the MP OAuth client configuration.
 
 Sign-out is entirely server-side (`auth.api.signOut()`, called in-process from
 the server action) — the browser never calls a `/sign-out` HTTP endpoint, which
@@ -706,9 +827,12 @@ necessary but **not** sufficient for a read or a write.
 > **Any Ministry Platform user may sign in.** A user with no security role gets a
 > session, the app shell (header, avatar, user menu, sign-out) and the home page.
 >
-> **The contact-lookup and contact-log features require an MP security role** — for
-> reads as well as writes. Any user who holds one may read, create, edit, and delete
-> any contact log, including one another user created.
+> **The contact-lookup and contact-log features require a *permitted* MP security
+> role** — for reads as well as writes. The permitted roles are named in
+> `MP_SECURITY_ROLES` (or `*` for "any MP security role"); with nothing configured,
+> **nobody** is permitted (fail-closed default, 2026-09-28). A user who holds a
+> permitted role may read, create, edit, and delete any contact log, including one
+> another user created.
 
 Sign-in itself is deliberately **not** role-gated. There is no role check in
 `getUserInfo` / `mapProfileToUser`, in `customSession` / `enrichSessionUser`, or in
@@ -727,12 +851,16 @@ records; only this gate is.
 
 - MP security roles (`dp_User_Roles` → `dp_Roles`) are the domain's own authorization
   mechanism. This app defers to them rather than inventing a parallel permission model
-  that could drift out of sync with MP.
+  that could drift out of sync with MP. Note the deferral is to role **membership**
+  only: the gate does not consult MP's per-role table rights (`vw_mp_User_Rights`) or
+  record-level security (`dp_Record_Security`), and `table`/`operation` do not affect
+  the decision. That is why the role list must be chosen deliberately.
 - Ownership (`Made_By`) is deliberately **not** a factor. Contact logs are shared
   pastoral records; staff need to correct and remove each other's entries. Gating on
   ownership would mean a supervisor could not fix a bad log through this app.
 - The gate fails closed: a session whose MP `User_ID` never resolved is refused, and so
-  is one whose role list cannot be established.
+  is one whose role list cannot be established — and so is **everyone** when no role
+  policy is configured (see [Configuring the gate](#configuring-the-gate)).
 
 ### The four layers
 
@@ -782,8 +910,10 @@ structured `mp.write.non_user` warning before the gate refuses it. Server action
 
 Denials are logged as a structured `mp.write.unauthorized` (writes) or
 `mp.read.unauthorized` (reads) event — same shape, with `table`, `operation`, `userId`,
-and a `reason` of `no_mp_user` / `no_security_role` / `role_not_permitted` — so refused
-operations are greppable in production logs. `hasSecurityRole` logs nothing: it runs on
+and a `reason` of `no_mp_user` / `no_security_role` / `role_not_permitted` /
+`roles_not_configured` — so refused operations are greppable in production logs. A
+missing or unusable role policy additionally emits one `mp.authz.config` warning per
+process (`problem`: `unconfigured`, or `no_names:<VAR>` for a value like `","`). `hasSecurityRole` logs nothing: it runs on
 every profile load, and the UI asking "may they?" is not an incident.
 
 #### Logging policy (F5, closed 2026-09-12)
@@ -857,27 +987,44 @@ that created it.
 > decision is not carried across calls" and never asserts a hit count that only holds
 > inside a request.
 
-### Tightening the gate
+### Configuring the gate
 
-Set `MP_SECURITY_ROLES` to a comma-separated list of MP role names to require one of
-those specific roles instead of "any role". Comparison is case- and
-whitespace-insensitive. Unset or blank means any security role is sufficient (the
-default policy above). It applies to reads and writes alike.
+`MP_SECURITY_ROLES` decides who may use the contact features, reads and writes alike.
+It is resolved per call (no restart needed in tests; a redeploy picks up changes):
+
+| Value | Meaning |
+|---|---|
+| `"Administrators,Pastoral Staff"` | The user must hold one of these roles. Case- and whitespace-insensitive |
+| `*` | Any MP security role will do. Must be the **whole** value — `"Administrators,*"` is a list whose `*` entry matches nothing |
+| unset / blank | **Nobody** is permitted (`reason: roles_not_configured`) |
+| names no roles, e.g. `","` | Treated as unset — never as "any role" — with an `mp.authz.config` warning |
 
 ```
 MP_SECURITY_ROLES="Administrators,Pastoral Staff"
 ```
 
+> ⚠️ **Breaking change (2026-09-28).** Until then, unset/blank meant "any MP security
+> role", so every fork inherited a policy under which e.g. a check-in kiosk account
+> could read every pastoral note. The default now fails closed in every `NODE_ENV` (no
+> prod/dev divergence). A deployment that relied on the old default must set
+> `MP_SECURITY_ROLES=*` — or, better, name the roles. `npm run setup` prompts for it,
+> and `npm run setup:check` warns when it is blank or names no roles.
+
 > ⚠️ **`MP_WRITE_SECURITY_ROLES` is deprecated.** It predates the read gate and named
-> only writes. It is still read as a fallback when `MP_SECURITY_ROLES` is unset or
-> blank — so an existing deployment is not silently widened to "any role" by this
-> change — but it now governs reads too, and `MP_SECURITY_ROLES` wins where both are
-> set. Migrate one variable at a time; new deployments should set only
-> `MP_SECURITY_ROLES`.
+> only writes. It is still read as a fallback when `MP_SECURITY_ROLES` yields no usable
+> policy (unset, blank, or naming no roles) — so `MP_SECURITY_ROLES=","` falls through
+> to it rather than widening anything — but it now governs reads too, and
+> `MP_SECURITY_ROLES` wins where both are usable. `*` works here as well. Migrate one
+> variable at a time; new deployments should set only `MP_SECURITY_ROLES`.
+
+**Known limitations (open):** role names cannot contain commas (matching on `Role_ID`s
+would fix that); there is one list for reads and writes; and the gate does not consult
+MP's own per-role table rights (`vw_mp_User_Rights`) or record-level security.
 
 ### `/no-access`
 
-`src/app/(web)/no-access/page.tsx` is where the layout sends a role-less user. It is
+`src/app/(web)/no-access/page.tsx` is where the layout sends a user without a permitted
+role (including everyone, when no role policy is configured). It is
 **inside** the `(web)` group on purpose: the session is perfectly valid, so the user
 keeps the header, the avatar and — the part that matters — sign-out. (Contrast
 `/session-error`, which lives *outside* the group precisely because the shell cannot
@@ -911,6 +1058,7 @@ server-side; defence in depth).
 | **F2** (High) — a shared MP email could merge two people onto one better-auth user | 2026-09-12 | `accountLinking.enabled: false`, a synthetic `email` derived from `sub`, the real address moved to `mpEmail`, and `emailVerified` from the provider's own claim; see § Email is never a key and § Account linking |
 | **F7** (Low) — OAuth failures landed on better-auth's built-in error page | 2026-09-12 | `onAPIError.errorURL: "/auth-error"` plus the route allowlist, which no longer exposes `GET /error`; see § OAuth Flow |
 | **id_token substitution** (Low) — `POST /sign-in/social` with an attacker's id_token and a victim's access token minted the victim's session | 2026-09-28 | `refuseIdTokenSignIn` (`hooks.before`), the `getUserInfo` sub binding, and the route's `/sign-in/social` body filter; see § id_token sign-in is disabled |
+| **Any-role default** (Medium) — unset `MP_SECURITY_ROLES` let any MP role (e.g. check-in) read all contacts and pastoral notes; `","` also widened to "any role" | 2026-09-28 | Fail closed when unset/blank/no names; explicit `*` for any role; setup prompts, `setup:check` warns; see § Configuring the gate |
 | **F9** (Medium) — no HTTP security headers, no CSP | 2026-09-12 | Static headers in `next.config.ts`, nonce-based CSP built per request in `src/proxy.ts`; see [Security Headers](security-headers.md) |
 
 **Still open:** **F8** — PKCE is explicitly `false` even though MP advertises `S256`.
@@ -922,13 +1070,16 @@ See the `pkce` row in [genericOAuth Configuration](#genericoauth-configuration).
 |----------|----------|---------|
 | `MINISTRY_PLATFORM_BASE_URL` | Yes | MP server URL (OAuth discovery, API) |
 | `BETTER_AUTH_URL` | Yes* | App URL for callbacks. Fallback: `NEXTAUTH_URL` |
-| `BETTER_AUTH_SECRET` | Yes* | Session signing secret. Fallback: `NEXTAUTH_SECRET` |
+| `BETTER_AUTH_SECRET` | Yes* | Session signing secret, **≥ 32 random chars** (`openssl rand -base64 32`). Fallback: `NEXTAUTH_SECRET`. The app refuses to start without a valid one — see [Secret and environment guard](#secret-and-environment-guard) |
+| `TEST` | **Never in production** | better-auth reads a truthy `TEST` as a test run and skips secret validation; the app refuses to start with `TEST` set and `NODE_ENV=production` |
 | `OIDC_CLIENT_ID` | Yes | OAuth client ID registered in MP (user login) |
 | `OIDC_CLIENT_SECRET` | Yes | OAuth client secret (user login) |
 | `MINISTRY_PLATFORM_CLIENT_ID` | Yes | Client-credentials service account used for **all** MP data access. Auth depends on it too: `customSession` resolves `User_ID` and `AuthorizationService` reads `dp_User_Roles` through it. May be the same client as `OIDC_CLIENT_ID` |
 | `MINISTRY_PLATFORM_CLIENT_SECRET` | Yes | Secret for the above |
-| `MP_SECURITY_ROLES` | No | Comma-separated MP role names permitted to use the gated contact features (reads **and** writes). Unset or blank = any security role. See [Authorization](#authorization-distinct-from-authentication). |
-| `MP_WRITE_SECURITY_ROLES` | No | **Deprecated** — the write-only predecessor of `MP_SECURITY_ROLES`, read only when that is unset or blank, and now governing reads too. |
+| `MP_SECURITY_ROLES` | For the contact features | Comma-separated MP role names permitted to use the gated contact features (reads **and** writes), or `*` for any security role. Unset, blank, or naming no roles = **nobody** (fail closed). See [Configuring the gate](#configuring-the-gate). |
+| `AUTH_IP_ADDRESS_HEADERS` | Host-dependent | Comma-separated headers the sign-in rate limiter reads the client IP from, in order. Only a header your edge overwrites. See [Rate limiting and client IP](#rate-limiting-and-client-ip) |
+| `AUTH_TRUSTED_PROXIES` | Host-dependent | Comma-separated proxy IPs/CIDRs skipped (right to left) in an appended `x-forwarded-for` chain. Invalid entries refuse startup |
+| `MP_WRITE_SECURITY_ROLES` | No | **Deprecated** — the write-only predecessor of `MP_SECURITY_ROLES`, read only when that yields no usable policy, and now governing reads too. |
 
 *Fallback variables allow gradual migration from NextAuth.
 
@@ -970,6 +1121,13 @@ the `better-auth` version, do this before merging:
      provider; if an upgrade renames the path, moves the mode, or adds a new
      body key, the hook or the route filter may silently stop applying. See
      [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial).
+   - session lifetime — run `src/auth.session-lifetime.test.ts` and
+     `src/auth.secret-guard.test.ts`. The first walks a fake clock through the
+     real instance; if an upgrade changes the stateless `refreshCache` default,
+     how `expiresAt` is checked, or when the in-memory row slides, the pinned
+     12 h / 1 h ceilings move. The second re-reads better-auth's
+     `DEFAULT_SECRET` and the `disableOriginCheck` resolution. See
+     [Session lifetime and revocation](#session-lifetime-and-revocation-stateless).
 4. **Manual smoke test (required — nothing else catches this):**
    - `npm run dev`, sign in through Ministry Platform.
    - Open `/api/auth/get-session` and confirm the session `user` object contains
@@ -998,8 +1156,9 @@ the `better-auth` version, do this before merging:
 1. **No database (top refactor priority)**: With no `database` in the config, Better Auth uses an in-memory adapter. Sessions live only in the in-memory store + cookies, so they are lost whenever the process restarts. On serverless/Vercel this is severe: **every cold start or new function instance has an empty session store**, so once the 1-hour JWT cookie cache expires, a request that lands on a fresh instance returns `null` and the user appears logged out (blank avatar / redirect to `/signin`) intermittently. This also makes auth bugs hard to reproduce. **Recommendation:** configure a persistent database adapter (e.g. a Vercel Marketplace Postgres/Neon, or SQLite for local dev) before relying on this in production.
 2. ~~**mapProfileToUser type narrowness**~~ *(resolved in better-auth 1.7)*: `mapProfileToUser` now returns `OAuthMappedUser`, which permits arbitrary extra keys, so the old `as Record<string, unknown>` cast is gone. The type does forbid returning `id` — provider identity is owned by `accountSubject`.
 3. **userGuid type cast**: `session.user.userGuid` requires a type cast because `customSessionClient` doesn't infer `additionalFields` from `genericOAuth`. This is a Better Auth type limitation.
-4. **Token refresh**: Not explicitly implemented. The `storeAccountCookie` stores refresh tokens, but automatic refresh behavior in stateless mode is unverified.
+4. **Token refresh**: None, by design. `offline_access` is not requested and the user's access/refresh tokens are not retained (see Account cookie above); the app never calls MP with the user's token.
 5. **Cookie cache staleness**: The 1-hour JWT cookie cache means `customSession` changes won't take effect until the cache expires or the user re-authenticates.
+6. **No server-side revocation, no MP re-validation of a live session**: sign-out cannot revoke a copied cookie pair, and nothing re-checks the `dp_Users` login while a session is live (only `dp_User_Roles` is re-read per request, and `userIdCache` re-resolves `User_ID` every 15 min without ending the session). Bounded by the 12 h / 1 h ceilings in [Session lifetime and revocation](#session-lifetime-and-revocation-stateless); closed properly only by a server-side store (§ 1).
 
 ## Version Notes
 
@@ -1037,16 +1196,37 @@ fixes, `testUtils` additions). Verified against the release notes, not assumed.
 
 ## Incident Response — forged sessions outlive the patch
 
-If a session was tampered with via `/update-user` **before** it was disabled, the
-forged `userGuid` lives in that user's **JWT cookie cache for up to 1 hour**
-(`session.cookieCache.maxAge`). Closing the endpoint stops new forgeries; it does
-**not** revoke one already minted into a cookie. After deploying that fix:
+*Corrected 2026-09-28. Earlier text said "up to 1 hour", reasoning from
+`cookieCache.maxAge`; it missed better-auth's stateless `refreshCache` default.*
 
-- Treat the hour following deploy as still-exposed for any session already forged.
-- Forcing sign-out is the only immediate revocation. With no database there is no
-  server-side session store to clear, so the practical lever is rotating
-  `BETTER_AUTH_SECRET`, which invalidates **every** session cookie at once (all
-  users must sign in again).
+If a session was tampered with via `/update-user` **before** it was disabled, the
+forged `userGuid` lives in that user's session cookie **until its
+`session.expiresAt` — up to 7 days after the original sign-in** — on any deployment
+that runs the pre-2026-09-28 session config. Verified on better-auth 1.7.4: with no
+database, `refreshCache: true` is merged in silently, and `/get-session` re-signs the
+forged `session_data` from the cookie itself every hour with no store lookup (the
+negative control in `src/auth.session-lifetime.test.ts` pins it: a cookie pair
+copied before sign-out is still valid at 6.98 days and first refused at 7.01 days,
+polled every 50 minutes). On a long-running `next start` that was not
+restarted, the in-memory row carried the forged user too and slid `expiresAt` daily,
+so add the process uptime. (Not verified for better-auth 1.6.x; assume the same.)
+Closing the endpoint stops new forgeries; it does **not** revoke one already minted
+into a cookie. After deploying that fix:
+
+- Treat **up to 7 days** after deploy (plus process uptime on long-running hosts) as
+  still-exposed for any session already forged — unless `BETTER_AUTH_SECRET` is
+  rotated.
+- **Rotating `BETTER_AUTH_SECRET` is mandatory, not optional.** With no database
+  there is no server-side session store to clear; rotation is the lever that
+  invalidates a forged cookie on every deployment, and it invalidates **every**
+  session cookie at once (all users must sign in again). A `cookieCache.version`
+  bump alone is not a substitute: the forged cookie is signed with the live secret.
+- Deploying the 2026-09-28 session settings (`refreshCache: false`, 12 h absolute)
+  also ends a forged cookie within 1 h of that deploy — the redeploy wipes the
+  in-memory rows and the new config never re-mints a cookie without one — but
+  rotate anyway: it is the only lever that does not depend on which config every
+  instance is running.
 - `dp_Audit_Log` is the record of what a forged session did: writes carry the
   impersonated user's `User_ID`, so attribution during the exposure window cannot
-  be trusted on its face.
+  be trusted on its face. Review **at least the 7 days after deploy** (or up to the
+  secret rotation, if that came sooner), not one hour.

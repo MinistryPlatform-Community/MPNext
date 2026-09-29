@@ -8,6 +8,7 @@
 | **Not affected** | Anything before `c9d80d4` — see [Am I affected?](#am-i-affected) |
 | **Fixed in** | [`436466d`](https://github.com/MinistryPlatform-Community/MPNext/commit/436466d) (2026-09-12) |
 | **Reported** | Privately, by a downstream maintainer who found it in their own fork |
+| **Erratum** | 2026-09-28 — a forged session survives the patch for up to **7 days**, not one hour; rotating `BETTER_AUTH_SECRET` is **mandatory**. See [Erratum](#erratum-2026-09-28) |
 
 ## Summary
 
@@ -150,16 +151,56 @@ it.** A fork that takes only `436466d` is fully patched for this advisory.
 **Closing the endpoint stops new forgeries. It does not revoke one already minted
 into a cookie.**
 
-A session tampered with before the patch keeps its forged `userGuid` in the JWT
-cookie cache for up to **one hour** (`session.cookieCache.maxAge`). With no
+> **Corrected 2026-09-28** — see [Erratum](#erratum-2026-09-28). This section
+> originally said a forged session lasted "up to one hour" and that rotating the
+> secret was optional. Both were wrong.
+
+A session tampered with before the patch keeps its forged `userGuid` in its
+session cookie until that session's `expiresAt` — **up to 7 days after the
+original sign-in**, not one hour. With no database, better-auth silently enables
+`session.cookieCache.refreshCache`, so every `/get-session` call in the last
+~12 minutes of each hour re-signs the forged `session_data` from the cookie
+itself, with no store lookup, until `expiresAt`. On a long-running self-hosted
+process that was never restarted, the in-memory session row carried the forged
+user too and slid `expiresAt` forward daily — add the process uptime. With no
 database there is no server-side session store to clear.
 
-1. Treat the hour after deploy as still-exposed for any already-forged session.
-2. To revoke immediately, **rotate `BETTER_AUTH_SECRET`**. This invalidates every
-   session cookie at once — all users must sign in again.
-3. Review `dp_Audit_Log` for the exposure window. Writes made through a forged
-   session carry the **impersonated** user's `User_ID`, so look for activity
-   inconsistent with the named user's role, hours, or normal behavior.
+1. Treat **up to 7 days** after deploy (plus process uptime on long-running
+   hosts) as still-exposed for any already-forged session, unless the secret is
+   rotated.
+2. **Rotate `BETTER_AUTH_SECRET` — mandatory, not optional.** It is the only
+   revocation that works on every deployment. It invalidates every session
+   cookie at once; all users must sign in again.
+3. Review `dp_Audit_Log` for the exposure window **plus at least the 7 days
+   after deploy** (or up to the rotation, if sooner). Writes made through a
+   forged session carry the **impersonated** user's `User_ID`, so look for
+   activity inconsistent with the named user's role, hours, or normal behavior.
+
+## Erratum (2026-09-28)
+
+The original "After patching" guidance reasoned from `cookieCache.maxAge: 3600`
+and told forks to treat one hour after deploy as exposed, with secret rotation
+presented as an option. A 2026-09-28 auth review found better-auth's stateless
+defaults (`node_modules/better-auth/dist/context/create-context.mjs`) merge
+`refreshCache: true` under the app's cookie-cache config, so a forged or copied
+cookie re-mints itself until `session.expiresAt` — 7 days by default. Verified
+on better-auth 1.7.4 by a clock-walk test against the real `auth` instance
+(`src/auth.session-lifetime.test.ts`, negative control: a copied cookie pair
+still valid at 6.98 days, first refused at 7.01 days). Not verified on the
+1.6.23 / 1.7.1 / 1.7.2 versions the exposure window spanned; assume the same.
+
+**If you acted on the original text:** if you rotated `BETTER_AUTH_SECRET`
+after deploying the fix, you are covered — rotation invalidated every forged
+cookie regardless of this correction. If you did not rotate, rotate now unless
+more than 7 days have passed since you deployed the fix *and* your process has
+been restarted since (a restart ends in-memory rows); in either case, widen your
+`dp_Audit_Log` review to at least the 7 days after your deploy.
+
+Upstream has since bounded session lifetime for sessions minted from now on:
+12 hours absolute, never extended, and `refreshCache: false` so a cookie with no
+live server-side row dies within an hour. Deploying those settings also ends any
+remaining forged cookie within an hour of the deploy. See
+`.claude/references/auth.md` § Session lifetime and revocation.
 
 ## Timeline
 
@@ -172,6 +213,7 @@ database there is no server-side session store to clear.
 | 2026-07-09 | `c9d80d4` — `userGuid` flipped to `input: true` to repair sign-in. Correct diagnosis, but the endpoint that the flag had been implicitly guarding since February was left open. **Vulnerability introduced.** |
 | 2026-09-12 | Reported privately by a downstream maintainer. |
 | 2026-09-12 | `436466d` — endpoint closed; regression tests added. **Fixed.** |
+| 2026-09-28 | Erratum: post-patch exposure is up to 7 days, not one hour; secret rotation made mandatory. See [Erratum](#erratum-2026-09-28). |
 
 Exposure window: **2026-07-09 → 2026-09-12** (65 days), across Better Auth
 1.6.23, 1.7.1 and 1.7.2. (The tree moved to 1.7.4 in `e02eec3`, *after* the fix.)

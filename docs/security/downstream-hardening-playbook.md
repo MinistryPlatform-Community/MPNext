@@ -191,13 +191,42 @@ The protection has to live at the endpoint layer.
 
 ### Incident response
 
-Patching does **not** revoke sessions already forged. They survive in the JWT
-cookie cache for up to an hour (`session.cookieCache.maxAge`), and with no
-database there is no session table to clear. **The only immediate revocation is
-rotating `BETTER_AUTH_SECRET`**, which signs every user out.
+*Corrected 2026-09-28: this previously said "up to an hour". See the erratum in
+`docs/security/2026-09-12-session-identity.md`.*
+
+Patching does **not** revoke sessions already forged. With no database,
+better-auth 1.7.4 silently enables `session.cookieCache.refreshCache`, so a
+forged `session_data` cookie re-signs itself from the cookie alone on
+`/get-session` until the session's `expiresAt` — **up to 7 days after the
+original sign-in** on the default config, plus process uptime on a long-running
+host whose in-memory row kept sliding `expiresAt`. There is no session table to
+clear. **Rotating `BETTER_AUTH_SECRET` is mandatory**: it is the only
+revocation that works regardless of config, and it signs every user out.
 
 Check `dp_Audit_Log` for the exposure window of *your* fork — from whenever you
-merged `c9d80d4` (or its equivalent) to whenever you deploy this fix.
+merged `c9d80d4` (or its equivalent) to **at least 7 days after** you deploy
+this fix (or to your secret rotation, if sooner).
+
+Then bound future sessions the way upstream did (2026-09-28, `src/lib/auth.ts`):
+
+```ts
+session: {
+  expiresIn: 12 * 60 * 60,        // absolute; default is 7 days
+  disableSessionRefresh: true,    // in-memory row never slides expiresAt
+  cookieCache: {
+    enabled: true,
+    maxAge: 60 * 60,
+    strategy: "jwt",
+    refreshCache: false,          // MUST be explicit: stateless mode defaults it to true
+  },
+},
+```
+
+With these, no session outlives sign-in + 12 h, and a cookie with no live
+in-memory row (copied before sign-out, or forged) dies within 1 h. Upstream's
+`src/auth.session-lifetime.test.ts` pins both numbers with a clock walk. Also
+make the app refuse to boot without a real secret — better-auth falls back to a
+public default outside `NODE_ENV=production` (see `assertAuthEnvironment`).
 
 CVSS 8.1 (`AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`) — computed, not the reflexive
 8.8; there is no availability impact. `AC:L` reflects that this codebase treats
@@ -375,8 +404,9 @@ const loadSecurityRoles = cache(async (userId: number) => /* dp_User_Roles read 
   caller must never mistake "MP is down" for "this user is not allowed".
 - **It returns the acting `User_ID`**, which becomes the single source of write
   attribution (see F4).
-- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset or blank
-  means "any MP security role will do". Tighten without a deploy.
+- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset, blank or separator-only (`","`)
+  fails closed: nobody is permitted. `*` means "any MP security role will do".
+  Changes take effect without a deploy. (Changed 2026-09-28 — blank used to mean "any role".)
 
 **The UX layer is not a security control.** Upstream hides the sidebar entry and
 dashboard tile for users without access, so nobody is handed a link that only
@@ -1078,8 +1108,8 @@ A green build proves nothing about a threshold that was never exercised.
 
 ```bash
 # Comma-separated MP security role names permitted to use gated features
-# (reads AND writes). Blank/unset = any MP security role will do.
-MP_SECURITY_ROLES=
+# (reads AND writes). Blank/unset = nobody (fails closed); "*" = any MP security role.
+MP_SECURITY_ROLES=*
 
 # CSP: enforces by default. Only the exact string "false" drops to report-only.
 CSP_ENFORCE=

@@ -288,7 +288,9 @@ const loadSecurityRoles = cache(async (userId: number) => /* dp_User_Roles read 
 - **Fails closed.** A session whose MP `User_ID` never resolved is refused, as is one whose role list cannot be established.
 - **Infrastructure failures throw, they do not return `permitted: false`.** A caller must never mistake "MP is down" for "this user is not allowed".
 - **It returns the acting `User_ID`**, which becomes the single source of write attribution in Phase 5.
-- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset or blank means "any MP security role will do". Tighten without a deploy.
+- **Config, not code:** `MP_SECURITY_ROLES` (comma-separated). Unset, blank or separator-only (`","`)
+  fails closed: nobody is permitted. `*` means "any MP security role will do".
+  Changes take effect without a deploy. (Changed 2026-09-28 — blank used to mean "any role".)
 
 **The UX layer is not a security control.** Hiding the sidebar entry and dashboard tile for users without access is worth doing so nobody is handed a link that only redirects them — but compute the flag (`canAccessContactFeatures`) **server-side** from the same gate, never derive it on the client from role names, and test that it fails closed when the profile or flag is absent.
 
@@ -739,8 +741,8 @@ Add to `.env.example` (and tell the user what to set in each deployed environmen
 
 ```bash
 # Comma-separated MP security role names permitted to use gated features
-# (reads AND writes). Blank/unset = any MP security role will do.
-MP_SECURITY_ROLES=
+# (reads AND writes). Blank/unset = nobody (fails closed); "*" = any MP security role.
+MP_SECURITY_ROLES=*
 
 # CSP: enforces by default. Only the exact string "false" drops to report-only.
 CSP_ENFORCE=

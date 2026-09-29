@@ -3,11 +3,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 /**
  * AuthorizationService tests.
  *
- * These encode the decided policy (see `.claude/references/auth.md`): any
- * authenticated user holding an MP security role may read and write contact
- * data; a user with no role may sign in but may do neither; ownership is not a
- * factor; the gate fails closed when the acting MP user or the role list cannot
- * be established.
+ * These encode the decided policy (see `.claude/references/auth.md`): an
+ * authenticated user holding a role named in `MP_SECURITY_ROLES` (or any role,
+ * when it is `*`) may read and write contact data; a user without one may sign
+ * in but may do neither; ownership is not a factor; the gate fails closed when
+ * the acting MP user, the role list, or the role POLICY itself (unset, blank,
+ * or naming no roles — 2026-09-28) cannot be established.
+ *
+ * Most tests run under `MP_SECURITY_ROLES=*` (set in `beforeEach`) so they
+ * exercise the "any role" branch; the fail-closed default has its own block.
  *
  * Reads were added to the gate on 2026-09-12 (F1). The read half is the part
  * worth being paranoid about: MP data is fetched with this app's
@@ -49,7 +53,7 @@ describe("AuthorizationService", () => {
     vi.clearAllMocks();
     // Reset the singleton so a stale MPHelper never leaks between tests.
     (AuthorizationService as unknown as { instance: unknown }).instance = undefined;
-    delete process.env.MP_SECURITY_ROLES;
+    process.env.MP_SECURITY_ROLES = "*";
     delete process.env.MP_WRITE_SECURITY_ROLES;
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -400,14 +404,42 @@ describe("AuthorizationService", () => {
         ).resolves.toBe(99);
       });
 
-      it("falls back to 'any security role' when the env var is blank or all separators", async () => {
+      it("treats a separator-only value as unset and refuses (never 'any role')", async () => {
         process.env.MP_SECURITY_ROLES = " , , ";
+        mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
+
+        await expect(
+          AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
+        ).rejects.toThrow(/no permitted MP security roles are configured/);
+        expect(mockGetTableRecords).not.toHaveBeenCalled();
+
+        const events = warnSpy.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            event: "mp.authz.config",
+            problem: "no_names:MP_SECURITY_ROLES",
+          })
+        );
+      });
+
+      it("permits any role holder for the exact whole value '*'", async () => {
+        process.env.MP_SECURITY_ROLES = "  *  ";
+        mockGetCurrentUserId.mockResolvedValueOnce(99);
+        mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Check-In Kiosk" }]);
+
+        await expect(
+          AuthorizationService.getInstance().requireSecurityRole(READ_CTX)
+        ).resolves.toBe(99);
+      });
+
+      it("does not treat '*' inside a list as a wildcard", async () => {
+        process.env.MP_SECURITY_ROLES = "Administrators,*";
         mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
         mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Volunteer" }]);
 
         await expect(
           AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
-        ).resolves.toBe(99);
+        ).rejects.toThrow(UnauthorizedError);
       });
 
       it("is read per call, not captured at module load", async () => {
@@ -431,6 +463,10 @@ describe("AuthorizationService", () => {
      * set, so a migration is one variable at a time.
      */
     describe("MP_WRITE_SECURITY_ROLES (deprecated fallback)", () => {
+      beforeEach(() => {
+        delete process.env.MP_SECURITY_ROLES;
+      });
+
       it("still restricts writes when it is the only var set", async () => {
         process.env.MP_WRITE_SECURITY_ROLES = "Administrators";
         mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
@@ -482,6 +518,137 @@ describe("AuthorizationService", () => {
           AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
         ).rejects.toThrow(UnauthorizedError);
       });
+
+      it("is used when MP_SECURITY_ROLES is separator-only (the ',' fail-open)", async () => {
+        process.env.MP_SECURITY_ROLES = ",";
+        process.env.MP_WRITE_SECURITY_ROLES = "Administrators";
+        mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
+        mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Volunteer" }]);
+
+        await expect(
+          AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
+        ).rejects.toThrow(UnauthorizedError);
+
+        const payload = JSON.parse(warnSpy.mock.calls.at(-1)![0] as string);
+        expect(payload).toMatchObject({ reason: "role_not_permitted" });
+      });
+
+      it("honors '*' as the legacy value too", async () => {
+        process.env.MP_WRITE_SECURITY_ROLES = "*";
+        mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
+        mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Volunteer" }]);
+
+        await expect(
+          AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
+        ).resolves.toBe(99);
+      });
+
+      it("falls through to fail-closed when both vars are separator-only", async () => {
+        process.env.MP_SECURITY_ROLES = ",";
+        process.env.MP_WRITE_SECURITY_ROLES = " , ";
+        mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
+
+        const decision = await AuthorizationService.getInstance().hasSecurityRole(WRITE_CTX);
+        expect(decision).toEqual({
+          permitted: false,
+          userId: 99,
+          reason: "roles_not_configured",
+        });
+
+        const problems = warnSpy.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string).problem);
+        expect(problems).toEqual([
+          "no_names:MP_SECURITY_ROLES",
+          "no_names:MP_WRITE_SECURITY_ROLES",
+          "unconfigured",
+        ]);
+      });
+    });
+  });
+
+  /**
+   * 2026-09-28: the gate fails closed when no role policy is configured. The
+   * previous default ("any MP security role") let e.g. a check-in kiosk user
+   * read every pastoral note; "any role" now needs an explicit `*`.
+   */
+  describe("fail-closed default (no role policy configured)", () => {
+    beforeEach(() => {
+      delete process.env.MP_SECURITY_ROLES;
+      delete process.env.MP_WRITE_SECURITY_ROLES;
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each(["production", "development", "test"])(
+      "refuses a user with an unrelated role when unset (NODE_ENV=%s)",
+      async (nodeEnv) => {
+        vi.stubEnv("NODE_ENV", nodeEnv);
+        mockGetCurrentUserId.mockResolvedValueOnce(99);
+        mockGetTableRecords.mockResolvedValueOnce([{ Role_Name: "Check-In Kiosk" }]);
+
+        await expect(
+          AuthorizationService.getInstance().requireSecurityRole(READ_CTX)
+        ).rejects.toThrow(/no permitted MP security roles are configured/);
+      }
+    );
+
+    it("refuses writes too, and logs the denial with reason roles_not_configured", async () => {
+      mockGetActingUserIdForWrite.mockResolvedValueOnce(99);
+
+      await expect(
+        AuthorizationService.getInstance().requireSecurityRoleForWrite(WRITE_CTX)
+      ).rejects.toThrow(UnauthorizedError);
+
+      const payload = JSON.parse(warnSpy.mock.calls.at(-1)![0] as string);
+      expect(payload).toMatchObject({
+        event: "mp.write.unauthorized",
+        reason: "roles_not_configured",
+        userId: 99,
+      });
+      expect(payload.message).toMatch(/no MP security roles are configured/);
+    });
+
+    it("does not spend an MP round-trip reading roles it cannot use", async () => {
+      mockGetCurrentUserId.mockResolvedValueOnce(99);
+
+      const decision = await AuthorizationService.getInstance().hasSecurityRole(READ_CTX);
+
+      expect(decision).toEqual({
+        permitted: false,
+        userId: 99,
+        reason: "roles_not_configured",
+      });
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it("treats a whitespace-only value as unset", () => {
+      process.env.MP_SECURITY_ROLES = "   ";
+
+      expect(AuthorizationService.getInstance().resolveRolePolicy()).toEqual({
+        kind: "unconfigured",
+      });
+    });
+
+    it("warns once, with configuration guidance, not on every request", async () => {
+      mockGetCurrentUserId.mockResolvedValue(99);
+      const svc = AuthorizationService.getInstance();
+
+      await svc.hasSecurityRole(READ_CTX);
+      await svc.hasSecurityRole(READ_CTX);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(warnSpy.mock.calls[0][0] as string);
+      expect(payload).toMatchObject({ event: "mp.authz.config", problem: "unconfigured" });
+      expect(payload.message).toMatch(/MP_SECURITY_ROLES/);
+      expect(payload.message).toContain('"*"');
+    });
+
+    it("still reports no_mp_user ahead of the missing policy", async () => {
+      mockGetCurrentUserId.mockResolvedValueOnce(null);
+
+      const decision = await AuthorizationService.getInstance().hasSecurityRole(READ_CTX);
+      expect(decision.reason).toBe("no_mp_user");
     });
   });
 });

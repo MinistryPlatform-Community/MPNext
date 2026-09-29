@@ -1,14 +1,40 @@
 #!/bin/sh
 #
-# Blocks commits that would land a lockfile CI cannot install.
+# Blocks commits that would land either of:
 #
-# Only runs when package-lock.json is actually staged, so it costs nothing on a
-# normal commit. See scripts/check-lockfile.mjs for why `npm ci --dry-run` is
-# not sufficient here (it exits 0 on Windows against a lockfile that breaks
-# Linux CI).
+#   1. An environment file other than .env.example (.env, .env.local,
+#      .env.production, sub/dir/.env.test.local, ...). These hold the
+#      admin-level MP service-account secret, and this is a public template
+#      repo whose forks are often public. .gitignore already ignores .env*, so
+#      this catches `git add -f` and an edited .gitignore. Deleting a tracked
+#      one is allowed (that is the fix, not the leak).
+#
+#   2. A lockfile CI cannot install. Only runs when package-lock.json is
+#      actually staged, so it costs nothing on a normal commit. See
+#      scripts/check-lockfile.mjs for why `npm ci --dry-run` is not sufficient
+#      here (it exits 0 on Windows against a lockfile that breaks Linux CI).
 #
 # Installed by the `prepare` script in package.json, which points
 # core.hooksPath at this directory. To bypass once: git commit --no-verify
+
+# -z + tr: NUL-separated names are never C-quoted (core.quotePath), so a
+# non-ASCII directory name cannot wrap the path in quotes and slip a trailing
+# .env past the anchored match below.
+staged_env_files=$(
+  git diff --cached --name-only --diff-filter=ACMR -z |
+    tr '\000' '\n' |
+    grep -E '(^|/)\.env[^/]*$' |
+    grep -Ev '(^|/)\.env\.example$'
+)
+if [ -n "$staged_env_files" ]; then
+  echo "Commit blocked: environment files are staged. They can hold secrets"
+  echo "(e.g. MINISTRY_PLATFORM_CLIENT_SECRET) and must never be committed:"
+  echo "$staged_env_files" | sed 's/^/  /'
+  echo ""
+  echo "Unstage them with: git restore --staged <file>"
+  echo "Only .env.example (placeholder values only) may be committed."
+  exit 1
+fi
 
 if git diff --cached --name-only --diff-filter=ACM | grep -q '^package-lock\.json$'; then
   echo "package-lock.json is staged — checking it against Linux resolution..."
