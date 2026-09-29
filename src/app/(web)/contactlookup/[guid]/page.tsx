@@ -35,8 +35,10 @@ export default async function ContactLookupDetailPage({
       operation: "read",
     });
   } catch (err) {
-    // Only a refusal becomes a redirect. An MP failure still throws to the
-    // error boundary, so "MP is down" never reads as "you are not allowed".
+    // Only a refusal becomes a redirect. A failed role read still throws to
+    // the error boundary. (A session / MP `User_ID` resolution failure does
+    // surface as a refusal — `no_mp_user` — and so as /no-access; see the
+    // known gap on `AuthorizationService.hasSecurityRole`.)
     if (err instanceof UnauthorizedError) redirect("/no-access");
     throw err;
   }

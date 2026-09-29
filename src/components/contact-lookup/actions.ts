@@ -5,9 +5,10 @@ import { CONTACT_SEARCH_MAX_LENGTH, ContactSearch } from '@/lib/dto';
 import { AuthorizationService } from '@/services/authorizationService';
 
 export async function searchContacts(searchTerm: string): Promise<ContactSearch[]> {
-  // Server actions compile to callable POST endpoints and src/proxy.ts lets all
-  // /api paths through without a session, so this gate is the only thing
-  // standing between a caller and 20 contacts' emails and phones.
+  // Server actions compile to callable POST endpoints on page paths. src/proxy.ts
+  // only checks that a session cookie is PRESENT (any value passes), so it
+  // stops nobody who sets one; this gate is the real control standing between
+  // a caller and 20 contacts' emails and phones.
   //
   // A session alone is NOT enough (F1, 2026-09-12): MP's OIDC endpoint
   // authenticates any dp_Users record, and this app reads MP with its own
