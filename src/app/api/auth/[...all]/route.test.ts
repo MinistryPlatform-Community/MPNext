@@ -43,6 +43,10 @@ const { mockGetTableRecords } = vi.hoisted(() => {
             authorization_endpoint:
               "https://test-mp.example.com/oauth/connect/authorize",
             token_endpoint: "https://test-mp.example.com/oauth/connect/token",
+            // Required: requireIdTokenVerification skips the provider
+            // without it. Never fetched by these tests.
+            jwks_uri:
+              "https://test-mp.example.com/oauth/.well-known/openid-configuration/jwks",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
