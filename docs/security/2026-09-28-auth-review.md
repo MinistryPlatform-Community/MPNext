@@ -1,16 +1,16 @@
-# Auth Security Review — 2026-09-28 (index)
+# Auth Security Review — 2026-09-28
 
-**Status: closed 2026-09-29.** Every finding is fixed, closed by decision, or recorded as accepted/known in the docs listed below. This file is the review record; nothing here is open.
+**Status: closed 2026-09-29.** Every finding is fixed, closed by decision, or recorded as accepted/known in the docs listed below. This file is the review record; nothing here is open. Item names such as `security-auth-test-gaps` are the review's finding IDs; test comments cite them as "review item …".
 
 **Scope:** every authentication and authorization path — better-auth 1.7.4 config and internals, the MP OIDC sign-in flow, sessions/cookies/secrets, the `/api/auth` catch-all and `proxy.ts`, server actions and the role gate, the MP client-credentials service account and HTTP client, the auth UI pages, security headers, setup/config/CI, and the security docs.
 **Method:** six parallel read-only reviewers (OAuth/OIDC, sessions, HTTP boundary, authorization, MP service-account client, client/config). Claims were checked against `node_modules` source and reproduced where possible with mock OIDC/MP servers and stubbed `fetch`. **No Ministry Platform calls were made.** Key claims were spot-checked again when consolidating.
 **Baseline:** `main` @ `ea2e0ad`. Next 16.3.5, better-auth 1.7.4, better-call 1.4.0.
 
-**Result:** no Critical or High findings. The fixes from the 2026-09-12 and 2026-09-25 rounds (F-UPDATE-USER, F2, F1/F10/F11, F4, F5, F7, F9, F12, F3/F3b) all held against targeted bypass attempts. The biggest remaining risks are that **sign-out doesn't revoke a stateless session**, **the MP service account is over-privileged**, and **several configuration defaults fail open**.
+**Result:** no Critical or High findings. The fixes from the 2026-09-12 and 2026-09-25 rounds (F-UPDATE-USER, F2, F1/F10/F11, F4, F5, F7, F9, F12, F3/F3b) all held against targeted bypass attempts. The biggest remaining risks are that **sign-out doesn't revoke a stateless session**, **an over-privileged MP service account would widen the impact of any flaw**, and **several configuration defaults fail open**.
 
 ## Medium
 
-None open. The remaining parts of the three partly fixed Medium items live in [`docs/security/Additional_Security_Hardening.md`](../../docs/security/Additional_Security_Hardening.md): §1 sign-out revocation **accepted 2026-09-29**; §2 MP login re-validation and §3 role granularity (read/write split, MP rights) are future options that need a policy decision, not review work — §3's name-matching part is deferred.
+None open. The remaining parts of the three partly fixed Medium items live in [`docs/security/Additional_Security_Hardening.md`](Additional_Security_Hardening.md): §1 sign-out revocation **accepted 2026-09-29**; §2 MP login re-validation and §3 role granularity (read/write split, MP rights) are future options that need a policy decision, not review work — §3's name-matching part is deferred.
 
 ## Fixed 2026-09-28 (branch `fix/security-review-2026-09-28-medium`)
 
@@ -19,14 +19,14 @@ None open. The remaining parts of the three partly fixed Medium items live in [`
 - `security-gitignore-env-files` — `.env*` + `!.env.example`, `.vercel`; pre-commit refuses staged env files
 - `security-security-md-reporting-channel` — private vulnerability reporting, secret scanning, push protection and Dependabot security updates enabled; placeholder email removed
 - `security-sign-in-social-callbackurl-size-dos` — 4 KB body cap (declared and streamed); `callbackURL` string ≤ 2048
-- `security-service-account-over-privileged` — closed as not applicable (dev environment)
+- `security-service-account-over-privileged` — closed as not applicable to the template: each deployment scopes its own Client User (see README § Data-access client)
 - `security-rate-limit-ip-resolution` — `AUTH_IP_ADDRESS_HEADERS` / `AUTH_TRUSTED_PROXIES` → `advanced.ipAddress`, validated at startup; per-host guidance in `.env.example` (429 UI handling stays with `security-signin-page-swallows-errors`)
 - `security-mp-logout-missing-id-token-hint` — `client_id` + `id_token_hint` sent; one shared `auth` per process (2026-09-29) so the hint is actually available; verified live against MP (no prompt). On another serverless instance MP prompts once — documented
 - `security-committed-claude-settings-sed` — `.claude/settings.local.json` untracked + gitignored; shared entries (no `sed:*`) moved to `.claude/settings.json`
 
 ## Fixed 2026-09-29 (branch `dev/security-review-2026-09-28`, wave 1 — child branches `security/a`…`security/g`)
 
-TODO files deleted; their doc edits landed in the docs sweep below.
+The per-finding working notes were deleted once fixed; their doc edits landed in the docs sweep below.
 
 - **MP HTTP client (a):** timeouts + `redirect: "error"` on every MP fetch; single-flight token refresh, token-response validation, 401 → refresh + one retry; `buildUrl` path guard; name-only error logging — `mp-fetch-timeouts-and-redirects`, `mp-token-cache-hardening`
 - **Provider services (b):** identifier/ID/GUID validation + per-segment encoding in File/Table/Procedure services; trusted sender for communications; procedure allowlist; `$ignorePermissions` dropped; codegen escaping — `file-service-path-traversal`, `info-provider-logging-and-codegen`

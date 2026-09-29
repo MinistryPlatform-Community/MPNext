@@ -232,7 +232,7 @@ describe('contact-lookup-details actions', () => {
     });
   });
 
-  // Regression guard for `.claude/TODO/n-plus-1-contact-log-types-lookup.md`.
+  // Regression guard for the N+1 contact-log-types lookup fix.
   // `getContactLogTypes()` used to be called inside the `logs.map()` callback, so
   // the same small lookup table was refetched once per typed log. The call-count
   // assertions below are the whole point — the pre-existing tests mocked the call
@@ -318,7 +318,7 @@ describe('contact-lookup-details actions', () => {
     });
   });
 
-  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`. This
+  // Regression guard for the numeric-ID `$filter` injection fix. This
   // is the second reachable entry point into
   // `ContactLogService.getContactLogsByContactId` and carried the same
   // ineffective `!contactId || contactId <= 0` guard.

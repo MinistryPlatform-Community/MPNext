@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { toNextJsHandler } from 'better-auth/next-js';
 
 /**
- * TODO security-discovery-failure-no-retry: genericOAuth fetches MP's OIDC
+ * Review item security-discovery-failure-no-retry: genericOAuth fetches MP's OIDC
  * discovery document once per auth instance, with no retry, so one failed
  * fetch at cold start used to leave `/sign-in/social` answering
  * `404 PROVIDER_NOT_FOUND` until the process restarted. `selfHealingAuth` in

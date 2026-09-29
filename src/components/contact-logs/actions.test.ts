@@ -487,7 +487,7 @@ describe('contact-logs actions', () => {
     });
   });
 
-  // Regression guard for `.claude/TODO/mp-filter-injection-numeric-ids.md`.
+  // Regression guard for the numeric-ID `$filter` injection fix.
   //
   // These actions compile to POST endpoints, so a caller controls the payload's
   // shape as well as its values — a string reaches a `number` parameter. The old

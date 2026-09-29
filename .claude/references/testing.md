@@ -845,19 +845,13 @@ production), `procedure.service.test.ts` (stored procedures can mutate data), an
 
 ## Deferred Issues
 
-Defects and refactors found while testing are documented one-per-file in
-`.claude/TODO/`, not fixed silently. **Every test-derived TODO is now closed** —
+Defects and refactors found while testing were documented, not fixed silently.
+**Every test-derived item is now closed** —
 filter injection via numeric IDs, the two unauthenticated `'use server'` actions,
 the missing authorization gate, the `SessionContextService` refactor, the N+1
 lookup, the token lifetime, and the untested contact-log component. See
-`.claude/docs/TestCoverage.md` §5 and §6 for each one. `.claude/TODO/` holds a
-single open item, `investigate-setup-check-stale-model-detection.md`, which is a
-setup-wizard issue with no bearing on the suite.
-
-Five test files still carry `Regression guard for .claude/TODO/<x>.md` comments
-naming TODO files that have since been deleted (`mp-filter-injection-numeric-ids.md`,
-`n-plus-1-contact-log-types-lookup.md`, `contact-logs-component-untested.md`).
-The assertions are correct; only the breadcrumbs are dangling.
+`.claude/docs/TestCoverage.md` §5 and §6 for each one. The tests that pin those
+fixes carry `Regression guard for …` comments naming the fix.
 
 Those assertions are now specifications rather than snapshots — `should NOT
 delete when the caller holds no security role` and `should permit editing a log

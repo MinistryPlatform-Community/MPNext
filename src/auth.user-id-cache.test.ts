@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
- * TTL on the User_GUID → MP User_ID cache in src/lib/auth.ts (TODO
+ * TTL on the User_GUID → MP User_ID cache in src/lib/auth.ts (review item
  * security-session-no-absolute-lifetime-or-mp-revalidation). Before the TTL
  * the cache never expired, so `dp_Users` was never re-read for a user after
  * their first request on a process.

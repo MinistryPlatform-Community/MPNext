@@ -6,7 +6,7 @@ import { betterAuth } from 'better-auth';
 import { symmetricDecodeJWT } from 'better-auth/crypto';
 
 /**
- * Pins the session cookies the real `auth` instance actually sets (TODO
+ * Pins the session cookies the real `auth` instance actually sets (review item
  * security-auth-test-gaps #3), so a better-auth upgrade that changes stateless
  * defaults, or a config edit, cannot ship unnoticed:
  * - cookie names and prefix (`better-auth.*`, `__Secure-` over https);

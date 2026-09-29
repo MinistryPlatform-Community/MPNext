@@ -511,7 +511,7 @@ git show e17c55e           # SessionContextService rethrows Next control-flow er
 
 Reference docs in the upstream repo:
 
-- `.claude/TODO/security-review-2026-09-28-index.md`: the review record (every item, decisions, and what was checked and held)
+- `docs/security/2026-09-28-auth-review.md`: the review record (every item, decisions, and what was checked and held)
 - `docs/security/downstream-hardening-playbook.md` § 2026-09-29 follow-up: the human-readable summary
 - `docs/security/Additional_Security_Hardening.md`: the open policy options (revocation, MP login re-validation, role granularity)
 - `.claude/references/auth.md`: session lifetime, emergency sign-out, authorization policy, the per-process caveats

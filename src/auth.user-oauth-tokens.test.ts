@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 /**
- * Guard for TODO security-unused-user-oauth-tokens-stored: the user's own MP
+ * Guard for review item security-unused-user-oauth-tokens-stored: the user's own MP
  * OAuth tokens are never used (all MP data access is the client-credentials
  * service account), so the app must not ask for a refresh token, must not put
  * the tokens in the browser (`account_data` cookie), and must not keep the

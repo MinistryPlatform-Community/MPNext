@@ -6,7 +6,7 @@ import { betterAuth } from 'better-auth';
 
 /**
  * Clock-walk guard for the session lifetime settings in src/lib/auth.ts
- * (TODOs security-stateless-session-not-revocable and
+ * (review items security-stateless-session-not-revocable and
  * security-session-no-absolute-lifetime-or-mp-revalidation).
  *
  * Signs in through the REAL `auth` instance with the full authorization-code

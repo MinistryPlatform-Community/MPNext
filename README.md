@@ -484,8 +484,7 @@ MPNext/
 ├── .claude/                              # Claude AI configuration
 │   ├── commands/                         # Claude Code skills (/audit-deps, /release)
 │   ├── references/                       # Documentation references
-│   ├── playbooks/                        # Porting playbooks
-│   └── reports/                          # Past dependency audit reports
+│   └── playbooks/                        # Porting playbooks
 ├── .githooks/                            # pre-commit lockfile guard
 ├── .github/workflows/                    # CI: tests, lint + tsc, build + prerender check, lockfile drift check
 ├── .github/dependabot.yml                # Weekly SHA bumps for GitHub Actions
@@ -815,7 +814,7 @@ Performs a complete review of dependencies: real vulnerability exposure, availab
 /audit-deps --no-verify      # Skip the post-upgrade verification run
 ```
 
-> This command never reads or writes Ministry Platform data — it touches only local dependencies and report files. Past run reports are kept in `.claude/reports/`.
+> This command never reads or writes Ministry Platform data — it touches only local dependencies and report files. Run reports go to `.claude/reports/`, which is gitignored; lasting findings are recorded in [Dependency Known Issues](.claude/references/deps-known-issues.md).
 
 ### `/release` - GitHub Release
 
@@ -968,7 +967,7 @@ Also: **do not run `npm ci` while `next dev` is running.** It deletes `node_modu
 
 **Never run `npm audit fix --force`.** It still "fixes" bundled-dependency findings by downgrading `next` to a major version this codebase cannot run on.
 
-Re-check with `/audit-deps`, which triages each finding for real exploitability rather than treating the raw count as the signal. Triaged vendor advisories that `npm audit` does not surface are tracked in [Dependency Known Issues](.claude/references/deps-known-issues.md); past run reports are kept in `.claude/reports/`.
+Re-check with `/audit-deps`, which triages each finding for real exploitability rather than treating the raw count as the signal. Triaged vendor advisories that `npm audit` does not surface are tracked in [Dependency Known Issues](.claude/references/deps-known-issues.md).
 
 ## Contributing
 
@@ -976,7 +975,7 @@ This project follows strict TypeScript conventions and code style. Please review
 
 ## License
 
-Private
+[MIT](LICENSE). Fork it, customize it, and run it for your church; keep the copyright and license notice in your copy.
 
 ## Support
 

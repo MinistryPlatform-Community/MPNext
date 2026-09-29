@@ -434,3 +434,17 @@ FodyWeavers.xsd
 
 # Playwright MCP snapshots/logs (hold real MP member data; never commit)
 .playwright-mcp/
+
+# Claude Code /audit-deps run reports (local working copies; the durable record is .claude/references/deps-known-issues.md)
+.claude/reports/
+
+# Next.js static export output
+/out/
+
+# npm debug logs
+npm-debug.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/

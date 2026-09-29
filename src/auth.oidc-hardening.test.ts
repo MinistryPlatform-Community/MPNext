@@ -5,17 +5,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * End-to-end guards for the 2026-09-28 OIDC hardening in src/lib/auth.ts:
- * - `requireIdTokenVerification: true` (TODO
+ * - `requireIdTokenVerification: true` (review item
  *   security-require-id-token-verification): a discovery document missing
  *   `jwks_uri` or `issuer` must take the provider down, not leave it live with
  *   id_token verification silently off.
- * - id_token `exp` / `azp` checks in `getUserInfo` (TODO
+ * - id_token `exp` / `azp` checks in `getUserInfo` (review item
  *   security-id-token-claim-checks-weak), through the real code flow with
  *   genuinely signed tokens that better-auth's own verifier ACCEPTS.
- * - `cookieCache.strategy: "jwe"` (TODO
+ * - `cookieCache.strategy: "jwe"` (review item
  *   security-session-cookie-readable-jwt-strategy): `session_data` must not be
  *   readable.
- * - `/get-session` withholds `token`, `ipAddress`, `userAgent` (TODO
+ * - `/get-session` withholds `token`, `ipAddress`, `userAgent` (review item
  *   security-client-data-overexposure).
  *
  * Each test re-imports `@/lib/auth` (Vitest builds a fresh instance per

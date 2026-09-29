@@ -7,7 +7,7 @@ import { genericOAuth, type GenericOAuthConfig, type GenericOAuthOptions } from 
 
 /**
  * End-to-end tests of `GET /api/auth/callback/ministry-platform` through the
- * REAL `auth.handler` (TODO security-auth-test-gaps #2, #4, #5):
+ * REAL `auth.handler` (review item security-auth-test-gaps #2, #4, #5):
  * - state validation: a missing, mismatched, cookie-less, tampered or expired
  *   state is refused before the code is ever redeemed;
  * - the code exchange (no PKCE verifier, since MP does not support PKCE);
