@@ -13,8 +13,8 @@ const { GET: betterAuthGET, POST: betterAuthPOST } = toNextJsHandler(auth);
  *
  * | Method | Path                          | Caller                                                          |
  * |--------|-------------------------------|------------------------------------------------------------------|
- * | GET    | /get-session                  | authClient.useSession() (src/contexts/*), authClient.getSession() (src/app/signin/page.tsx) |
- * | POST   | /sign-in/social               | src/app/signin/page.tsx                                          |
+ * | GET    | /get-session                  | authClient.useSession() (src/contexts/*), authClient.getSession() (src/components/sign-in/sign-in.tsx) |
+ * | POST   | /sign-in/social               | src/components/sign-in/sign-in.tsx                               |
  * | GET    | /callback/ministry-platform    | Ministry Platform's redirect after login                          |
  *
  * Everything else in `auth.api.*` runs in-process from server actions/components
@@ -57,14 +57,42 @@ function relativeAuthPath(request: NextRequest): string {
   return withoutTrailingSlashes === "" ? "/" : withoutTrailingSlashes;
 }
 
-const NOT_FOUND = () => new Response("Not Found", { status: 404 });
+/**
+ * Marks a response from this route as uncacheable. Every response here is
+ * either session-bearing or about the session: the OAuth callback's 302 sets
+ * the session cookies, `/get-session` returns the user, and `/sign-in/social`
+ * returns a state cookie. better-auth sets `no-store` on some of these but not
+ * all (customSession drops it on a null session; the callback and sign-in
+ * responses carry none), so it is set here, on every return path, 404s
+ * included.
+ *
+ * Set in place where possible. A response whose headers are immutable (e.g.
+ * one built with `Response.redirect()`) throws on `set`, so it is copied —
+ * status, status text, headers (Set-Cookie included) and body stream — first.
+ */
+function withNoStore(response: Response): Response {
+  try {
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch {
+    const copy = new Response(response.body, response);
+    copy.headers.set("Cache-Control", "no-store");
+    return copy;
+  }
+}
+
+const NOT_FOUND = () =>
+  new Response("Not Found", {
+    status: 404,
+    headers: { "Cache-Control": "no-store" },
+  });
 
 export async function GET(request: NextRequest) {
   const path = relativeAuthPath(request);
   if (!(allowedAuthRoutes.GET as readonly string[]).includes(path)) {
     return NOT_FOUND();
   }
-  return betterAuthGET(request);
+  return withNoStore(await betterAuthGET(request));
 }
 
 /**
@@ -98,6 +126,13 @@ const MAX_SIGN_IN_SOCIAL_BODY_BYTES = 4096;
 
 /** Longest `callbackURL` accepted (UTF-16 code units, i.e. `String.length`). */
 const MAX_CALLBACK_URL_LENGTH = 2048;
+
+/**
+ * The only Content-Type `POST /sign-in/social` accepts, tested against the raw
+ * header value (see `isAllowedSignInSocialBody` for why it is anchored and
+ * untrimmed).
+ */
+const JSON_CONTENT_TYPE = /^application\/json[\t ]*(;|$)/i;
 
 /**
  * Read a request body with a hard byte cap. Returns `null` (and stops reading)
@@ -140,17 +175,31 @@ async function readBodyWithLimit(
  * `refuseIdTokenSignIn`, which is the primary control and also covers
  * in-process `auth.api.signInSocial` calls this route never sees).
  *
- * The Content-Type check is what makes the body check sound. better-call picks
- * its body parser by SUBSTRING match (node_modules/better-call/dist/utils.mjs,
- * `getBody`): a header like `text/html, application/json,
- * application/x-www-form-urlencoded` is accepted and parsed as FORM data. A
- * filter that JSON-parsed that same body would fail to parse it or, worse,
- * inspect different keys than better-auth then acts on. So the media type must
- * be exactly `application/json` (parameters like `; charset=utf-8` allowed,
- * case-insensitive), and any `,` is refused outright — that also catches a
- * repeated Content-Type header, which `Headers.get` joins with ", ". Under
- * those conditions better-call's JSON regex is the parser that runs, on the
- * same bytes this filter reads.
+ * The Content-Type check is what makes the body check sound. better-call
+ * (node_modules/better-call/dist/utils.mjs, `getBody`) uses its JSON parser
+ * only when the lower-cased, UNTRIMMED header matches the anchored regex
+ * `/^application\/([a-z0-9.+-]*\+)?json/i`; anything else falls through to
+ * SUBSTRING matches for form, multipart, text and octet-stream. A filter that
+ * JSON-parsed a body better-call then parses some other way would inspect
+ * different keys than better-auth acts on. So this filter tests the RAW header
+ * against `JSON_CONTENT_TYPE` — `application/json` at position 0, then only
+ * spaces/tabs before a `;` or the end (parameters like `; charset=utf-8`
+ * allowed, case-insensitive). Anything that passes necessarily starts with
+ * `application/json`, so better-call's anchored regex matches it too and its
+ * JSON parser is the one that runs, on the same bytes this filter reads.
+ *
+ * The test is deliberately on the raw value, not a `trim()`med one: JS
+ * `trim()` strips Unicode whitespace such as U+00A0 (NBSP), which HTTP does
+ * not treat as whitespace and Node passes through, so a trimmed check would
+ * accept ` application/json` — a value better-call does NOT parse as
+ * JSON. (Leading/trailing ASCII spaces and tabs never reach this code:
+ * `Headers` strips them.)
+ *
+ * Any `,` is also refused. That is belt and braces rather than load-bearing:
+ * a value that passes the anchored test and contains a comma (e.g. a repeated
+ * Content-Type header, which `Headers.get` joins with ", ") still starts with
+ * `application/json`, so better-call would still parse it as JSON. It is
+ * refused anyway because the real client never sends one.
  *
  * Size is capped twice: a declared Content-Length over
  * `MAX_SIGN_IN_SOCIAL_BODY_BYTES` is refused before anything is cloned or
@@ -172,9 +221,7 @@ async function readBodyWithLimit(
 async function isAllowedSignInSocialBody(request: NextRequest): Promise<boolean> {
   const contentType = request.headers.get("content-type");
   if (contentType === null || contentType.includes(",")) return false;
-  if (contentType.split(";")[0].trim().toLowerCase() !== "application/json") {
-    return false;
-  }
+  if (!JSON_CONTENT_TYPE.test(contentType)) return false;
   const contentLength = request.headers.get("content-length");
   if (
     contentLength !== null &&
@@ -222,5 +269,5 @@ export async function POST(request: NextRequest) {
   if (path === "/sign-in/social" && !(await isAllowedSignInSocialBody(request))) {
     return NOT_FOUND();
   }
-  return betterAuthPOST(request);
+  return withNoStore(await betterAuthPOST(request));
 }
