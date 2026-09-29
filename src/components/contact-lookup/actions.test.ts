@@ -42,6 +42,7 @@ vi.mock('@/services/contactService', () => ({
 
 import { searchContacts } from './actions';
 import { UnauthorizedError } from '@/services/authorizationService';
+import { CONTACT_SEARCH_MAX_LENGTH } from '@/lib/dto';
 
 /** The gate's refusal for a session with no MP user behind it. */
 function noMpUser() {
@@ -137,6 +138,46 @@ describe('searchContacts', () => {
     await searchContacts('  John  ');
 
     expect(mockContactSearch).toHaveBeenCalledWith('John');
+  });
+
+  it('should return empty array when the term is missing entirely', async () => {
+    expect(await searchContacts(undefined as never)).toEqual([]);
+    expect(await searchContacts(null as never)).toEqual([]);
+    expect(mockContactSearch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string term with its own message, before any search', async () => {
+    await expect(searchContacts(['John'] as never)).rejects.toThrow(
+      'Search term must be a string'
+    );
+    expect(mockContactSearch).not.toHaveBeenCalled();
+  });
+
+  it('accepts a term of exactly CONTACT_SEARCH_MAX_LENGTH characters after trimming', async () => {
+    mockContactSearch.mockResolvedValueOnce([]);
+    const term = 'a'.repeat(CONTACT_SEARCH_MAX_LENGTH);
+
+    await searchContacts(`  ${term}  `);
+
+    expect(mockContactSearch).toHaveBeenCalledWith(term);
+  });
+
+  it('rejects an over-long term without echoing it, before any search', async () => {
+    const term = 'x'.repeat(10_000);
+
+    const error = await searchContacts(term).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      `Search term must be ${CONTACT_SEARCH_MAX_LENGTH} characters or fewer`
+    );
+    expect(mockContactSearch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unauthorized caller before checking the term length', async () => {
+    mockRequireSecurityRole.mockRejectedValueOnce(noRole());
+
+    await expect(searchContacts('x'.repeat(10_000))).rejects.toThrow(UnauthorizedError);
   });
 
   it('should throw on service error', async () => {

@@ -317,7 +317,10 @@ export class DomainTimezoneService {
     // Falls through to instant interpretation (Z or explicit offset).
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {
-      throw new Error(`toMpSqlDatetime: unable to parse "${value}"`);
+      // Never echo the value: it is caller-controlled (a contact log's
+      // `Contact_Date`), and an error message that carries it can forge log
+      // lines — a newline plus a fake JSON event — wherever it is logged.
+      throw new Error("toMpSqlDatetime: value could not be parsed as a date");
     }
     const iana = await this.getMpTimezone();
     return formatInstantAsMpSql(parsed, iana);
@@ -334,7 +337,8 @@ export class DomainTimezoneService {
       // Has an explicit zone marker — parse as instant directly.
       const direct = new Date(value);
       if (Number.isNaN(direct.getTime())) {
-        throw new Error(`parseMpDatetime: unable to parse "${value}"`);
+        // Not echoed, for the same reason as in `toMpSqlDatetime`.
+        throw new Error("parseMpDatetime: value could not be parsed as a date");
       }
       return direct;
     }

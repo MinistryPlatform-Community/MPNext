@@ -31,8 +31,9 @@ export class SessionContextService {
   /**
    * Pure read — returns the acting user's MP User_ID for the current request,
    * or null when there is no session or no User_ID could be resolved at
-   * session creation. No side effects. Prefer `getActingUserIdForWrite` at
-   * MP write boundaries so non-user writes are logged.
+   * session creation. No side effects. Not a gate: a null here must be
+   * refused by the caller — MP write and read boundaries go through
+   * `AuthorizationService.requireSecurityRole`, which does.
    */
   public async getCurrentUserId(): Promise<number | null> {
     try {
@@ -51,8 +52,20 @@ export class SessionContextService {
    * Returns the acting user's MP User_ID for a write operation. When no user
    * is resolved (anonymous / system / session lookup failed) emits a
    * structured `mp.write.non_user` warning so the unattributed write is
-   * visible in production logs. Use this — not `getCurrentUserId` — at every
-   * MP write boundary.
+   * visible in production logs.
+   *
+   * **This is attribution, not authorization.** It logs and returns null
+   * rather than refusing, so a write that takes its `$userId` from here with
+   * no gate in front goes through unauthorized — exactly F10 (2026-09-12).
+   * Its one caller is `AuthorizationService.hasSecurityRole`, which uses it
+   * for the write half of the gate and then refuses a null. Services and
+   * actions must call `AuthorizationService.requireSecurityRole` and use the
+   * `User_ID` it returns, never this.
+   *
+   * It stays public (2026-09-28 review) only because its caller is a
+   * different class and TypeScript has no "friend" access; merging the two
+   * services is a larger change than the risk warrants. Nothing else in
+   * `src/` calls it — keep it that way.
    */
   public async getActingUserIdForWrite(ctx: {
     table: string;

@@ -152,6 +152,23 @@ describe("DomainTimezoneService", () => {
       await expect(svc.toMpSqlDatetime("not a date")).rejects.toThrow();
       await expect(svc.toMpSqlDatetime("")).rejects.toThrow();
     });
+
+    // Log injection (2026-09-28 review): Contact_Date is caller-controlled, and
+    // the message used to embed it verbatim — newline and all — so wherever it
+    // was logged a caller could forge a separate structured log line.
+    it("does not echo the unparseable value in its error", async () => {
+      const svc = freshService();
+      const input = 'x\n{"event":"mp.write.unauthorized","reason":"forged"}';
+
+      const error = await svc.toMpSqlDatetime(input).catch((e: Error) => e);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "toMpSqlDatetime: value could not be parsed as a date"
+      );
+      expect((error as Error).message).not.toContain("mp.write.unauthorized");
+      expect((error as Error).message).not.toContain("\n");
+    });
   });
 
   describe("parseMpDatetime", () => {
@@ -175,9 +192,15 @@ describe("DomainTimezoneService", () => {
       // Has an offset marker, so it skips the wall-clock path and goes straight to
       // `new Date(value)` — which yields Invalid Date rather than throwing on its own.
       await expect(svc.parseMpDatetime("not-a-date+05:00")).rejects.toThrow(
-        /unable to parse/
+        "parseMpDatetime: value could not be parsed as a date"
       );
       expect(mockGetDomainInfo).not.toHaveBeenCalled();
+    });
+
+    it("does not echo the unparseable value in its error", async () => {
+      const svc = freshService();
+      const error = await svc.parseMpDatetime("secret\nvalue+05:00").catch((e: Error) => e);
+      expect((error as Error).message).not.toContain("secret");
     });
   });
 

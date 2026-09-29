@@ -69,12 +69,18 @@ export async function getContactLogsByContactId(contactId: number): Promise<Cont
       }
     }
 
-    return logs.map(log => ({
-      ...log,
+    // Built field by field, never by spreading the row: whatever is returned
+    // here is serialized to the browser, and the full MP row carries author
+    // IDs (`Made_By`), the subject `Contact_ID` and cross-record links the UI
+    // never renders. See `ContactLogDisplay`.
+    return logs.map((log): ContactLogDisplay => ({
+      Contact_Log_ID: log.Contact_Log_ID,
+      Contact_Date: log.Contact_Date,
+      Notes: log.Notes,
       Contact_Log_Type: log.Contact_Log_Type_ID
         ? typeById.get(log.Contact_Log_Type_ID) ?? null
         : null,
-    })) as ContactLogDisplay[];
+    }));
   } catch (error) {
     console.error('Error fetching contact logs:', error);
     throw error instanceof Error ? error : new Error('Failed to fetch contact logs');

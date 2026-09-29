@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UserService } from '@/services/userService';
 
-const mockGetTableRecords = vi.fn();
+const { mockGetTableRecords, mockGetSession } = vi.hoisted(() => ({
+  mockGetTableRecords: vi.fn(),
+  mockGetSession: vi.fn(),
+}));
 
 vi.mock('@/lib/providers/ministry-platform', () => {
   return {
@@ -11,9 +13,27 @@ vi.mock('@/lib/providers/ministry-platform', () => {
   };
 });
 
+vi.mock('@/lib/auth', () => ({
+  auth: { api: { getSession: mockGetSession } },
+}));
+
+vi.mock('next/headers', () => ({
+  headers: vi.fn().mockResolvedValue(new Headers()),
+}));
+
+import { UserService } from '@/services/userService';
+import { UnauthorizedError } from '@/services/authorizationService';
+
+/** A session for the MP user with the given User_GUID. */
+function sessionFor(userGuid: string | undefined) {
+  return { user: { id: 'internal-id', userGuid } };
+}
+
 describe('UserService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: the signed-in user is the one whose profile the tests read.
+    mockGetSession.mockResolvedValue(sessionFor('a1b2c3d4-e5f6-7890-abcd-ef1234567890'));
     // Reset singleton instance between tests
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (UserService as any).instance = undefined;
@@ -97,6 +117,7 @@ describe('UserService', () => {
         Mobile_Phone: null,
         Image_GUID: null,
       };
+      mockGetSession.mockResolvedValueOnce(sessionFor(otherValidGuid));
       mockGetTableRecords
         .mockResolvedValueOnce([mockProfile])
         .mockResolvedValueOnce([])
@@ -143,6 +164,51 @@ describe('UserService', () => {
 
       const service = await UserService.getInstance();
       await expect(service.getUserProfile(validGuid)).rejects.toThrow('Invalid User ID');
+    });
+  });
+
+  /**
+   * 2026-09-28 review. With no session at all this used to return another
+   * user's email, phone, roles and groups for any GUID. The method now reads
+   * the session itself and serves only the caller's own profile, so it no
+   * longer depends on every caller passing the session's GUID.
+   */
+  describe('getUserProfile authorization (own profile only)', () => {
+    const ownGuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const someoneElse = 'b2c3d4e5-f678-9012-3456-7890abcdef12';
+
+    it('refuses another user\'s GUID before any MP call', async () => {
+      const service = await UserService.getInstance();
+
+      await expect(service.getUserProfile(someoneElse)).rejects.toThrow(UnauthorizedError);
+      await expect(service.getUserProfile(someoneElse)).rejects.toThrow(
+        'may only be read by its own user'
+      );
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['no session', null],
+      ['a session with no user', { user: null }],
+      ['a session with no userGuid', sessionFor(undefined)],
+      ['a session with a non-string userGuid', { user: { id: 'internal-id', userGuid: [ownGuid] } }],
+      ['a session with no internal user id', { user: { userGuid: ownGuid } }],
+    ])('refuses %s before any MP call', async (_label, session) => {
+      mockGetSession.mockResolvedValueOnce(session);
+
+      const service = await UserService.getInstance();
+      await expect(service.getUserProfile(ownGuid)).rejects.toThrow(
+        'a signed-in session is required'
+      );
+      expect(mockGetTableRecords).not.toHaveBeenCalled();
+    });
+
+    it('matches the session GUID case-insensitively', async () => {
+      mockGetTableRecords.mockResolvedValueOnce([]);
+
+      const service = await UserService.getInstance();
+      await expect(service.getUserProfile(ownGuid.toUpperCase())).resolves.toBeUndefined();
+      expect(mockGetTableRecords).toHaveBeenCalledTimes(1);
     });
   });
 });

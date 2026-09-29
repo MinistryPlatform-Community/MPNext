@@ -4,7 +4,7 @@ import React, { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { searchContacts } from "./actions";
-import { ContactSearch } from "@/lib/dto";
+import { CONTACT_SEARCH_MAX_LENGTH, ContactSearch } from "@/lib/dto";
 
 interface ContactLookupSearchProps {
   placeholder?: string;
@@ -74,6 +74,7 @@ export const ContactLookupSearch: React.FC<ContactLookupSearchProps> = ({
         onChange={handleInputChange}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
+        maxLength={CONTACT_SEARCH_MAX_LENGTH}
         disabled={isDisabled}
         className="flex-1"
       />
