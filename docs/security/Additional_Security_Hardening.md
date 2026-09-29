@@ -4,18 +4,20 @@
 **Source:** Auth security review 2026-09-28. The Medium findings below were partly
 fixed on 2026-09-28. What is left for each one needs a decision (new infrastructure
 or a change of policy), so it is tracked here rather than as open TODOs.
+**Updated 2026-09-29:** §1 accepted as is; §3's name-matching remainder deferred.
 
-| # | Area | Shipped 2026-09-28 | Remaining | Decision needed |
+| # | Area | Shipped 2026-09-28 | Remaining | Decision |
 |---|---|---|---|---|
-| 1 | Sign-out revocation | 12 h session cap, `refreshCache: false` | A copied cookie still works for up to 1 h after sign-out | Add a server-side session store |
-| 2 | MP login re-validation | 12 h absolute cap, 15 min `userIdCache` TTL | Deleting or disabling an MP login doesn't end the app session | Fail closed on a confirmed-missing login? |
-| 3 | Role granularity | Blank `MP_SECURITY_ROLES` fails closed; `*` = any role | No read/write split; MP table and record rights not consulted | Separate role lists, or defer to MP's rights |
+| 1 | Sign-out revocation | 12 h session cap, `refreshCache: false`; `/signed-out` page (2026-09-29) | A copied cookie still works for up to 1 h after sign-out | **Accepted 2026-09-29** — no session store |
+| 2 | MP login re-validation | 12 h absolute cap, 15 min `userIdCache` TTL | Deleting or disabling an MP login doesn't end the app session | Needed: fail closed on a confirmed-missing login? |
+| 3 | Role granularity | Blank `MP_SECURITY_ROLES` fails closed; `*` = any role | No read/write split; MP table and record rights not consulted; roles matched by name | Needed: separate role lists, or defer to MP's rights. Name matching **deferred 2026-09-29** |
 
 ---
 
 ## 1. Sign-out cannot revoke a copied session cookie
 
 **Severity now:** Low (was Medium). The exposure is bounded but not closed.
+**Status:** Accepted 2026-09-29 — see [Decision](#decision-2026-09-29) below.
 
 ### Shipped
 
@@ -36,6 +38,11 @@ Emergency "sign everyone out" levers are in `.claude/references/auth.md`
 § Session lifetime and revocation: bump `cookieCache.version` and redeploy, or rotate
 `BETTER_AUTH_SECRET`.
 
+Added 2026-09-29: a public `/signed-out` page that never starts OAuth. `SessionGuard`
+and the cross-tab sign-out broadcast send a tab whose session has ended there, instead
+of to `/signin` — which auto-starts OAuth and, with the MP SSO session still alive,
+could silently sign a shared device back in.
+
 ### Remaining
 
 - **Replay after sign-out:** a copied `session_token` + `session_data` pair still
@@ -45,6 +52,16 @@ Emergency "sign everyone out" levers are in `.claude/references/auth.md`
   the 12 h cap. (Within one process all Next bundle layers now share one `auth`
   instance — fixed 2026-09-29; before that, sign-out never reached the row
   `/get-session` reads, even on a single `next start`.)
+- **Shared devices:** the session cookie is persistent (12 h `Max-Age`), so it
+  survives closing the browser. Anyone using the same browser profile before the cap
+  lapses is signed in, unless the previous user signed out.
+
+### Decision (2026-09-29)
+
+**Accepted as is.** The 12 h absolute cap, the 1 h replay bound after sign-out
+(up to 12 h on an instance that never saw the sign-out) and the persistent 12 h cookie
+are the accepted residual risk. No session store is planned. The option below stays
+the route if that changes.
 
 ### Option
 
@@ -55,9 +72,10 @@ Add a server-side session store so that sign-out deletes the session everywhere:
 - With a store present, better-auth no longer defaults `refreshCache` on. Then drop
   `cookieCache.maxAge` to about 5 min.
 
-**Decision needed:** which store to use and who operates it.
+A store would also make the OAuth `state` one-time use (`storeStateStrategy:
+"database"`) and replace the unbounded in-process memory adapter.
 
-### How to verify
+### How to verify (if a store is added)
 
 1. Sign in through the mock code flow, as in `src/auth.session-lifetime.test.ts`.
 2. Sign out.
@@ -145,6 +163,13 @@ The gate also ignores two MP-side controls:
 - MP's per-role table permissions (`vw_mp_User_Rights`).
 - MP record-level security (`dp_Record_Security`). `Contact_Log` carries the
   SecureRecord flag, so records secured in MP are still returned to any permitted role.
+
+Roles are matched by **name** (trimmed, case-insensitive), not by `Role_ID`. MP role
+names are editable free text and not unique, so anyone who can create, rename or assign
+MP Security Roles can satisfy the gate; and a role whose name contains a comma cannot be
+listed in `MP_SECURITY_ROLES`. **Deferred 2026-09-29:** name matching stays for now.
+Restrict who can edit Security Roles in MP. A future `MP_SECURITY_ROLE_IDS` would
+close it.
 
 ### Options
 

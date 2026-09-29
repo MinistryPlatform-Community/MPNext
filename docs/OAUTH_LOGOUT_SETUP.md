@@ -6,11 +6,19 @@
 ⚠️ Requires a **Post-Logout Redirect URI** registered on the MP OAuth client
 
 ## What's Working
-- Better Auth session cookie cleared server-side by `auth.api.signOut()`
+- `auth.api.signOut()` deletes the session's in-memory row on this instance and
+  clears **this browser's** Better Auth cookies. It does not revoke the session
+  anywhere else: sessions are stateless, so a copy of the cookies taken before
+  sign-out stays usable for up to 1 h, and up to the 12 h cap on an instance that
+  never saw the sign-out. Accepted 2026-09-29 — see
+  [Additional Security Hardening](security/Additional_Security_Hardening.md) §1.
 - The browser is then redirected to Ministry Platform's `end_session` endpoint,
   which ends the MP OAuth (SSO) session
 - MP redirects back to the app, which now has no session, so `src/proxy.ts`
   sends the user to `/signin`
+- Other open tabs hear about it over a `BroadcastChannel`
+  (`src/contexts/sign-out-broadcast.ts`); `SessionGuard` in each re-checks the
+  session and, finding none, moves to `/signed-out`, which does not restart OAuth
 
 ## Implementation
 
@@ -25,11 +33,12 @@ export async function handleSignOut() {
     body: { disableRedirect: true },
   });
 
-  // Throws (after sign-out) if MINISTRY_PLATFORM_BASE_URL,
-  // BETTER_AUTH_URL/NEXTAUTH_URL or OIDC_CLIENT_ID is unset.
+  // Throws (after sign-out) if MINISTRY_PLATFORM_BASE_URL or
+  // BETTER_AUTH_URL/NEXTAUTH_URL is unset or invalid (src/lib/env.ts),
+  // or OIDC_CLIENT_ID is unset.
 
   const params = new URLSearchParams({
-    post_logout_redirect_uri: appUrl,   // BETTER_AUTH_URL, verbatim
+    post_logout_redirect_uri: appUrl,   // getAuthBaseUrl(): BETTER_AUTH_URL's origin
     client_id: clientId,                // OIDC_CLIENT_ID
   });
   // id_token_hint is read from better-auth's URL (MP origin only), when present
@@ -67,7 +76,7 @@ the id_token is available. better-auth 1.7 builds a provider logout URL that
 includes `id_token_hint`, and `auth.api.signOut({ body: { disableRedirect: true } })`
 returns it as `url`. `handleSignOut()` takes only the `id_token_hint` from it
 (and only from a URL on the MP origin), then builds the final URL itself. That
-keeps `post_logout_redirect_uri` exactly `BETTER_AUTH_URL`: better-auth would
+keeps `post_logout_redirect_uri` exactly the `BETTER_AUTH_URL` origin: better-auth would
 normalise it with a trailing slash, which would not match the registered value.
 
 The id_token is not in any cookie (`storeAccountCookie` is off). It lives only
@@ -88,8 +97,10 @@ different serverless instance, only `client_id` is sent.
 ## Ministry Platform OAuth Configuration
 
 Register **Post-Logout Redirect URIs** on the MP OAuth client (the one named by
-`OIDC_CLIENT_ID`). The value sent is `BETTER_AUTH_URL` verbatim — an origin with
-**no trailing slash and no path** — so that exact string must be registered.
+`OIDC_CLIENT_ID`). The value sent is the origin of `BETTER_AUTH_URL` —
+`getAuthBaseUrl()` (`src/lib/env.ts`) refuses a path and drops a single trailing
+`/` — so register exactly that: scheme, host and port, **no trailing slash, no
+path**. `https://yourdomain.com/signin` or `https://yourdomain.com/` will not match.
 
 **Production:**
 ```
@@ -112,9 +123,11 @@ BETTER_AUTH_URL=https://yourdomain.com  # Production
 BETTER_AUTH_URL=http://localhost:3000   # Development
 ```
 
-`handleSignOut()` clears the local session, then throws if
-`MINISTRY_PLATFORM_BASE_URL`, `OIDC_CLIENT_ID`, or both `BETTER_AUTH_URL` and
-its `NEXTAUTH_URL` fallback are unset. There is no localhost fallback.
+`handleSignOut()` clears the local session, then throws if `OIDC_CLIENT_ID` is
+unset, or if `MINISTRY_PLATFORM_BASE_URL` or `BETTER_AUTH_URL` (with its
+`NEXTAUTH_URL` fallback) is unset or fails validation in `src/lib/env.ts`: both
+must be https, except loopback `http://localhost` (for the MP URL, only outside
+production). There is no localhost fallback.
 
 ## Testing
 
@@ -142,6 +155,14 @@ sign-in and shows the real `auth` instance returns the retained id_token as
 - [OpenID Connect RP-Initiated Logout Spec](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 - [Better Auth Documentation](https://www.better-auth.com/docs)
 - [Auth Reference](../.claude/references/auth.md) — § Logout Flow
+
+## Possible follow-up: return to `/signed-out`
+
+MP currently returns the user to the app origin, and `/signin` then restarts
+OAuth straight away (step 4 above). Sending `<origin>/signed-out` as
+`post_logout_redirect_uri` — the page cross-tab sign-out already lands on, which
+starts nothing — would avoid that. It needs an MP admin to register that URI on
+the OAuth client first; until then the code sends the bare origin.
 
 ## Alternative considered: local-only logout
 
