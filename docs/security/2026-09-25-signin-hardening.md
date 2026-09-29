@@ -53,7 +53,7 @@ through the app's service account, and audit attribution on writes.
 ## Checking a fork
 
 ```bash
-grep -rF 'startsWith("/\\")' src/components/sign-in/        # prints = F3b applies
+grep -rF 'startsWith("/\\")' src/                          # prints = F3b applies (the check lived in src/app/signin/page.tsx before F9)
 grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent + better-auth 1.7 + discoveryUrl = F12 applies
 ```
 

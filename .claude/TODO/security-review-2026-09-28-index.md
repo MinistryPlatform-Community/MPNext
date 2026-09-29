@@ -34,6 +34,8 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 - **Auth UI (f):** `/auth-error` code allowlist; `/signin` error states + restart cap; sign-out always reachable; `global-error` works without JS; `[guid]` page self-gates; tabs leave protected pages when the session ends — `auth-error-page-content-spoofing`, `signin-page-swallows-errors`, `no-signout-when-profile-fails`, `prerendered-nonceless-pages`, `layout-gate-docs-and-test-misleading`
 - **CI / setup (g):** actions pinned by SHA + `permissions: contents: read` + Dependabot; lint + `tsc` CI job; `.env.local` written quoted/escaped, 0600, secret ≥ 32; setup uses `npm ci`, no `npm update`; dedicated OIDC client guidance — `ci-action-pinning-permissions`, `setup-env-file-writing`, `setup-runs-npm-update`, `shared-oidc-client-default`
 
+- **F3b advisory fork check:** advisory greps all of `src/`; playbook control-char check covers `src/app/signin/` too. Verified against `ee46343`, `cfeecab~1`, `HEAD` → vulnerable, vulnerable, clean — `f3b-advisory-fork-check-incomplete`
+
 ## Decisions (2026-09-29)
 
 | Item | Decision |
@@ -58,7 +60,7 @@ TODO files deleted; any remaining doc edits are in [security-review-2026-09-28-d
 | [security-next-image-optimizer-and-version](security-next-image-optimizer-and-version.md) | `next` ≥ 16.3.6 (optimizer disabled) |
 | [security-no-server-only-guard](security-no-server-only-guard.md) | Install + imports |
 | [security-shared-device-session-persistence](security-shared-device-session-persistence.md) | Signed-out page; rest accepted |
-| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-f3b-advisory-fork-check-incomplete](security-f3b-advisory-fork-check-incomplete.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
+| [security-docs-drift](security-docs-drift.md), [security-review-2026-09-28-doc-sweep](security-review-2026-09-28-doc-sweep.md), [security-info-session-and-oauth-hardening-notes](security-info-session-and-oauth-hardening-notes.md), decision notes | Docs sweep (runs last) |
 
 ## What was checked and held (so it isn't re-reviewed from scratch)
 
