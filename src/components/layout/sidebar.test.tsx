@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { use } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
 
@@ -25,8 +26,15 @@ import type { MPUserProfile } from "@/lib/providers/ministry-platform/types";
  *    read from the SERVER-COMPUTED flag and not re-derived on the client from
  *    `roles`, and that it fails closed when the profile is absent.
  *
+ * 4. Entries must be `next/link`, not `<a>`. A plain anchor reloads the whole
+ *    document, remounting the app shell and reloading the MP profile on every
+ *    click — which is what made navigation flicker like a refresh.
+ * 5. Only the gated entry may wait on the profile: the drawer and Dashboard
+ *    must render while `useUser()` is still suspended.
+ *
  * `@/contexts` is mocked: the real UserProvider calls a server action that
- * reaches Ministry Platform, and nothing in this file may touch MP.
+ * reaches Ministry Platform, and nothing in this file may touch MP. `next/link`
+ * is mocked to a marked anchor so the tests can tell it from a plain `<a>`.
  *
  * Note: this component takes no route input and has no active-link state, so
  * there is no "current page" highlight to test. Open/closed is expressed purely
@@ -39,6 +47,18 @@ const { mockUseUser } = vi.hoisted(() => ({
 
 vi.mock("@/contexts", () => ({
   useUser: mockUseUser,
+}));
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a data-next-link="" href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }));
 
 import { Sidebar } from "./sidebar";
@@ -79,6 +99,24 @@ describe("Sidebar", () => {
       ["Dashboard", "/"],
       ["Contact Lookup", "/contactlookup"],
     ]);
+  });
+
+  it("navigates with next/link, not a document-reloading <a>", () => {
+    render(<Sidebar isOpen onClose={() => {}} />);
+
+    for (const link of screen.getAllByRole("link")) {
+      expect(link).toHaveAttribute("data-next-link");
+    }
+  });
+
+  it("renders the drawer and Dashboard while the profile is still loading", () => {
+    const never = new Promise<never>(() => {});
+    mockUseUser.mockImplementation(() => use(never));
+    render(<Sidebar isOpen onClose={() => {}} />);
+
+    expect(screen.getByRole("heading", { name: "Menu" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Contact Lookup" })).toBeNull();
   });
 
   it("labels the drawer and exposes an accessible close control", () => {

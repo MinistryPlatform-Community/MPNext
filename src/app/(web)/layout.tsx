@@ -1,8 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Providers } from "@/app/providers";
-import { AuthWrapper, Header, DynamicBreadcrumb } from "@/components/layout";
+import { ServerProviders } from "@/app/server-providers";
+import {
+  AuthWrapper,
+  Header,
+  HeaderSkeleton,
+  DynamicBreadcrumb,
+} from "@/components/layout";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,9 +38,15 @@ export default async function WebLayout({
 }>) {
   return (
     <AuthWrapper>
-      <Providers>
+      <ServerProviders>
         <div className={`flex flex-col ${geistSans.variable} ${geistMono.variable}`}>
-          <Suspense fallback={<div className="h-16" />}>
+          {/*
+            Header should never suspend — only its avatar reads the MP profile,
+            behind its own boundary. This is a safety net, and its fallback must
+            be the fixed header skeleton: an in-flow placeholder here pushed all
+            of <main> down 64px (on top of its mt-16) on every page load.
+          */}
+          <Suspense fallback={<HeaderSkeleton />}>
             <Header />
           </Suspense>
           <main className="flex-1 mt-16">
@@ -45,7 +56,7 @@ export default async function WebLayout({
             {children}
           </main>
         </div>
-      </Providers>
+      </ServerProviders>
     </AuthWrapper>
   );
 }

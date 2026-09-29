@@ -11,8 +11,8 @@ import { render, screen } from "@testing-library/react";
  * UserProvider" in an unrelated feature.
  *
  * UserProvider is mocked deliberately: this file guards the *composition*, not
- * the provider's behaviour. The real UserProvider calls authClient.useSession()
- * and the getCurrentUserProfile server action — pulling those in here would turn
+ * the provider's behaviour. The real UserProvider suspends on the profile
+ * promise and calls the getCurrentUserProfile server action on refresh — pulling those in here would turn
  * a structural test into an integration test against Ministry Platform. Its own
  * behaviour is covered in src/contexts/user-context.test.tsx.
  */
@@ -22,18 +22,26 @@ const { mockUserProvider } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/contexts/user-context", () => ({
-  UserProvider: ({ children }: { children: React.ReactNode }) => {
-    mockUserProvider();
+  UserProvider: ({
+    children,
+    profilePromise,
+  }: {
+    children: React.ReactNode;
+    profilePromise: Promise<unknown>;
+  }) => {
+    mockUserProvider(profilePromise);
     return <div data-testid="user-provider">{children}</div>;
   },
 }));
 
 import { Providers } from "./providers";
 
+const profilePromise = Promise.resolve(null);
+
 describe("Providers", () => {
   it("renders its children", () => {
     render(
-      <Providers>
+      <Providers profilePromise={profilePromise}>
         <span data-testid="child">page</span>
       </Providers>,
     );
@@ -43,7 +51,7 @@ describe("Providers", () => {
 
   it("mounts UserProvider", () => {
     render(
-      <Providers>
+      <Providers profilePromise={profilePromise}>
         <span />
       </Providers>,
     );
@@ -52,9 +60,21 @@ describe("Providers", () => {
     expect(mockUserProvider).toHaveBeenCalled();
   });
 
+  it("hands the server-started profile promise to UserProvider", () => {
+    render(
+      <Providers profilePromise={profilePromise}>
+        <span />
+      </Providers>,
+    );
+
+    // Forwarded as-is: re-wrapping it would hand UserProvider a new promise on
+    // every render and re-suspend the avatar each time.
+    expect(mockUserProvider).toHaveBeenCalledWith(profilePromise);
+  });
+
   it("renders children INSIDE UserProvider, not beside it", () => {
     render(
-      <Providers>
+      <Providers profilePromise={profilePromise}>
         <span data-testid="child">page</span>
       </Providers>,
     );
@@ -67,7 +87,7 @@ describe("Providers", () => {
 
   it("renders multiple children in order", () => {
     render(
-      <Providers>
+      <Providers profilePromise={profilePromise}>
         <span data-testid="first">1</span>
         <span data-testid="second">2</span>
       </Providers>,

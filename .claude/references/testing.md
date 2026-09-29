@@ -360,22 +360,32 @@ Use `@testing-library/react` `renderHook` with a wrapper:
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { ReactNode } from 'react';
 
-function createWrapper() {
+function createWrapper(profilePromise = Promise.resolve(null)) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return <UserProvider>{children}</UserProvider>;
+    return <UserProvider profilePromise={profilePromise}>{children}</UserProvider>;
   };
 }
 
 it('should load profile', async () => {
-  const { result } = renderHook(() => useUser(), { wrapper: createWrapper() });
-
-  await waitFor(() => {
-    expect(result.current.isLoading).toBe(false);
+  // useUser() suspends, so render inside an awaited act() and a <Suspense>
+  // (see contexts/user-context.test.tsx for the full harness).
+  const { result } = renderHook(() => useUser(), {
+    wrapper: createWrapper(Promise.resolve(mockProfile)),
   });
 
-  expect(result.current.userProfile).toEqual(mockProfile);
+  await waitFor(() => {
+    expect(result.current.userProfile).toEqual(mockProfile);
+  });
 });
 ```
+
+**Pending-forever suspensions and `act()`:** to assert what renders *while* `useUser()`
+is still pending, tests make it `use()` a promise that never settles. Inside `act()`
+(which `fireEvent` wraps), React holds **every** commit until pending thenables settle —
+so a click that should update state beside a suspended boundary never lands, although
+a browser commits it. `components/layout/header.test.tsx` ("keeps the sidebar usable")
+sets `IS_REACT_ACT_ENVIRONMENT = false` for that one test, uses `findBy*`/`waitFor`,
+and restores the flag in `finally`.
 
 ## Radix Component Tests Under jsdom
 
@@ -713,7 +723,7 @@ they sum to the 1015 in the coverage summary.
 | `components/contact-lookup-details/contact-lookup-details.test.tsx` | 18 | Suspense pending/resolved states, MP photo URL, nickname + initials fallbacks, `N/A` placeholders, props handed to ContactLogs |
 | `components/contact-lookup/contact-lookup-search.test.tsx` | 18 | Empty query clears results without calling the action, in-flight lock via the disabled button, Enter vs button submit, action rejection surfaced |
 | `services/domainTimezoneService.test.ts` | 18 | Windows-to-IANA mapping, DST, round-tripping, cache |
-| `components/layout/header.test.tsx` | 17 | App-title env fallback, profile-loading state, avatar vs icon fallback, the tooltip chain (incl. falling back to `mpEmail`, never the synthetic session email), sidebar open/close ownership |
+| `components/layout/header.test.tsx` | 22 | App-title env fallback, profile-loading state, bar/hamburger/sidebar stay rendered while `useUser()` is suspended (only the avatar suspends), `HeaderSkeleton` matches the fixed h-16 bar, avatar vs icon fallback, the tooltip chain (incl. falling back to `mpEmail`, never the synthetic session email), sidebar open/close ownership |
 | `services/contactService.test.ts` | 17 | Contact search, getByGuid, updateContact, service-layer read/write gate (F10) |
 | `components/layout/dynamic-breadcrumb.test.tsx` | 16 | Mapped route labels, GUID leaf renders `Details` (any case), GUID-ish segments must NOT match, crude fallback retained, doubled/trailing slashes, all three `customSegments` shapes |
 | `lib/providers/ministry-platform/services/procedure.service.test.ts` | 16 | Procedure listing and execution, name encoding |
@@ -721,17 +731,17 @@ they sum to the 1015 in the coverage summary.
 | `components/user-menu/user-menu.test.tsx` | 15 | Radix trigger opens on pointerDown, sign-out fires once, `onClose` ordering, degenerate-profile sign-out, failed sign-out alerts, successful sign-out stays silent, NEXT_REDIRECT re-thrown not alerted |
 | `lib/providers/ministry-platform/client.test.ts` | 15 | OAuth token management, `expires_in`-derived lifetime and its 30s floor |
 | `lib/providers/ministry-platform/services/communication.service.test.ts` | 13 | Email/SMS JSON vs multipart paths |
-| `app/(web)/layout.test.tsx` | 12 | `AuthWrapper` is an ancestor of the page and sits outside `Providers`; Header-in-Suspense; both metadata title branches |
+| `app/(web)/layout.test.tsx` | 12 | `AuthWrapper` is an ancestor of the page and sits outside `ServerProviders`; Header-in-Suspense with `HeaderSkeleton` as the fallback; both metadata title branches |
 | `components/contact-lookup/contact-lookup.test.tsx` | 12 | Search-to-results state wiring, error and empty propagation, emptying the box clears stale results |
 | `components/shared-actions/user.test.ts` | 12 | `getCurrentUserProfile` delegation, server-computed `canAccessContactFeatures`, role-less users keep their profile |
-| `components/layout/sidebar.test.tsx` | 11 | Nav label+href pairs, `onClose` from X and from a nav link, panel stays mounted when closed, Contact Lookup hidden/shown by `canAccessContactFeatures` (fails closed) |
+| `components/layout/sidebar.test.tsx` | 13 | Nav label+href pairs, entries are `next/link` (no document reload), drawer + Dashboard render while the profile is pending, `onClose` from X and from a nav link, panel stays mounted when closed, Contact Lookup hidden/shown by `canAccessContactFeatures` (fails closed) |
 | `auth.id-token-sign-in.test.ts` | 11 | F12 end to end: real `auth` against a mocked MP OIDC provider with RS256-signed id_tokens; the `hooks.before` refusal over HTTP and in-process, and the `sub` binding alone with the hook removed (node environment) |
 | `app/(web)/contactlookup/[guid]/page.test.tsx` | 10 | Next.js 16 async `params` await, promises passed down unresolved for streaming, `Contact_ID` guard, rejection propagation |
 | `components/contact-lookup/actions.test.ts` | 10 | Search contacts action, security-role read gate, denial not flattened into a generic error |
 | `services/sessionContextService.test.ts` | 10 | Acting-user resolution, `mp.write.non_user` warning |
 | `app/(web)/contactlookup/layout.test.tsx` | 8 | Page-layer role gate: renders children for a role-holder, `redirect("/no-access")` for every denial reason, MP failure surfaces instead of redirecting |
 | `app/auth-error/page.test.tsx` | 8 | OAuth-failure landing page, error-code rendering |
-| `contexts/user-context.test.tsx` | 8 | UserProvider + useUser lifecycle |
+| `contexts/user-context.test.tsx` | 9 | Server-started promise exposed without a client refetch, suspend/resolve/reject, server re-render swaps the promise, refresh stays inside a transition (no fallback mid-reload) |
 | `lib/providers/ministry-platform/services/domain.service.test.ts` | 8 | Domain info and global filters |
 | `lib/providers/ministry-platform/services/metadata.service.test.ts` | 8 | Metadata refresh, table listing |
 | `services/userService.test.ts` | 8 | User profile lookup, GUID + User_ID validation |
@@ -742,7 +752,8 @@ they sum to the 1015 in the coverage summary.
 | `app/global-error.test.tsx` | 6 | Renders its own html/body (via `renderToStaticMarkup`), sets `document.title` with no metadata export, imports no app code |
 | `components/home-demos/contact-lookup-demo-card.test.tsx` | 6 | Dashboard tile renders only with `canAccessContactFeatures === true`, `/contactlookup` href, fails closed on a null/flagless profile |
 | `app/(web)/no-access/page.test.tsx` | 5 | Explains the missing security role, names the administrator, no link or auto-redirect that would loop back into the gate |
-| `app/providers.test.tsx` | 5 | Children nested inside `UserProvider`, not beside it |
+| `app/providers.test.tsx` | 6 | Children nested inside `UserProvider`, not beside it; `profilePromise` forwarded as-is |
+| `app/server-providers.test.tsx` | 5 | One un-awaited profile load per render, `undefined` → `null`, rejection passed through |
 | `app/session-error/page.test.tsx` | 5 | Sign-out is a real submit inside `<form action>` and actually invokes the action |
 | `components/shared-actions/domain.test.ts` | 5 | `getMpTimezone` delegation and its authenticated-session check (F11) |
 | `components/user-menu/actions.test.ts` | 5 | Sign-out + OAuth end session redirect |
@@ -754,7 +765,7 @@ they sum to the 1015 in the coverage summary.
 | `lib/next-config-headers.test.ts` | 3 | The static headers are actually attached to `/(.*)` in `next.config.ts`, and no CSP is set there — the nonce-based one is per-request in `src/proxy.ts` |
 | `app/(web)/home/page.test.tsx` | 2 | Unconditional redirect to `/`, never looping back to `/home` |
 | `contexts/session-context.test.tsx` | 2 | `useAppSession` wrapper |
-| **Total** | **1150** | 61 files |
+| **Total** | **1265** | 68 files |
 
 ## Ministry Platform Safety in Tests
 

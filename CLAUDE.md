@@ -70,7 +70,7 @@ Also: do not run `npm ci` while `next dev` is running — it deletes `node_modul
 - **Services Layer**: Singleton service classes in `src/services/` wrap MPHelper for domain logic
   - Domain: `ContactService`, `ContactLogService`, `UserService`
   - Cross-cutting: `AuthorizationService` (MP security-role gate, exports `UnauthorizedError`), `SessionContextService` (resolves the acting MP `User_ID` for audit attribution), `DomainTimezoneService` (all datetime conversion at the MP boundary)
-- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`
+- **Contexts**: React context providers in `src/contexts/` (`UserProvider`/`useUser` from `user-context.tsx`) composed in `src/app/providers.tsx`. The MP profile is started server-side by `src/app/server-providers.tsx` (below `AuthWrapper`) and streamed in as a promise; `useUser()` suspends on it, so keep each `<Suspense>` around it tight and same-size (the header wraps only its avatar) or the page shifts; `useAppSession()` (`session-context.tsx`) wraps Better Auth's `authClient.useSession()`
 - **Error Boundaries**: `src/app/global-error.tsx` (root, replaces the whole document), `src/app/error.tsx` (root segment), and `src/app/(web)/error.tsx` (protected shell, keeps header/sidebar alive) — so one throw no longer takes the whole page
 - **Security Headers**: `src/lib/security-headers.ts` builds the policy; `src/proxy.ts` applies it with a fresh per-request nonce. See **[Security Headers](.claude/references/security-headers.md)**.
 - **UI**: Radix UI primitives + shadcn/ui components in `src/components/ui/`, Tailwind CSS v4
