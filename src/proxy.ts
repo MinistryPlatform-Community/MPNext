@@ -55,6 +55,11 @@ export async function proxy(request: NextRequest) {
   // `/signin`, which immediately restarts OAuth — a loop that never lets the
   // user see why sign-in failed.
   //
+  // `/signed-out` must stay public for the same reason: it is where a tab
+  // lands after its session ended (`SessionGuard`), by which point the session
+  // cookie is usually gone. Bouncing it to `/signin` would auto-start OAuth
+  // and, with the MP SSO session still alive, silently sign the tab back in.
+  //
   // `/api` exactly or under `/api/` — not a bare `startsWith('/api')`, which
   // would also make a future `/apidocs` or `/api-keys` page public.
   //
@@ -65,7 +70,8 @@ export async function proxy(request: NextRequest) {
     pathname === '/api' ||
     pathname.startsWith('/api/') ||
     pathname === '/signin' ||
-    pathname === '/auth-error'
+    pathname === '/auth-error' ||
+    pathname === '/signed-out'
   ) {
     return withCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }

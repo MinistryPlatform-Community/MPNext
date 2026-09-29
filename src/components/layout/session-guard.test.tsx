@@ -8,7 +8,7 @@ import { act, render, screen } from "@testing-library/react";
  * tab left open after sign-out elsewhere (or session expiry) kept showing
  * contact records and pastoral notes indefinitely. The guard must:
  *
- *  - drop the page and replace the location with /signin when the client
+ *  - drop the page and replace the location with /signed-out when the client
  *    session goes from present to null,
  *  - NOT do that for the initial pending → null load, or while the session is
  *    merely pending/refetching,
@@ -95,15 +95,18 @@ describe("SessionGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("leaves for /signin and stops rendering member data when the session ends", () => {
+  it("leaves for /signed-out (not /signin) and stops rendering member data when the session ends", () => {
     setSession({ data: SESSION });
     const { rerender } = render(guarded());
 
     setSession({ data: null, isPending: false });
     rerender(guarded());
 
-    expect(replace).toHaveBeenCalledWith("/signin");
+    expect(replace).toHaveBeenCalledWith("/signed-out");
     expect(replace).toHaveBeenCalledTimes(1);
+    // /signin auto-starts OAuth; with the MP SSO session alive that would
+    // silently sign this tab straight back in.
+    expect(replace).not.toHaveBeenCalledWith("/signin");
     expect(screen.queryByTestId("member-data")).toBeNull();
   });
 
@@ -159,7 +162,7 @@ describe("SessionGuard", () => {
     setSession({ data: null, isPending: false });
     rerender(guarded());
 
-    expect(replace).toHaveBeenCalledWith("/signin");
+    expect(replace).toHaveBeenCalledWith("/signed-out");
   });
 
   it("unsubscribes from the broadcast on unmount", () => {
