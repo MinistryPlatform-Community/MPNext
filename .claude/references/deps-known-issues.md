@@ -202,9 +202,12 @@ reaching `main` — by the guard, from Windows, as designed.
 `deps:relock` is `node scripts/check-lockfile.mjs --fix` — the same guard as `deps:verify`,
 which relocks a throwaway copy with `npm install --package-lock-only --os=linux --cpu=x64
 --ignore-scripts --no-audit --no-fund` and writes the canonical result back over
-`package-lock.json`, preserving the repo's CRLF line endings. It rewrites only when the tree
-shape actually drifted; a lockfile that differs from canonical in npm metadata alone is left
-untouched. Verified 2026-08-21: it restores every missing nested/bundled entry, prunes
+`package-lock.json`, preserving the repo's CRLF line endings. It rewrites whenever the result
+differs from the committed lockfile — tree drift **or** npm metadata alone. (Until 2026-09-29
+it wrote only on tree drift, so adding a dependency that was already installed transitively —
+`jose`, hoisted via better-auth, for issue #101 — changed only the root entry's
+`dependencies`, which the tree comparison skips, and the new dependency never reached the
+lockfile. `deps:verify` still passes on metadata-only differences.) Verified 2026-08-21: it restores every missing nested/bundled entry, prunes
 nothing, and does not narrow the lockfile to one platform — platform entry counts were
 byte-identical before and after (win32 76, darwin 75, linux-x64 46, android 40). It is
 idempotent, and `--package-lock-only` never touches `node_modules`, so it is safe to run
@@ -270,7 +273,7 @@ entanglement is inherent to those upstream packages, so the guard is the fix, no
 
 | Item | Detail | Raised |
 |---|---|---|
-| `pkce: false` in `src/lib/auth.ts` | Not a dependency issue, but a live security posture item: MP discovery advertises `S256`, so PKCE can likely be enabled. Needs its own change + test. | 2026-08-21 |
+| `pkce: false` in `src/lib/auth.ts` | Not a dependency issue, but a live security posture item: MP discovery advertises `S256`, so PKCE can likely be enabled. Needs its own change + test. *Update 2026-09-29: decided — MP does not actually support PKCE despite advertising it, so `pkce: false` is required (accepted risk F8, `.claude/references/auth.md`).* | 2026-08-21 |
 
 ### Resolved
 

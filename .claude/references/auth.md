@@ -179,9 +179,10 @@ Origin/callbackURL check off either (left undefined, better-auth uses
 `src/auth.secret-guard.test.ts` clears it to prove the import throws. `next build`
 imports this module, so a build environment needs a real secret too — and a
 valid `MINISTRY_PLATFORM_BASE_URL` / `BETTER_AUTH_URL` (see
-[Environment Variables](#environment-variables)). Building the instance also
-runs OIDC discovery (a read-only GET, once per build worker), so a `next build`
-with a real `.env.local` contacts the real MP discovery endpoint.
+[Environment Variables](#environment-variables)). Building the instance makes
+no network call (since issue #101 the provider has explicit endpoints and
+discovery is fetched only when the first OAuth callback verifies an id_token),
+so `next build` never contacts MP.
 
 The guard enforces length only. better-auth's own entropy estimate still only
 *warns* on a low-entropy secret, so generate it (`openssl rand -base64 32`;
@@ -299,13 +300,14 @@ showing one client locking out another when unconfigured.
 | Setting | Value | Notes |
 |---------|-------|-------|
 | `providerId` | `"ministry-platform"` | Used in OAuth URLs and `signIn.social({ provider })` |
-| `discoveryUrl` | `${MP_BASE_URL}/oauth/.well-known/openid-configuration` | OIDC auto-discovery |
-| `requireIdTokenVerification` | `true` | Guarantees the code-flow id_token is verified: genericOAuth builds its verifier only when discovery yields both `issuer` and `jwks_uri`, and without this a partial discovery document left the provider live with verification silently off. With it, such a provider is skipped (sign-in 404s `PROVIDER_NOT_FOUND`). Pinned by `src/auth.oidc-hardening.test.ts` |
+| `discoveryUrl` | **Not set — deliberately** (issue #101) | genericOAuth fetched it once, inside the auth context's `init`, with no timeout or retry, and every request awaited it: one MP blip dropped the provider (`404 PROVIDER_NOT_FOUND`) or hung every request ~300 s. Re-adding it also gives the provider an id_token config, which re-opens `/sign-in/social`'s id_token mode. Pinned by `src/auth.code-flow.test.ts` and `src/auth.oidc-discovery.test.ts` |
+| `authorizationUrl` / `tokenUrl` | `${MP_BASE_URL}/oauth/connect/authorize` / `…/connect/token` | IdentityServer's fixed `connect/*` paths (checked against a live MP 2026-09-29). Building the instance makes no MP call |
+| `endSessionEndpoint` | `${MP_BASE_URL}/oauth/connect/endsession` | **Required** for RP-initiated logout: without it better-auth builds no MP logout URL and sign-out loses `id_token_hint` |
+| `accountSubject` | `({ profile }) => profile.sub` (`""` if not a string) | The account subject is the MP User_GUID. Without discovery the provider is not recognised as OIDC, and the default resolver would read `profile.id`, which `getUserInfo` never returns |
 | `scopes` | `openid`, `http://www.thinkministry.com/dataplatform/scopes/all` | The second scope is the literal URI MP expects, not a short name. No `offline_access`: no refresh token is ever used. **The broad scope is kept deliberately (decision 2026-09-29):** MPNext is a template, and forks build features that need it. The user's token is minimised instead — no `offline_access`, no account cookie, access/refresh tokens blanked in memory (see Session Strategy). Whether userinfo works with a narrower scope is unverified (needs a non-production MP) |
 | `pkce` | `false` | **Required** — MP does not support PKCE, and 1.7 defaults this to `true`. Not a pending follow-up (see [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off) for the consequence) |
-| `disableIdTokenNonceBinding` | `true` | **Required.** MP does not echo `nonce` back in the `id_token`, and better-auth rejects a missing claim. See [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off) |
 | `authorizationUrlParams` | `{ realm: "realm" }` | Extra query parameter MP's authorize endpoint expects |
-| `getUserInfo` | Custom callback | Requires an id_token and binds it: the userinfo `sub` must equal the id_token `sub` (case-insensitive), else `null` + `auth.userinfo.sub_mismatch` — see [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial). Fetches OIDC userinfo; validates `sub` with `sanitizeGuid` and returns `null` (sign-in refused) if unusable; returns the real `email` on the raw profile and `emailVerified: profile.email_verified === true` (not hardcoded — see [Account linking](#account-linking-disabled)) |
+| `getUserInfo` | Custom callback | Requires an id_token and **verifies it** (`verifyMpIdToken`: jose `jwtVerify`, RS256 only, `iss`/`aud` against the lazily discovered issuer and our client id — see [id_token verification](#id_token-verification-lazy-discovery)), else `null` + `auth.userinfo.id_token_unverified`. Then binds it: the userinfo `sub` must equal the id_token `sub` (case-insensitive), else `null` + `auth.userinfo.sub_mismatch` — see [id_token sign-in is disabled](#id_token-sign-in-is-disabled-sign-insocial). Fetches OIDC userinfo; validates `sub` with `sanitizeGuid` and returns `null` (sign-in refused) if unusable; returns the real `email` on the raw profile and `emailVerified: profile.email_verified === true` (not hardcoded — see [Account linking](#account-linking-disabled)) |
 | `mapProfileToUser` | Custom callback | Returns `userGuid: sub`, `email: <sub>@mp.invalid` (synthetic — see [Email is never a key](#email-is-never-a-key-synthetic-email-real-address-in-mpemail)), `mpEmail: real address or null`; throws if `sub` is absent |
 
 ### Better Auth 1.7 migration notes
@@ -322,15 +324,15 @@ way it does:
 | Account identity keyed on `(issuer, accountId)` | **Reverted in 1.7.3** — back to `(providerId, accountId)`, and `accountIssuer` was removed. See [Version Notes](#173--account-identity-reverted-breaking). |
 | Account subject no longer falls back to `id` | `getUserInfo` returns `sub` (see below) |
 | `pkce` defaults to `true` | Kept explicitly `false`: MP does not support PKCE (its discovery document lists `S256`, but that does not mean it works). Accepted risk F8 — see below |
-| ID tokens verified against provider JWKS | Automatic — MP publishes `jwks_uri`. It also turns on `nonce` binding, which MP cannot satisfy, so `disableIdTokenNonceBinding: true` is set (below) |
+| ID tokens verified against provider JWKS | Only for a provider with a discovered id_token config — which this one no longer has (issue #101). The app verifies the id_token itself in `getUserInfo` (below). While discovery was configured it also turned on `nonce` binding, which MP cannot satisfy |
 
-> ⚠️ **`getUserInfo` must return `sub`, not `id`.** MP's discovery document
-> advertises `id_token_signing_alg_values_supported`, so Better Auth treats the
-> provider as OIDC and its default `accountSubject` resolver reads
-> **`profile.sub`** off the raw profile. Pre-1.7 the resolver fell back to
-> `profile.id`; that fallback is gone. Returning only `id` resolves the account
-> subject to `""` and breaks account identity for every user. `src/auth.test.ts`
-> guards this by calling the real configured `getUserInfo`.
+> ⚠️ **`getUserInfo` must return `sub`, not `id`.** The configured
+> `accountSubject` resolver reads **`profile.sub`** off the raw profile.
+> (genericOAuth's default reads `sub` only for a provider it recognised as OIDC
+> from a discovery document, and `profile.id` otherwise; pre-1.7 it fell back to
+> `id` either way.) Returning only `id` resolves the account subject to `""` and
+> breaks account identity for every user. `src/auth.test.ts` guards this by
+> calling the real configured `getUserInfo` and `accountSubject`.
 
 > ⚠️ **`accountIssuer` is gone — do not re-add it.** The advice above held only
 > for 1.7.0–1.7.2. **1.7.3 reverted it** (#11153, #10978): accounts are keyed on
@@ -341,7 +343,8 @@ way it does:
 > `>= 1.7.3` version floor: [Version Notes](#173--account-identity-reverted-breaking).
 
 > ℹ️ **RP-initiated logout: only the `id_token` is taken from better-auth.**
-> MP's discovery document exposes `end_session_endpoint`, so 1.7 builds a
+> The provider's `endSessionEndpoint` is configured explicitly (it came from
+> discovery before issue #101), so 1.7 builds a
 > provider logout URL (with `id_token_hint`) and `auth.api.signOut()` returns it
 > as `url` when called with `disableRedirect: true`. `handleSignOut()` reads
 > `id_token_hint` from that URL (MP origin only) and builds the final URL
@@ -351,28 +354,30 @@ way it does:
 
 #### `nonce` binding is off, and must stay off
 
-> ⚠️ **`disableIdTokenNonceBinding: true` is load-bearing — do not remove it.**
-> Because MP publishes a `jwks_uri`, better-auth 1.7 derives an id_token config
-> from discovery, sets `requiresIdTokenNonce`, sends a server-generated `nonce`
-> on the authorize request and then requires the claim back (OIDC Core
-> §3.1.3.7). **Ministry Platform does not return it.** `nonceMatches()` treats
-> an absent claim as a mismatch, so every sign-in failed with
-> `/auth-error?error=unable_to_get_user_info` and the server log line
-> `id_token failed verification against the discovery JWKS or expected nonce`.
-> Verified 2026-09-12 by decoding a real MP id_token: `kid`, `alg`, `iss` and
-> `aud` all matched; only `nonce` was missing. Fixed in `f88a9f1`.
+> ⚠️ **Nonce binding is off structurally — do not re-add `discoveryUrl`.**
+> With no `discoveryUrl` the provider has no id_token config, so better-auth
+> neither sends a `nonce` nor requires one (`requiresIdTokenNonce` is false),
+> and `verifyMpIdToken` checks none. Re-adding `discoveryUrl` makes better-auth
+> 1.7 derive an id_token config from discovery, set `requiresIdTokenNonce`,
+> send a server-generated `nonce` on the authorize request and then require the
+> claim back (OIDC Core §3.1.3.7). **Ministry Platform does not return it.**
+> `nonceMatches()` treats an absent claim as a mismatch, so every sign-in failed
+> with `/auth-error?error=unable_to_get_user_info` and the server log line
+> `id_token failed verification against the discovery JWKS or expected nonce`
+> until `disableIdTokenNonceBinding: true` was set (`f88a9f1`). Verified
+> 2026-09-12 by decoding a real MP id_token: `kid`, `alg`, `iss` and `aud` all
+> matched; only `nonce` was missing.
 >
 > It looked intermittent at the time, and the reason was inverted from the
 > obvious one: before better-auth 1.7.3, sign-in **succeeded** only when the
 > boot-time discovery fetch had failed, because that left the id_token config
-> undefined and skipped verification entirely. That fail-open mode is gone: a
-> failed discovery now skips the provider (404 until a rebuild, see
-> [Upgrade Checklist](#better-auth-upgrade-checklist) step 5), and
-> `requireIdTokenVerification` refuses a partial one.
+> undefined and skipped verification entirely. Neither mode exists now: there
+> is no boot-time discovery, and the app's own verifier fails closed.
 >
 > **What is still checked:** the id_token signature against MP's JWKS, `iss`
-> and `aud`, plus the app's own `exp`/`azp` checks in `getUserInfo`. **What is
-> given up:** binding the id_token to this particular authorization request.
+> and `aud` (by `verifyMpIdToken`), plus the app's own `exp`/`azp` checks in
+> `getUserInfo`. **What is given up:** binding the id_token to this particular
+> authorization request.
 >
 > **Accepted risk (F8), stated plainly:** with MP omitting `nonce` and not
 > supporting PKCE, **nothing binds an authorization code to the browser that
@@ -391,8 +396,53 @@ way it does:
 > injection cheaper to repeat. Only a server-side state store
 > (`storeStateStrategy: "database"` + `secondaryStorage`) would fix that.
 >
-> **Pinned:** `src/auth.code-flow.test.ts` asserts `disableIdTokenNonceBinding`
-> and drives the real code flow against a mock provider that omits `nonce`.
+> **Pinned:** `src/auth.code-flow.test.ts` asserts there is no `discoveryUrl`,
+> that the live provider has no id_token config and requires no nonce, drives
+> the real code flow against a mock provider that omits `nonce`, and keeps a
+> negative control: with `discoveryUrl` re-added, the authorize request carries
+> a `nonce` and the same MP-shaped id_token cannot sign in.
+
+#### id_token verification (lazy discovery)
+
+Since issue #101 the app verifies MP's id_token itself, in `getUserInfo`
+(`verifyMpIdToken` in `src/lib/auth.ts`) — the same jose `jwtVerify` call
+genericOAuth's `verifyProviderIdToken` made while discovery was configured
+(`jose` is a direct dependency for this, no longer only a transitive one):
+
+- **Algorithm:** RS256 only (`ID_TOKEN_ALGORITHMS`). MP advertises exactly
+  that; pinned rather than read from discovery or the token header, so `none`
+  or an HS256 token signed with the client secret is refused
+  (`ERR_JOSE_ALG_NOT_ALLOWED`). If MP ever signs with another algorithm,
+  sign-in fails loudly and the list needs it.
+- **Issuer and key set** come from MP's discovery document, loaded by
+  `lazyIdTokenVerifier` **at the first callback that needs them**, not at boot:
+  5 s timeout (`OIDC_DISCOVERY_TIMEOUT_MS`, also used for the JWKS request),
+  `redirect: "error"`, single-flight, **cached on success** for the life of
+  the process (the trust model boot-time discovery had), **never cached on
+  failure** — the next sign-in simply tries again. jose caches the key set and
+  re-fetches it (at most once per 30 s) when a token names an unknown `kid`,
+  so key rotation needs no restart; it does not cache a failed key-set fetch
+  either, so a JWKS blip also heals on the next sign-in.
+- **The JWKS URL is not pinned**, deliberately: it differs between
+  IdentityServers (a live MP serves `/oauth/.well-known/jwks`; the
+  IdentityServer default is `/oauth/.well-known/openid-configuration/jwks`). It
+  is resolved from `jwks_uri` against the discovery URL.
+- **Fails closed:** a discovery document without a usable `issuer` or
+  `jwks_uri` is a failure (`auth.oidc.discovery_failed`, `reason:
+  "invalid_document"`, `field`), never a verifier that skips a check.
+- **`aud`** must be `OIDC_CLIENT_ID`; `exp`/`nbf` are checked when present
+  (`exp` presence and `azp` by the app afterwards).
+- **No `provider.issuer`:** better-auth's RFC 9207 callback `iss` check is
+  therefore skipped — moot, since MP's discovery document does not advertise
+  `authorization_response_iss_parameter_supported` (it sends no `iss`) and a
+  single-provider app has no mix-up to defend.
+
+What an MP outage looks like now: building the instance, `next build`, cold
+starts and every session check make **no MP call**, so `/signin` always starts
+sign-in. If MP is down at the callback, that one sign-in is refused
+(`/auth-error?error=unable_to_get_user_info`, "Please try again in a moment")
+and the next attempt after MP recovers succeeds on the same process — no
+restart, no cooldown. `src/auth.oidc-discovery.test.ts` pins all of this.
 
 ### User Additional Fields
 
@@ -509,21 +559,29 @@ redirect — the only mode this app uses. With
 `idToken: { token, accessToken }` it signs the caller in *directly*: it verifies
 the id_token (signature, `iss`, `aud`) and then calls our `getUserInfo` with the
 **caller-supplied** `accessToken` (`node_modules/better-auth/dist/api/routes/sign-in.mjs`).
-Because `discoveryUrl` is set, genericOAuth builds an id_token config for the
-provider, which switches that mode **on** (`supportsIdTokenSignIn`), and
+While `discoveryUrl` was set, genericOAuth built an id_token config for the
+provider, which switched that mode **on** (`supportsIdTokenSignIn`), and
 genericOAuth has no option to turn it off. Nothing bound the verified id_token
 to the access token, so an attacker's own valid id_token plus **any other
 user's** MP access token minted a session as that other user. Reproduced end to
-end against a mock OIDC server. Dropping `discoveryUrl` would also close it but
-is a separate trade-off (it removes JWKS verification of the code-flow id_token
-too), so it stays.
+end against a mock OIDC server.
 
-Three independent layers now close it; keep all three:
+**Since issue #101 there is no `discoveryUrl`**, so the provider has no id_token
+config and better-auth refuses the mode itself (`404 ID_TOKEN_NOT_SUPPORTED`);
+the id_token of the normal code flow is verified by `verifyMpIdToken` instead
+(see [id_token verification](#id_token-verification-lazy-discovery)). That is a
+side effect of configuration, not a control — re-adding `discoveryUrl` switches
+the mode straight back on — so the layers below stay, and the hook still answers
+first. `src/auth.id-token-sign-in.test.ts` proves both: with the hook removed,
+better-auth returns `ID_TOKEN_NOT_SUPPORTED`; with the hook removed **and**
+`discoveryUrl` re-added, the sub binding still refuses the substitution.
+
+Three independent layers close it; keep all three:
 
 | Layer | Where | What it does |
 |---|---|---|
 | **Primary** | `refuseIdTokenSignIn` — `hooks.before` in `src/lib/auth.ts` | If `ctx.path === "/sign-in/social"` and the body *has* an `idToken` key (presence, not truthiness), throws `APIError.from("NOT_FOUND", { code: "ID_TOKEN_SIGN_IN_DISABLED" })`. User hooks run for HTTP **and** in-process `auth.api.signInSocial`, so this covers callers the route never sees. 404, not 400, to match the route's deny posture and better-auth's own `ID_TOKEN_NOT_SUPPORTED` (also 404). The customSession/nextCookies plugins register hooks on their plugin objects, so the user `hooks` key does not displace them |
-| **Defence in depth** | `getUserInfo` in `src/lib/auth.ts` | Decodes the id_token payload (hand-rolled base64url — `jose` is only a transitive dependency) and refuses (`null`, never a throw) unless its `sub` equals the userinfo `sub`, case-insensitively. Logs `auth.userinfo.sub_mismatch` with a `reason` (`missing_id_token`, `undecodable_id_token`, `missing_sub`, `mismatch`) and nothing else — no GUIDs, no token content. The decode is unverified on purpose: genericOAuth's wrapper has already verified the id_token before `getUserInfo` runs |
+| **Defence in depth** | `getUserInfo` in `src/lib/auth.ts` | Verifies the id_token (`verifyMpIdToken`; a malformed or unverifiable one logs `auth.userinfo.id_token_unverified`), then refuses (`null`, never a throw) unless its `sub` equals the userinfo `sub`, case-insensitively. Logs `auth.userinfo.sub_mismatch` with a `reason` (`missing_id_token`, `missing_sub`, `mismatch`) and nothing else — no GUIDs, no token content |
 | **Route filter** | `isAllowedSignInSocialBody` in `src/app/api/auth/[...all]/route.ts` | For `POST /sign-in/social` only: Content-Type media type must be exactly `application/json` (params and case tolerated, any `,` refused); `request.clone().json()` must parse to a plain object whose keys are all in `allowedSignInSocialKeys` (`provider`, `callbackURL` — exactly what `authClient.signIn.social` sends) with `provider === "ministry-platform"`. Anything else gets the route's usual 404 without reaching better-auth. This also closes `scopes`, `loginHint`, `additionalParams`, `errorCallbackURL`, `newUserCallbackURL`, `additionalData`, `requestSignUp` and `disableRedirect` |
 
 **A missing id_token fails closed.** Every legitimate caller supplies one: the
@@ -704,7 +762,8 @@ The guard must be a **ref, checked and set synchronously before the first
 fails against the old implementation.
 
 `/signin` also no longer fails silently: a 429 from the rate limiter, a missing
-provider (`PROVIDER_NOT_FOUND`), a failed session check or a failed start each
+provider (`PROVIDER_NOT_FOUND` — since issue #101 a misconfiguration only, never
+an MP outage), a failed session check or a failed start each
 show a message with a retry button instead of a blank spinner, and automatic
 restarts are capped (`MAX_AUTOMATIC_SIGN_IN_ATTEMPTS` = 2 per 2 minutes,
 `src/components/sign-in/sign-in-attempts.ts`, cleared by `SessionGuard` once a
@@ -1056,8 +1115,9 @@ and the thrown `Error`'s message keeps only `status`/`statusText`/`endpoint` —
 response body. The structured events above (`mp.read.unauthorized`,
 `mp.write.unauthorized`, `mp.write.non_user`, and in `src/lib/auth.ts`
 `auth.userinfo.invalid_sub`, `auth.userinfo.sub_mismatch`,
-`auth.userinfo.id_token_claims_invalid`, `auth.userinfo.fetch_failed`,
-`auth.session.user_id_unresolved` and `auth.discovery.rebuild`) are the greppable
+`auth.userinfo.id_token_claims_invalid`, `auth.userinfo.id_token_unverified`,
+`auth.userinfo.fetch_failed`, `auth.oidc.discovery_failed` and
+`auth.session.user_id_unresolved`) are the greppable
 contract this policy exists alongside; they log a `reason`/status/error name only —
 never GUIDs, token contents or `err.message` — and are unaffected by it. Caller input
 is never echoed into our own log lines or thrown messages either (log injection).
@@ -1330,14 +1390,18 @@ the `better-auth` version, do this before merging:
      `DEFAULT_SECRET` and the `disableOriginCheck` resolution. See
      [Session lifetime and revocation](#session-lifetime-and-revocation-stateless).
    - the mock-OIDC suites — `src/auth.code-flow.test.ts` (state binding,
-     `pkce`/nonce pins, the full callback), `src/auth.oidc-hardening.test.ts`
-     (`requireIdTokenVerification`, `exp`/`azp`, JWE strategy),
-     `src/auth.origin-check.test.ts`, `src/auth.session-config.test.ts`,
-     `src/auth.rate-limit.test.ts` and `src/auth.discovery-rebuild.test.ts`. Each
+     `pkce`/no-`discoveryUrl`/nonce pins, the full callback),
+     `src/auth.oidc-hardening.test.ts` (fail-closed partial discovery,
+     `exp`/`azp`, JWE strategy), `src/auth.oidc-discovery.test.ts` (issue #101:
+     no MP call at boot, recovery after a discovery/JWKS failure,
+     `lazyIdTokenVerifier`), `src/auth.origin-check.test.ts`,
+     `src/auth.session-config.test.ts` and `src/auth.rate-limit.test.ts`. Each
      has mutation controls (origin check off, `trustedOrigins: ["*"]`, cookie
      strategy, `expiresIn`, `refreshCache`, sub binding, nonce, PKCE, account
      cookie); a green run after an upgrade means those still bite. Simplest:
-     `npm run test:run -- src/auth`.
+     `npm run test:run -- src/auth`. Also re-check that genericOAuth still makes
+     no network call in `init` for a provider without `discoveryUrl`, and still
+     leaves such a provider with no id_token config.
 4. **Manual smoke test (required — nothing else catches this):**
    - `npm run dev`, sign in through Ministry Platform.
    - Open `/api/auth/get-session` and confirm the session `user` object contains
@@ -1346,26 +1410,29 @@ the `better-auth` version, do this before merging:
    - Sign out and confirm the MP end-session redirect completes.
    - Existing sessions predate the new user-record shape, so **sign out and log in
      fresh** — don't test against a stale session.
-5. **If sign-in fails at the callback**, check the dev-server log for the
-   provider-level errors better-auth emits at init and callback time:
+5. **If sign-in fails at the callback** (`/auth-error?error=unable_to_get_user_info`),
+   check the server log for the app's structured events:
+   - `auth.oidc.discovery_failed` → MP's discovery document did not load when
+     the callback needed it: `reason` is `request_failed` (with `errName`, e.g.
+     `TimeoutError` after `OIDC_DISCOVERY_TIMEOUT_MS`), `http_status` (with
+     `status`), `invalid_json`, or `invalid_document` (with `field`: `body`,
+     `issuer` or `jwks_uri`). Followed by `auth.userinfo.id_token_unverified`
+     with `reason: "verifier_unavailable"`. Nothing is cached, so the next
+     sign-in retries; no restart is needed.
+   - `auth.userinfo.id_token_unverified` with `reason: "verification_failed"` →
+     jose refused the token or could not fetch the key set; `code` says which
+     (`ERR_JWS_SIGNATURE_VERIFICATION_FAILED`, `ERR_JWT_CLAIM_VALIDATION_FAILED`
+     with `claim` `iss`/`aud`, `ERR_JWT_EXPIRED`, `ERR_JOSE_ALG_NOT_ALLOWED` — MP
+     signing with something other than `ID_TOKEN_ALGORITHMS` — or
+     `ERR_JWKS_TIMEOUT`). An `iss`/`aud` failure after an MP change means the
+     issuer or the OIDC client changed.
    - `id_token failed verification against the discovery JWKS or expected nonce`
-     → if `disableIdTokenNonceBinding: true` has gone missing from the config,
-     put it back: MP never sends the `nonce` claim (see
-     [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off)). With it
-     set, this line means JWKS/issuer/audience changed instead.
-   - `Discovery fetch failed for "ministry-platform"`, or `Provider
-     "ministry-platform": … Provider skipped.` → MP discovery was unreachable
-     (or, with `requireIdTokenVerification`, lacked a usable `issuer` or
-     `jwks_uri`) when the instance was built. Since 1.7.3 this no longer throws out
-     of `betterAuth()` (#10978); the provider is skipped and sign-in fails closed
-     with `404 PROVIDER_NOT_FOUND`. It heals without a restart: the exported `auth`
-     is a `selfHealingAuth` facade, and the next sign-in or callback request after
-     a 30 s cooldown (`DISCOVERY_REBUILD_COOLDOWN_MS`) rebuilds the instance —
-     single-flight, waiting at most 10 s — and swaps it in only if the provider is
-     now present. Look for `auth.discovery.rebuild` with `outcome` `recovered`,
-     `provider_still_missing` or `create_failed`. `/get-session` never triggers a
-     rebuild. Because the facade delegates to the *current* instance, never cache
-     `auth.api` in a module-level variable.
+     (better-auth's own line) → `discoveryUrl` has come back into the config,
+     which turns nonce binding on; MP never sends the `nonce` claim. Remove it
+     (see [`nonce` binding is off](#nonce-binding-is-off-and-must-stay-off)).
+   - `404 PROVIDER_NOT_FOUND` from `/sign-in/social` → the provider is not
+     registered. Without `discoveryUrl` genericOAuth makes no network call in
+     `init`, so this is a configuration error, never an MP outage.
 6. If `userGuid` is missing, check `parseAdditionalUserInputFromProviderProfile`
    in `node_modules/better-auth/dist/db/schema.mjs` — the library may have changed
    how additional fields flow from the OAuth profile into the user record.

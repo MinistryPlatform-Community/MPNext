@@ -10,7 +10,7 @@ You are Claude Code running in a repo that was **forked or copied from MPNext** 
 
 1. The app **refuses to boot** on a forgeable auth configuration: no secret, better-auth's public default secret, a secret shorter than 32 characters, `BETTER_AUTH_SECRETS`, `TEST` set in production, an unset or non-https `BETTER_AUTH_URL`, or a non-https MP URL.
 2. Sessions have a **hard 12 h ceiling**. A copied or forged cookie that no live server row backs dies within 1 h. `session_data` is encrypted (JWE). The user's MP OAuth tokens are held neither in a cookie nor in memory.
-3. There is **one `auth` instance per process** across Next's bundle layers, so sign-out deletes the row that `/get-session` reads and the MP logout carries `id_token_hint`. A failed OIDC discovery at boot heals on the next sign-in instead of lasting until a restart.
+3. There is **one `auth` instance per process** across Next's bundle layers, so sign-out deletes the row that `/get-session` reads and the MP logout carries `id_token_hint`. Building that instance makes **no MP call** (explicit OIDC endpoints; the id_token verifier loads discovery lazily at the first callback), so an MP blip at boot can neither take sign-in down nor hang every request.
 4. **The role gate fails closed**: with `MP_SECURITY_ROLES` unset, nobody gets in. `*` is an explicit opt-in.
 5. **Every MP fetch has a timeout and refuses redirects.** The service-account token is refreshed single-flight and validated. A 401 refreshes and retries once. No endpoint path can leave the API root.
 6. **Provider services validate every path segment.** Stored procedures are deny-all unless allowlisted per instance. Communications take a server-built trusted sender.
@@ -48,7 +48,7 @@ Each one changes a contract that fork-specific code may depend on. Grep for ever
 Answer these by reading the repo. Track the answers, and only proceed once each has an answer or has been raised with the user.
 
 1. **Has the 2026-09-12/25 playbook been ported?** Run its triage block (the start of `port-downstream-hardening.md` Phase 1). Any `✗` there means stop and port that playbook first.
-2. **better-auth version** (`npm ls better-auth`). Upstream is 1.7.4, and several items below cite 1.7.4 internals (`refreshCache` defaulting on in stateless mode, `requireIdTokenVerification`, `DEFAULT_SECRET`). On a different minor, re-verify each cited behaviour in `node_modules/better-auth/dist/` before you port it. Don't carry the claim over unchecked.
+2. **better-auth version** (`npm ls better-auth`). Upstream is 1.7.4, and several items below cite 1.7.4 internals (`refreshCache` defaulting on in stateless mode, genericOAuth's one-shot discovery in `init`, `DEFAULT_SECRET`). On a different minor, re-verify each cited behaviour in `node_modules/better-auth/dist/` before you port it. Don't carry the claim over unchecked.
 3. **Stateless or database-backed sessions?** Upstream has no database: an encrypted cookie cache backed by better-auth's per-process memory adapter. With a real adapter, Phases 3 and 4 change shape (revocation becomes possible, and the shared-instance fix matters less). **Ask the user** before porting those phases onto a database-backed fork.
 4. **Host.** Vercel, Azure, Cloudflare in front, a bare VM? It decides the rate-limit IP header in Phase 6, and whether the per-process caveats in Phase 4 apply.
 5. **Run the triage script.** Every `✗` is work. A `✓` means the grep passed; still read the phase for what a grep cannot see.
@@ -68,13 +68,17 @@ grep -q 'strategy: "jwe"' src/lib/auth.ts && echo "✓ JWE cookie cache" || echo
 grep -q "storeAccountCookie: false" src/lib/auth.ts && echo "✓ no account cookie" || echo "✗ P3 user OAuth tokens in a cookie"
 grep -q "WITHHELD_SESSION_FIELDS\|ipAddress.*userAgent" src/lib/auth.ts && echo "✓ session fields withheld" || echo "✗ P3 token/ip/UA in /get-session"
 
-# Phase 4: one instance, discovery rebuild, logout hint
+# Phase 4: one instance, no boot-time discovery (issue #101), logout hint
 grep -q "globalThis" src/lib/auth.ts && echo "✓ shared instance" || echo "✗ P4 one auth per bundle layer"
-grep -q "selfHealingAuth\|discovery.rebuild" src/lib/auth.ts && echo "✓ discovery rebuild" || echo "✗ P4 discovery failure lasts until restart"
+# (`^\s*discoveryUrl:` is the config key; the second grep skips a function parameter of that name)
+grep -E "^\s*discoveryUrl:" src/lib/auth.ts | grep -qv "discoveryUrl: string" && echo "✗ P4 discovery fetched at boot (one MP blip = sign-in down / requests hang)" || echo "✓ no boot-time discovery"
+grep -q "selfHealingAuth" src/lib/auth.ts && echo "✗ P4 rebuild facade still present (delete it with the #101 port)" || echo "✓ no rebuild facade"
+grep -q "endSessionEndpoint" src/lib/auth.ts && echo "✓ explicit end-session endpoint" || echo "✗ P4 endSessionEndpoint (needed once discoveryUrl is gone)"
 grep -rq "id_token_hint" src/components/ && echo "✓ id_token_hint on logout" || echo "✗ P4 logout hint"
 
-# Phase 5: OIDC
-grep -q "requireIdTokenVerification: true" src/lib/auth.ts && echo "✓ id_token verification required" || echo "✗ P5 requireIdTokenVerification"
+# Phase 5: OIDC — the id_token must be verified by something
+grep -q "verifyMpIdToken" src/lib/auth.ts && echo "✓ id_token verified in getUserInfo" \
+  || { grep -q "requireIdTokenVerification: true" src/lib/auth.ts && echo "✓ id_token verified by genericOAuth (discoveryUrl fork)" || echo "✗ P5 id_token verification not guaranteed"; }
 grep -q "azp" src/lib/auth.ts && echo "✓ exp/azp checks" || echo "✗ P5 exp/azp"
 grep -q '"offline_access"' src/lib/auth.ts && echo "✗ P5 offline_access requested" || echo "✓ no offline_access"
 
@@ -187,15 +191,19 @@ In `enrichSessionUser` (the `customSession` callback), return the user plus `use
 
 ---
 
-## Phase 4: One `auth` instance per process, self-healing discovery, logout hint
+## Phase 4: One `auth` instance per process, no boot-time discovery, logout hint
 
 **Why: the instance.** Next loads `src/lib/auth.ts` once **per bundle layer**. Upstream measured 4 copies under `next dev` and 2 in a production build. Each copy built its own `betterAuth()` with its own memory adapter. The OAuth callback wrote the session and account rows in the route-handler copy, while the sign-out server action ran in another copy where those rows did not exist. Two consequences followed:
 - Sign-out never deleted the row `/get-session` reads, so a copied cookie pair outlived sign-out up to the 12 h cap.
 - better-auth found no id_token, so the MP logout URL had no `id_token_hint`, and MP stopped at a "log out?" prompt. On a shared PC whose tab is then closed, the **MP SSO session stays alive**.
 
-**Why: discovery.** genericOAuth fetches MP's discovery document **once**, with no retry. In 1.7.4 a failed fetch skips the provider, so `/sign-in/social` returns `404 PROVIDER_NOT_FOUND` **until the process restarts**. That fails closed, but it is an outage caused by one cold-start blip.
+**Why: discovery (issue #101).** With `discoveryUrl` set, genericOAuth fetches MP's discovery document **once**, inside the auth context's `init`, with no timeout and no retry. Every auth request awaits that `init`, and so does every in-process `auth.api.*` call, which means every page's session check. The results:
+- A **failed** fetch skips the provider, so `/sign-in/social` returns `404 PROVIDER_NOT_FOUND` until a restart. `/signin` spins with no error, and an uptime check stays green.
+- A **hung** fetch stalls every request for undici's ~300 s headers timeout.
 
-**Port.**
+Upstream first shipped a self-healing rebuild facade (`selfHealingAuth`). It healed the failed case after a 30 s cooldown but not the hang. It was then replaced by removing boot-time discovery altogether.
+
+**Port: one instance.**
 
 ```ts
 export const SHARED_AUTH_KEY = Symbol.for("mpnext.auth");
@@ -204,16 +212,80 @@ export function sharedInstance<T>(key: symbol, create: () => T, env = process.en
   const store = globalThis as unknown as Record<symbol, T | undefined>;
   return (store[key] ??= create());
 }
-export const auth = sharedInstance(SHARED_AUTH_KEY, () => selfHealingAuth(createAuth));
+export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
 ```
 
-`selfHealingAuth(create)` returns a `Proxy` whose `handler` checks, **only for `/api/auth/sign-in/social` and `/api/auth/callback/*`**, whether the current instance has the MP provider (`(await instance.$context).socialProviders`). If it doesn't, the proxy rebuilds: single-flight, at most one build per 30 s counting the first, and a request waits at most 10 s. It swaps the new instance in **only if it has the provider**, and logs `auth.discovery.rebuild` with `outcome` and never the URL. An instance that has the provider is never rebuilt, so live sessions are never thrown away. Every other property reads through to the current instance at access time, so **never cache `auth.api` in a module-level variable**.
+**Port: no boot-time discovery.** Configure the endpoints explicitly and verify the id_token yourself in `getUserInfo`, against an issuer and JWKS loaded from discovery **lazily**. `jose` becomes a direct dependency (it is already in the tree via better-auth; add it with `npm run deps:relock`).
+
+```ts
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
+
+const mpOidc = {
+  discovery: `${mpBaseUrl}/oauth/.well-known/openid-configuration`,
+  authorization: `${mpBaseUrl}/oauth/connect/authorize`,
+  token: `${mpBaseUrl}/oauth/connect/token`,
+  userinfo: `${mpBaseUrl}/oauth/connect/userinfo`,
+  endSession: `${mpBaseUrl}/oauth/connect/endsession`,
+};
+
+// Fetched on first use; single-flight; cached on success; never cached on failure.
+export function lazyIdTokenVerifier(discoveryUrl: string, { timeoutMs = 5_000 } = {}) {
+  let pending: Promise<{ issuer: string; jwks: JWTVerifyGetKey }> | null = null;
+  return () =>
+    (pending ??= fetchIdTokenVerifier(discoveryUrl, timeoutMs).catch((err) => {
+      pending = null;
+      throw err;
+    }));
+}
+// fetchIdTokenVerifier: fetch(discoveryUrl, { signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
+// require a URL-parseable `issuer` and `jwks_uri` (fail closed otherwise, logging only a reason);
+// return { issuer, jwks: createRemoteJWKSet(new URL(jwks_uri, discoveryUrl), { timeoutDuration: timeoutMs }) }.
+
+const loadMpIdTokenVerifier = lazyIdTokenVerifier(mpOidc.discovery);
+
+async function verifyMpIdToken(idToken: string): Promise<JWTPayload | null> {
+  // loader failure → log { reason: "verifier_unavailable" }, return null
+  // jwtVerify(idToken, jwks, { issuer, audience: OIDC_CLIENT_ID, algorithms: ["RS256"] })
+  // failure → log { reason: "verification_failed", code, claim, errName }, return null
+}
+
+genericOAuth({ config: [{
+  providerId: "ministry-platform",
+  // NO discoveryUrl, NO requireIdTokenVerification, NO disableIdTokenNonceBinding
+  authorizationUrl: mpOidc.authorization,
+  tokenUrl: mpOidc.token,
+  endSessionEndpoint: mpOidc.endSession,
+  accountSubject: ({ profile }) => (typeof profile.sub === "string" ? profile.sub : ""),
+  // ...pkce: false, scopes, getUserInfo: missing id_token → null; claims = await verifyMpIdToken(...);
+  //    then the existing sub / exp / azp / userinfo binding checks on `claims`
+}] });
+```
+
+Pitfalls, each of which upstream hit or verified:
+- **Do not pin the JWKS URL.** It differs between IdentityServers: a live MP serves `/oauth/.well-known/jwks`, while the IdentityServer default is `/oauth/.well-known/openid-configuration/jwks`. Take it from `jwks_uri`.
+- **`endSessionEndpoint` is required.** Without discovery, better-auth has no MP logout URL, and sign-out loses the `id_token_hint` read below.
+- **`accountSubject` must read `sub`.** Without discovery the provider is not recognised as OIDC, so the default resolver reads `profile.id`, and every account would be keyed on `""`.
+- **Remove `requireIdTokenVerification`.** Without `discoveryUrl`, genericOAuth *throws* for it at init. The new verifier fails closed on a partial document itself. `disableIdTokenNonceBinding` becomes a no-op: with no id_token config, better-auth sends and requires no nonce.
+- **RS256 only.** Pin the algorithm list; don't take it from the token header or from discovery.
+- **Tests that call `getUserInfo` directly** with unsigned fake id_tokens now need genuinely signed ones, plus a `fetch` stub that replaces only the userinfo response, since discovery and the JWKS still have to answer. Suites that verify with jose need `// @vitest-environment node`.
+- **The F12 `idToken` branch goes away at the source**, because the provider has no id_token config and better-auth returns `404 ID_TOKEN_NOT_SUPPORTED`. Keep the `refuseIdTokenSignIn` hook and the route filter anyway, since re-adding `discoveryUrl` would switch the branch back on.
+
+**If this repo already ported `selfHealingAuth`,** delete it together with everything that existed only for it: `DISCOVERY_REBUILD_COOLDOWN_MS`, `DISCOVERY_REBUILD_WAIT_MS`, `RebuildableAuth`, `needsProvider`, `hasProvider`, `logDiscoveryRebuild` and `src/auth.discovery-rebuild.test.ts`. Keep `MP_PROVIDER_ID` if it is used as the `providerId`. Then export `sharedInstance(SHARED_AUTH_KEY, createAuth)` directly. Tell the user that the `auth.discovery.rebuild` log event is replaced by `auth.oidc.discovery_failed` and `auth.userinfo.id_token_unverified`.
+
+**If this repo keeps `discoveryUrl`** (the user declines the port), keep `requireIdTokenVerification: true` and `disableIdTokenNonceBinding: true`. Know that a hung discovery at boot still stalls every request.
 
 **Sign-out** (`src/components/user-menu/actions.ts`): call `auth.api.signOut({ headers, body: { disableRedirect: true } })` first, so the app session is cleared even if the env below is broken. Take the `id_token_hint` out of the returned `url`, trusting it **only if its origin is the MP origin**. Rebuild the end-session URL yourself, with `post_logout_redirect_uri` set to exactly the registered value (`getAuthBaseUrl()`), `client_id` always, and `id_token_hint` when available. No localhost fallback.
 
 **Caveat to tell the user.** This is per *process*. On serverless, a sign-out that lands on another instance has no id_token, so MP prompts once. That is documented upstream as accepted.
 
-**Tests.** `src/auth.shared-instance.test.ts` signs in through one module copy and signs out through another, with a negative control. It fails when the cache is removed. `src/auth.discovery-rebuild.test.ts` covers cooldown, single-flight, wait cap, swap-only-on-success and that non-sign-in paths never rebuild.
+**Tests.** `src/auth.shared-instance.test.ts` signs in through one module copy and signs out through another, with a negative control. It fails when the cache is removed. `src/auth.oidc-discovery.test.ts` covers issue #101:
+- MP rejecting, 500ing or hanging at boot, with no MP call before the callback;
+- discovery or JWKS failing at the callback, refused, and then recovering on the same instance;
+- the discovery timeout and `redirect: "error"`;
+- single-flight and caching;
+- `lazyIdTokenVerifier` unit cases.
+
+A mutation that re-adds `discoveryUrl` turns the boot and recovery cases red; the hang case fails by timeout.
 
 ---
 
@@ -221,12 +293,12 @@ export const auth = sharedInstance(SHARED_AUTH_KEY, () => selfHealingAuth(create
 
 **Port** in the genericOAuth provider config and `getUserInfo`:
 
-1. **`requireIdTokenVerification: true`.** genericOAuth builds its id_token verifier only when discovery yields both `issuer` and `jwks_uri`. Without this option, a partial discovery document left the provider live with **verification silently off**. With it, that provider is skipped and an error is logged.
-2. **`exp` and `azp` checks.** better-auth hands jose only `issuer` and `audience`, and jose checks `exp` only when it is present. In `getUserInfo`, decode the already-verified id_token (hand-rolled base64url decode, because `jose` is only a transitive dependency) and refuse when `exp` is missing, not finite or in the past, or when `aud` is an array and `azp !== OIDC_CLIENT_ID`. Log `auth.userinfo.id_token_claims_invalid` with `reason` only.
+1. **The id_token is always verified.** Upstream's current code does this with `verifyMpIdToken` in `getUserInfo`, as ported in Phase 4 (issue #101). Its loader fails closed on a discovery document without a usable `issuer` or `jwks_uri`. On a fork that keeps `discoveryUrl`, set **`requireIdTokenVerification: true`** instead. genericOAuth builds its verifier only when discovery yields both `issuer` and `jwks_uri`, and without the option a partial document left the provider live with **verification silently off**.
+2. **`exp` and `azp` checks.** jose checks `exp` only when it is present (and refuses a past or non-numeric one itself), and nothing checks `azp`. In `getUserInfo`, on the **verified** payload, refuse when `exp` is missing, or when `aud` is an array and `azp !== OIDC_CLIENT_ID`. Log `auth.userinfo.id_token_claims_invalid` with `reason` only. (A fork still on `discoveryUrl` decodes the already-verified token instead, and must also refuse a past `exp` itself.)
 3. **The userinfo fetch never throws.** Use `AbortSignal.timeout(10_000)` and `redirect: "error"`, because a followed redirect would re-send the user's bearer. A non-2xx status, a network error, invalid JSON or a non-object body each **return `null`** and log `auth.userinfo.fetch_failed` with a status or `errName`. Returning `null` is better-auth's contract for "unusable". A throw from `getUserInfo` is **not** equivalent: the callback route doesn't wrap it, so it surfaces as an unhandled error.
 4. **Display name.** Build `name` only from `given_name`/`family_name`/`name` claims that are actually strings (`profileDisplayName`). Never interpolate a missing claim.
 5. **Scopes.** Use `openid` plus the MP data scope, with **no `offline_access`**. The app never refreshes the user's token. (Upstream decided against narrowing further, because forks need the broad scope.)
-6. Keep `pkce: false` and `disableIdTokenNonceBinding: true`. MP supports neither PKCE nor the nonce. F8 is an accepted risk; see `port-downstream-hardening.md` Phase 11.
+6. Keep `pkce: false`. MP supports neither PKCE nor the nonce. Without `discoveryUrl`, nonce binding is off structurally. A fork that keeps `discoveryUrl` must keep `disableIdTokenNonceBinding: true` as well. F8 is an accepted risk; see `port-downstream-hardening.md` Phase 11.
 
 **Tests.** Upstream `src/test-utils/mock-oidc.ts` is a mock OIDC provider (discovery, JWKS, token, userinfo) that drives the **real** code flow end to end. `src/auth.code-flow.test.ts`, `src/auth.oidc-hardening.test.ts` and `src/auth.origin-check.test.ts` run on it. Mutants (origin check off, `trustedOrigins: ["*"]`, strategy, `expiresIn`, `refreshCache`, sub binding, nonce, PKCE, account cookie) each turn a test red. Port the harness first. It makes every other auth phase testable.
 
@@ -390,7 +462,7 @@ Add tests with a **Flight-shaped** promise (`then` returning `undefined`) for bo
 ## Phase 15: CI and setup
 
 1. **Pin every action by full commit SHA**, with a version comment. Resolve each SHA from the tag via the GitHub API; don't copy SHAs from here. Add `permissions: contents: read` at workflow level, `persist-credentials: false` on checkout, and a `.github/dependabot.yml` for `github-actions` (weekly, grouped).
-2. **Jobs**: `lint` (`npm run lint` + `npx tsc --noEmit`); `build` (`npm run build` with dummy env, then a prerender check); `test` (with coverage); and `lockfile` if the fork has one. In the dummy build env, point the MP URL at the reserved, non-resolving `https://mp.invalid`, so OIDC discovery during "Collecting page data" fails harmlessly and **never reaches a real MP**.
+2. **Jobs**: `lint` (`npm run lint` + `npx tsc --noEmit`); `build` (`npm run build` with dummy env, then a prerender check); `test` (with coverage); and `lockfile` if the fork has one. In the dummy build env, point the MP URL at the reserved, non-resolving `https://mp.invalid`, so nothing during "Collecting page data" can reach a real MP. (Upstream makes no MP call at build at all since issue #101; a fork that still sets `discoveryUrl` fetches discovery there, and it fails harmlessly.)
 3. **Prerender check** (`scripts/check-prerender.mjs`). Read `.next/prerender-manifest.json` and fail if any route other than `/_not-found` and `/_global-error` was prerendered. A static page carries no CSP nonce and never hydrates under the enforced CSP. Every new page that doesn't read `headers()` needs `export const dynamic = "force-dynamic"`.
 4. **Setup script** (if the fork kept `npm run setup`). Write `.env.local` values quoted, with `$` escaped as `\$`, so `@next/env`'s dotenv-expand returns them unchanged. Use a replacer *function* in line replacement, because `$'`, `` $` `` and `$&` in a value otherwise copy other parts of the file, secrets included. Write with mode `0600`. Enforce a hand-entered secret of ≥ 32 characters that isn't the public default, judged the way Next's `loadEnvConfig` will read it back. Use `npm ci`, never `npm install` or `npm update`. Recommend a **dedicated** MP OIDC client (Authorization Code only, exact redirect URIs) separate from the Client Credentials data client, and remove any "enable Implicit/Hybrid" guidance.
 5. Run the `scripts/` tests in CI as a second Vitest project, outside the `src/` coverage denominator.
@@ -450,8 +522,8 @@ The PR description must call out:
 - [ ] Boot guards for the secret, `TEST`, `BETTER_AUTH_SECRETS` and both URLs, each tested, with no value in any message.
 - [ ] `.env*` ignored and blocked in pre-commit. No tracked env or personal settings files. `SECURITY.md` points at private reporting.
 - [ ] 12 h / no-slide / 1 h / JWE / `refreshCache: false` / no account cookie / tokens stripped / session fields withheld / negative-cached `User_ID`.
-- [ ] One `auth` per process, self-healing discovery, and logout with `client_id` + `id_token_hint`.
-- [ ] `requireIdTokenVerification`, `exp`/`azp` checks, a userinfo fetch that never throws, no `offline_access`.
+- [ ] One `auth` per process, no boot-time discovery (explicit endpoints, lazy id_token verifier, `endSessionEndpoint`), and logout with `client_id` + `id_token_hint`.
+- [ ] The id_token is always verified (`verifyMpIdToken`, or `requireIdTokenVerification` on a `discoveryUrl` fork), `exp`/`azp` checks, a userinfo fetch that never throws, no `offline_access`.
 - [ ] `/sign-in/social` raw Content-Type check, 4 KB body cap, 2048-character `callbackURL` limit, `no-store` everywhere, validated rate-limit IP config.
 - [ ] Role gate fails closed, with `*` as an explicit opt-in.
 - [ ] MP client: timeouts, no redirects, path guard, validated single-flight token, 401 retry, name-only logs.
@@ -489,7 +561,7 @@ git show 9e8ef87 6f1d6fc   # P2 .env* ignore + pre-commit, SECURITY.md; settings
 git show 6616310 2227a80   # P2 env.ts URL validation; loopback http in production
 git show a424953 f2af96d   # P3/P5 user OAuth tokens; OIDC provider, userinfo, JWE, session fields
 git show 0e2652e 10ef3df   # P4 shared instance; logout client_id + id_token_hint
-git show 5e1d2cc           # P4 discovery rebuild
+git show 5e1d2cc           # P4 discovery rebuild (superseded: see the issue #101 PR, which removes it)
 git show 48a871b 96ab2f5   # P6 4 KB body cap; raw Content-Type check
 git show 721d6e5 0f61f54   # P6 no-store; rate-limit IP
 git show 2801d11 8370bcb   # P7 fail-closed roles; private self-sanitizing role read

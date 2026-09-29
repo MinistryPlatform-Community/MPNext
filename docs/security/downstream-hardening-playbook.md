@@ -78,8 +78,13 @@ grep -rqF 'startsWith("/\\")' src/ && echo "✗ F3b (weak leading-/\\ check)" ||
 grep -rqF '\u001f' src/components/sign-in/ src/app/signin/ 2>/dev/null && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
 
 # F12: is ID-token sign-in refused? (live whenever discoveryUrl is set on better-auth >= 1.7)
-grep -q "discoveryUrl" src/lib/auth.ts && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
+# (`^\s*discoveryUrl:` is the config key; the second grep skips a function parameter of that name)
+grep -E "^\s*discoveryUrl:" src/lib/auth.ts | grep -qv "discoveryUrl: string" && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
   && echo "✗ F12 (no hooks.before idToken guard)" || echo "✓ F12 guard (or no discoveryUrl)"
+# Issue #101: does one MP blip at boot take sign-in down? (see "Boot-time discovery" below)
+grep -E "^\s*discoveryUrl:" src/lib/auth.ts | grep -qv "discoveryUrl: string" && echo "✗ #101 (discovery fetched at boot)" \
+  || { grep -q "verifyMpIdToken" src/lib/auth.ts && echo "✓ #101 explicit endpoints + own id_token verification" \
+       || echo "✗ no discoveryUrl AND no id_token verification — sign-in is unverified"; }
 grep -q "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts" && echo "✓ F12 route filter" || echo "✗ F12 (route filter)"
 
 # F4: can a caller smuggle attribution fields into a write?
@@ -569,10 +574,11 @@ Keep structured events. Alerts grep on them; the main ones upstream:
 | `mp.write.non_user` | a write ran with no resolved acting user |
 | `auth.userinfo.invalid_sub` | MP userinfo returned no usable `sub` |
 | `auth.userinfo.sub_mismatch` | id_token `sub` missing or not equal to userinfo `sub` (F12) |
-| `auth.userinfo.id_token_claims_invalid` | id_token `exp` missing or past, or `azp` wrong (2026-09-28) |
+| `auth.userinfo.id_token_claims_invalid` | id_token `exp` missing, or `azp` wrong (2026-09-28; a past `exp` is now refused by jose — `id_token_unverified`) |
+| `auth.userinfo.id_token_unverified` | id_token could not be verified: `reason` `verifier_unavailable` (discovery did not load) or `verification_failed` with jose's `code`/`claim` (issue #101, 2026-09-29) |
 | `auth.userinfo.fetch_failed` | userinfo request failed, timed out or redirected (2026-09-28) |
+| `auth.oidc.discovery_failed` | MP's discovery document did not load at the callback: `reason` `http_status`, `request_failed`, `invalid_json` or `invalid_document` (+ `field`) (issue #101, 2026-09-29) |
 | `auth.session.user_id_unresolved` | `dp_Users` lookup for the session's `User_ID` failed (2026-09-28) |
-| `auth.discovery.rebuild` | the `auth` instance was rebuilt after a failed discovery (2026-09-29) |
 
 ### Make it enforced, not advisory
 
@@ -869,7 +875,7 @@ precondition cheaper) — as rated in the advisory.
 ### Does this apply to me?
 
 ```bash
-grep -n "discoveryUrl" src/lib/auth.ts                        # set? the branch is live
+grep -nE "^\s*discoveryUrl:" src/lib/auth.ts | grep -v "discoveryUrl: string"   # set? the branch is live
 grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent? affected
 grep '"version"' node_modules/better-auth/package.json        # >= 1.7? affected
 grep -n "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts"   # absent? layer (a) missing
@@ -898,8 +904,11 @@ better-auth 1.7's `POST /sign-in/social` has an `idToken` branch: body
 `{ provider, idToken: { token, accessToken } }` creates a session directly —
 no `state`, no authorization code, no exchange. It is enabled for a
 genericOAuth provider whenever that provider has an id-token verification
-config, which it gets automatically because `auth.ts` sets `discoveryUrl`.
-**genericOAuth has no option to turn it off.**
+config, which it gets automatically when `auth.ts` sets `discoveryUrl`.
+**genericOAuth has no option to turn it off.** (Upstream `main` stopped
+setting `discoveryUrl` in issue #101, so the branch is off there as well — see
+[Boot-time discovery](#boot-time-discovery-issue-101) — but the guard below is
+kept as the primary control.)
 
 better-auth verifies the id_token (signature, issuer, audience = your
 `OIDC_CLIENT_ID`), then calls **our** `getUserInfo` with the
@@ -987,12 +996,13 @@ Why all three: (a) is HTTP-only and in-process `auth.api` calls skip it; (b)
 depends on better-auth keeping the key named `idToken`; (c) is what still holds
 if a future better-auth path reaches `getUserInfo` with caller-supplied tokens.
 
-Considered and **deferred**: dropping `discoveryUrl` would remove the id-token
-config and with it the branch — and would also remove the dependence on
-discovery at boot — but it loses JWKS verification of the normal flow's id_token
-(upstream now *requires* it: `requireIdTokenVerification: true`), and
-since 1.7 reads `profile.id` for non-OIDC providers it needs an
-`accountSubject` mapping. A separate trade-off, not part of this fix.
+Dropping `discoveryUrl` was **deferred** here, because it loses genericOAuth's
+JWKS verification of the normal flow's id_token. It was **done in issue #101**
+(2026-09-29): the app now verifies the id_token itself, with the same jose call,
+and maps `accountSubject` to `sub`. That removes the boot-time dependency on
+discovery, and the branch goes with it. See
+[Boot-time discovery](#boot-time-discovery-issue-101). Keep (a)–(c) anyway,
+since re-adding `discoveryUrl` would switch the branch straight back on.
 
 ### Tests, and the mutations that must fail them
 
@@ -1051,20 +1061,26 @@ Symptom: `/auth-error?error=unable_to_get_user_info`, with
 better-auth 1.7 turns nonce binding on automatically for any provider whose
 discovery document yields an id_token config, sends a `nonce` on the authorize
 request, then requires the claim to come back — `nonceMatches` returns false when
-the claim is absent. **MP omits it.** So:
+the claim is absent. **MP omits it.** So, while your config sets `discoveryUrl`:
 
 ```ts
 disableIdTokenNonceBinding: true,
 ```
+
+Upstream no longer needs this. Since issue #101 it sets no `discoveryUrl`, so the
+provider has no id_token config and nonce binding is off structurally (see
+[Boot-time discovery](#boot-time-discovery-issue-101)). If you port that, drop
+both options. If you keep `discoveryUrl`, keep both this and
+`requireIdTokenVerification: true`.
 
 What made this look intermittent is inverted from the obvious reading: on
 better-auth before 1.7.3, **sign-in succeeded only when the boot-time discovery
 fetch had failed**, because that left the id_token config undefined and skipped
 verification altogether. A *working* discovery meant a *broken* sign-in. On
 1.7.4 a failed discovery skips the provider instead (sign-in 404s
-`PROVIDER_NOT_FOUND`), and upstream sets `requireIdTokenVerification: true` so a
-discovery document missing `issuer` or `jwks_uri` is refused rather than
-silently skipping verification.
+`PROVIDER_NOT_FOUND`), and `requireIdTokenVerification: true` refuses a
+discovery document missing `issuer` or `jwks_uri` rather than silently skipping
+verification.
 
 What you give up: binding the id_token to this particular authorization request.
 Signature, issuer and audience are still verified against MP's JWKS. The
@@ -1244,6 +1260,9 @@ Before you call your fork done:
 - [ ] Every page that reads MP data gates itself — delete a layout's gate and a
       direct request for the page is still refused
 - [ ] `BETTER_AUTH_SECRET` rotated if you were ever exposed to F-UPDATE-USER
+- [ ] With MP unreachable (or hanging) when the app starts, `POST /api/auth/sign-in/social`
+      still returns 200 immediately, and a sign-in after MP recovers succeeds without a
+      restart (issue #101)
 
 ---
 
@@ -1260,8 +1279,8 @@ A second auth review (2026-09-28) found no Critical or High issues; the
   characters in endpoint paths; errors log names only.
 - **Provider services:** table/procedure names, IDs and GUIDs validated and
   each path segment encoded; `$ignorePermissions` removed; codegen escaping.
-- **Auth core:** `requireIdTokenVerification: true`; id_token `exp`/`azp`
-  checks; userinfo never throws (timeout, no redirects); `session_data` is
+- **Auth core:** `requireIdTokenVerification: true` (superseded by issue #101
+  below); id_token `exp`/`azp` checks; userinfo never throws (timeout, no redirects); `session_data` is
   encrypted (JWE); `User_ID` lookup failures negative-cached (30 s / 5 min);
   `token`, `ipAddress` and `userAgent` stripped from `/get-session`; startup
   guard on the secret; `AUTH_IP_ADDRESS_HEADERS` / `AUTH_TRUSTED_PROXIES` for
@@ -1282,11 +1301,13 @@ A second auth review (2026-09-28) found no Critical or High issues; the
   0600; `npm ci`, no `npm update`.
 - **Env validation + discovery:** `src/lib/env.ts` validates both URLs at
   startup. A failed discovery no longer disables sign-in for the life of the
-  process: the next sign-in or callback after a 30 s cooldown rebuilds the
-  `auth` instance (single-flight; `auth.discovery.rebuild` log event).
+  process. This first landed as a self-healing rebuild of the `auth` instance,
+  and was then replaced by removing boot-time discovery altogether — see
+  [Boot-time discovery](#boot-time-discovery-issue-101).
 - **Tests:** a mock OIDC provider (`src/test-utils/mock-oidc.ts`) drives the
-  real code flow; origin check, session config, rate limit and discovery
-  rebuild each have a suite that a mutation turns red.
+  real code flow; origin check, session config, rate limit and the discovery
+  outage (`src/auth.oidc-discovery.test.ts`) each have a suite that a mutation
+  turns red.
 - **Dependencies:** Next 16.3.7 (GHSA-vcvr-r3jv-pc5j); `import "server-only"`
   in `auth.ts`, the MP client and every service.
 
@@ -1315,6 +1336,43 @@ and a verification list, is in `.claude/playbooks/port-security-review-2026-09-2
 - The cookie-cache strategy change (JWT → JWE) invalidates every existing
   `session_data` cookie once, on deploy. Where no in-memory session row backs
   the request (a new process or another instance), those users sign in again.
+
+### Boot-time discovery (issue #101)
+
+Reported 2026-09-29 by Jonathon Huff (The Moody Church). With `discoveryUrl`
+set, genericOAuth fetches MP's discovery document **once**, inside the auth
+context's `init`, with no timeout and no retry, and every auth request awaits
+that `init`. Every in-process `auth.api.*` call awaits it too, which means every
+page's session check.
+
+- A **failed** fetch drops the provider: `/sign-in/social` returns `404
+  PROVIDER_NOT_FOUND`, and `/signin` spins, until a restart. The rebuild facade
+  above healed this after a 30 s cooldown.
+- A **hung** fetch stalls every request for undici's ~300 s headers timeout.
+  The facade did not cover this case.
+
+`/signin` still returns 200, so an uptime check stays green.
+
+**Does this apply to me?** It applies if `grep -nE "^\s*discoveryUrl:"
+src/lib/auth.ts | grep -v "discoveryUrl: string"` prints (the second grep skips
+a function parameter of that name). It is worse without the facade.
+
+**Upstream fix:** no `discoveryUrl`. Explicit `authorizationUrl`, `tokenUrl` and
+`endSessionEndpoint`, plus `accountSubject: ({ profile }) => profile.sub`.
+`getUserInfo` verifies the id_token itself (`verifyMpIdToken`: jose `jwtVerify`,
+RS256 only, `iss`/`aud`) against an issuer and JWKS that `lazyIdTokenVerifier`
+loads from discovery **at the first callback**:
+
+- 5 s timeout;
+- cached on success, never on failure;
+- single-flight.
+
+Building the instance, `next build`, cold starts and session checks make no MP
+call. An MP outage now fails only the sign-in whose callback hits it, and the
+next sign-in recovers. It also removes the F12 branch at the source, because
+the provider has no id_token config, and nonce binding goes the same way. Step
+by step, including what to delete if you ported the rebuild facade:
+`.claude/playbooks/port-security-review-2026-09-28.md` Phase 4.
 
 ---
 
@@ -1345,8 +1403,11 @@ and a verification list, is in `.claude/playbooks/port-security-review-2026-09-2
   `disableIdTokenSignIn` is not an alternative: the normal code flow calls the
   same `verifyProviderIdToken`, which returns `false` when that flag is set, so
   it would break every sign-in. Re-check the hook and the route's key list on
-  every better-auth upgrade. Dropping `discoveryUrl` (which would remove the
-  branch, at the cost of JWKS verification) is deferred as a separate trade-off.
+  every better-auth upgrade. **Largely closed by issue #101 (2026-09-29):** the
+  provider has no `discoveryUrl`, and so no id_token config, which means
+  better-auth refuses the branch itself (`ID_TOKEN_NOT_SUPPORTED`). JWKS
+  verification is kept, because the app now does it. The hook stays, since
+  re-adding `discoveryUrl` would switch the branch back on.
 - **better-auth's own logger** still logs callback `error`/`state`/`iss`/
   `callbackURL` values verbatim (accepted; a custom `logger` would fix it).
 

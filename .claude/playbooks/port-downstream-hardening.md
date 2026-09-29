@@ -104,7 +104,8 @@ grep -rqF 'startsWith("/\\")' src/ && echo "✗ F3b (weak leading-/\\ check)" ||
 grep -rqF '\u001f' src/components/sign-in/ src/app/signin/ 2>/dev/null && echo "✓ control chars refused" || echo "✗ F3b (no control-char rule)"
 
 # F12: is ID-token sign-in refused? (live whenever discoveryUrl is set on better-auth >= 1.7)
-grep -q "discoveryUrl" src/lib/auth.ts && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
+# (`^\s*discoveryUrl:` is the config key; the second grep skips a function parameter of that name)
+grep -E "^\s*discoveryUrl:" src/lib/auth.ts | grep -qv "discoveryUrl: string" && ! grep -q "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts \
   && echo "✗ F12 (no hooks.before idToken guard)" || echo "✓ F12 guard (or no discoveryUrl)"
 grep -q "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts" && echo "✓ F12 route filter" || echo "✗ F12 (route filter)"
 
@@ -396,7 +397,7 @@ Reported privately on 2026-09-25 by Jonathon Huff (The Moody Church). Severity *
 ### Does this apply here?
 
 ```bash
-grep -n "discoveryUrl" src/lib/auth.ts                        # set? the branch is live
+grep -nE "^\s*discoveryUrl:" src/lib/auth.ts | grep -v "discoveryUrl: string"   # set? the branch is live
 grep -n "ID_TOKEN_SIGN_IN_DISABLED" src/lib/auth.ts           # absent? affected
 grep '"version"' node_modules/better-auth/package.json        # >= 1.7? affected
 grep -n "allowedSignInSocialKeys" "src/app/api/auth/[...all]/route.ts"   # absent? layer (a) missing
@@ -416,7 +417,7 @@ Fixed: a plain **404** from the route before better-auth runs (and, with the rou
 
 ### What it is
 
-better-auth 1.7's `POST /sign-in/social` has an `idToken` branch: body `{ provider, idToken: { token, accessToken } }` creates a session directly — no `state`, no authorization code, no exchange. It is enabled for a genericOAuth provider whenever that provider has an id-token verification config, which it gets automatically because `auth.ts` sets `discoveryUrl`. **genericOAuth has no option to turn it off.**
+better-auth 1.7's `POST /sign-in/social` has an `idToken` branch: body `{ provider, idToken: { token, accessToken } }` creates a session directly — no `state`, no authorization code, no exchange. It is enabled for a genericOAuth provider whenever that provider has an id-token verification config, which it gets automatically when `auth.ts` sets `discoveryUrl`. **genericOAuth has no option to turn it off.** Upstream `main` stopped setting `discoveryUrl` in issue #101, so better-auth refuses the branch itself there (`ID_TOKEN_NOT_SUPPORTED`). The layers below are still ported as the primary control.
 
 better-auth verifies the id_token (signature, issuer, audience = `OIDC_CLIENT_ID`), then calls **our** `getUserInfo` with the **caller-supplied** `accessToken`. Identity — `sub` → `userGuid` — comes from MP's `/connect/userinfo` for that access token. **Nothing binds `id_token.sub` to `userinfo.sub`.** So the attacker's *own* valid id_token for this client, plus a victim's MP access token from **any** MP client that `/connect/userinfo` accepts, yields an app session **as the victim** — their roles on every authorization check, their `User_ID` on every write. Reproduced upstream against a mock.
 
@@ -477,7 +478,7 @@ The subset rule also refuses keys the app never sends — `scopes`, `errorCallba
 
 Why all three: (a) is HTTP-only and in-process `auth.api` calls skip it; (b) depends on better-auth keeping the key named `idToken`; (c) is what still holds if a future better-auth path reaches `getUserInfo` with caller-supplied tokens.
 
-**Do not drop `discoveryUrl` as a drive-by.** It would remove the id-token config and with it the branch — and the dependence on discovery at boot — but it loses JWKS verification of the normal flow's id_token (upstream now requires it: `requireIdTokenVerification: true`), and since 1.7 reads `profile.id` for non-OIDC providers it needs an `accountSubject` mapping. Upstream deferred it as a separate trade-off; raise it with the user rather than deciding.
+**Do not drop `discoveryUrl` as a drive-by.** Dropped on its own, it loses genericOAuth's JWKS verification of the normal flow's id_token, and it breaks account identity without an `accountSubject` mapping (since 1.7 the default reads `profile.id` for a non-OIDC provider). Upstream **did** drop it in issue #101 (2026-09-29), as a complete change: explicit endpoints including `endSessionEndpoint`, `accountSubject` → `sub`, and the id_token verified in `getUserInfo` against a lazily loaded JWKS. Port that as a whole, from `port-security-review-2026-09-28.md` Phase 4, and only after asking the user. Keep the three layers above either way.
 
 ### Tests, and the mutations that must fail them
 
@@ -678,13 +679,13 @@ Not security findings, but both cost hours upstream and both are inherited code.
 
 Symptom: `/auth-error?error=unable_to_get_user_info`, with `id_token failed verification against the discovery JWKS or expected nonce`.
 
-better-auth 1.7 turns nonce binding on automatically for any provider whose discovery document yields an id_token config, sends a `nonce` on the authorize request, then requires the claim to come back — `nonceMatches` returns false when the claim is absent. **MP omits it.** So:
+better-auth 1.7 turns nonce binding on automatically for any provider whose discovery document yields an id_token config, sends a `nonce` on the authorize request, then requires the claim to come back — `nonceMatches` returns false when the claim is absent. **MP omits it.** So, while this repo's config sets `discoveryUrl`:
 
 ```ts
 disableIdTokenNonceBinding: true,
 ```
 
-What made this look intermittent is inverted from the obvious reading: on better-auth before 1.7.3, **sign-in succeeded only when the boot-time discovery fetch had failed**, because that left the id_token config undefined and skipped verification altogether. A *working* discovery meant a *broken* sign-in. On 1.7.4 a failed discovery skips the provider instead (sign-in 404s `PROVIDER_NOT_FOUND`); upstream also sets `requireIdTokenVerification: true` so a discovery document missing `issuer` or `jwks_uri` is refused rather than silently skipping verification, and rebuilds the `auth` instance on the next sign-in after a 30 s cooldown so one failed discovery does not last for the life of the process.
+What made this look intermittent is inverted from the obvious reading: on better-auth before 1.7.3, **sign-in succeeded only when the boot-time discovery fetch had failed**, because that left the id_token config undefined and skipped verification altogether. A *working* discovery meant a *broken* sign-in. On 1.7.4 a failed discovery skips the provider instead (sign-in 404s `PROVIDER_NOT_FOUND`). On a `discoveryUrl` config, keep `requireIdTokenVerification: true` as well, so that a discovery document missing `issuer` or `jwks_uri` is refused rather than silently skipping verification. Upstream has since removed boot-time discovery (issue #101): no `discoveryUrl`, so no nonce binding and neither option. See `port-security-review-2026-09-28.md` Phase 4.
 
 What you give up: binding the id_token to this particular authorization request. Signature, issuer and audience are still verified against MP's JWKS. The `state` cookie check and the client secret do **not** cover the gap, and MP offers no PKCE — see Phase 11: this is an accepted risk.
 
@@ -835,7 +836,7 @@ Carry these forward as known risk; don't present them as closed.
 - **No CSP reporting endpoint** (decided upstream 2026-09-29).
 - `/_not-found` and `/_global-error` are prerendered and therefore nonce-less. Accepted upstream: neither can opt out; `/_global-error` recovers via a plain link.
 - An MP timeout during a role lookup fails after 20 s to the error boundary; no retry/backoff on that path.
-- **F12 residue** — genericOAuth still has no usable switch for the `idToken` branch; the fix *refuses* it rather than removing it. better-auth's `disableIdTokenSignIn` is **not** an alternative: the code flow calls the same `verifyProviderIdToken`, which returns `false` when that flag is set, so it breaks every sign-in. Re-check the hook and the route's key list on every better-auth upgrade. Dropping `discoveryUrl` (which would remove the branch, at the cost of JWKS verification) is deferred as a separate trade-off.
+- **F12 residue** — genericOAuth still has no usable switch for the `idToken` branch; the fix *refuses* it rather than removing it. better-auth's `disableIdTokenSignIn` is **not** an alternative: the code flow calls the same `verifyProviderIdToken`, which returns `false` when that flag is set, so it breaks every sign-in. Re-check the hook and the route's key list on every better-auth upgrade. **Upstream dropped `discoveryUrl` in issue #101** (2026-09-29) and kept JWKS verification by doing it in `getUserInfo`, so the branch is refused by better-auth there too. The hook stays, because re-adding `discoveryUrl` would switch the branch back on.
 - better-auth's own logger logs callback `error`/`state`/`iss`/`callbackURL` values verbatim (accepted upstream).
 
 Upstream's 2026-09-28/29 review follow-up — what changed, and what is **breaking for forks** (`firstName`/`lastName` gone from the session, trusted sender for communications, deny-all stored procedures, `CurrentUserProfile`, required https `BETTER_AUTH_URL`, `server-only`, `--conditions=react-server` for the generators, one-time `session_data` invalidation) — is summarised in `docs/security/downstream-hardening-playbook.md` § 2026-09-29 follow-up. Port it with **`.claude/playbooks/port-security-review-2026-09-28.md`** after the above, not mixed into them.
