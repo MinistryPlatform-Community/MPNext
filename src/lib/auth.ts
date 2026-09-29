@@ -6,8 +6,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { isIP } from "node:net";
 import { MPHelper } from "@/lib/providers/ministry-platform";
 import { sanitizeGuid } from "@/lib/providers/ministry-platform/utils/filter-sanitize";
-
-const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+import { getAuthBaseUrl, getMpBaseUrl } from "@/lib/env";
 
 /**
  * Custom fields added to the Better Auth `user` record.
@@ -325,7 +324,8 @@ const refuseIdTokenSignIn = createAuthMiddleware(async (ctx) => {
  * provider live with verification silently skipped. With it, such a provider
  * is skipped (sign-in 404s `PROVIDER_NOT_FOUND`, with an error log). A failed
  * discovery fetch leaves no authorization endpoint, so that provider is
- * skipped too. `src/auth.oidc-hardening.test.ts` pins both.
+ * skipped too (until `selfHealingAuth` rebuilds the instance and discovery
+ * succeeds). `src/auth.oidc-hardening.test.ts` pins both.
  *
  * Hand-rolled rather than `jose`'s `decodeJwt`: `jose` is only a transitive
  * dependency (via better-auth), and importing it directly would break silently
@@ -524,6 +524,16 @@ if (!process.env.VITEST) {
   assertAuthEnvironment(process.env);
 }
 
+// The two auth-critical URLs, validated once at module load (see
+// src/lib/env.ts): https (loopback http outside production only), no
+// credentials, query or fragment, no trailing slash, and BETTER_AUTH_URL an
+// origin. Unlike the secret guard these run under Vitest too; `test-setup.ts`
+// stubs valid values. An unset BETTER_AUTH_URL is refused rather than left to
+// better-auth, which would otherwise derive the base URL — and so the OAuth
+// redirect_uri and the trusted origins — from the request's Host header.
+const mpBaseUrl = getMpBaseUrl();
+const authBaseUrl = getAuthBaseUrl();
+
 /**
  * Client-IP resolution for better-auth's rate limiter (`/sign-in*` is 3
  * requests per 10 s per IP in production). By default better-auth trusts only
@@ -628,7 +638,7 @@ export const SESSION_EXPIRES_IN_SECONDS = 12 * 60 * 60;
 export const SESSION_COOKIE_CACHE_MAX_AGE_SECONDS = 60 * 60;
 
 const options = {
-  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXTAUTH_URL,
+  baseURL: authBaseUrl,
   secret: process.env.BETTER_AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   // Pinned explicitly so an env var cannot flip it: when this is left
   // undefined, better-auth sets `skipOriginCheck = isTest()`, i.e. a truthy
@@ -636,6 +646,14 @@ const options = {
   // (context/create-context.mjs). See `assertAuthEnvironment` above.
   advanced: {
     disableOriginCheck: false,
+    // `Secure` + `__Secure-` cookies in production, stated rather than
+    // inferred. better-auth derives this from the baseURL's scheme
+    // (cookies/index.mjs), which `getAuthBaseUrl` already forces to https in
+    // production, so this changes nothing today; it pins the behaviour if that
+    // derivation ever changes. Left to the derivation outside production, so
+    // `http://localhost` dev keeps working (browsers accept `Secure` cookies
+    // on localhost, but not every tool driving it does).
+    ...(process.env.NODE_ENV === "production" && { useSecureCookies: true }),
     // See `parseIpAddressOptions` above.
     ipAddress: parseIpAddressOptions(process.env),
   },
@@ -738,10 +756,11 @@ const options = {
           //
           // Discovery runs ONCE per auth instance, with no retry. If that fetch
           // fails, genericOAuth logs "Discovery fetch failed" and skips the
-          // provider, so sign-in fails CLOSED (`404 PROVIDER_NOT_FOUND`) until
-          // the process restarts. (Before 1.7.3 the provider stayed live with no
-          // id_token verification; that fail-open mode is gone.) See TODO
-          // security-discovery-failure-no-retry for the pending retry decision.
+          // provider, so sign-in fails CLOSED (`404 PROVIDER_NOT_FOUND`). (Before
+          // 1.7.3 the provider stayed live with no id_token verification; that
+          // fail-open mode is gone.) It no longer lasts until a restart:
+          // `selfHealingAuth` below rebuilds the instance — re-running
+          // discovery — on the next sign-in after a 30 s cooldown.
           //
           // Without this, a discovery document that returned the endpoints but
           // omitted `jwks_uri` or `issuer` left the provider live with id_token
@@ -782,8 +801,9 @@ const options = {
           // (It looked intermittent at the time because, before better-auth
           // 1.7.3, a FAILED boot-time discovery left the provider live with no
           // id_token config, which skipped verification and so let sign-in
-          // succeed. In 1.7.4 a failed discovery skips the provider entirely,
-          // and `requireIdTokenVerification` above refuses a partial one.)
+          // succeed. In 1.7.4 a failed discovery skips the provider entirely —
+          // sign-in 404s until `selfHealingAuth` rebuilds the instance — and
+          // `requireIdTokenVerification` above refuses a partial one.)
           //
           // What this does NOT give up: the id_token signature is still checked
           // against MP's JWKS, and the issuer and audience are still checked.
@@ -1058,6 +1078,172 @@ export function sharedInstance<T>(
   return (store[key] ??= create());
 }
 
-export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
+/** The genericOAuth provider id this app signs in with. */
+export const MP_PROVIDER_ID = "ministry-platform";
+
+/**
+ * Minimum time between two builds of the auth instance (the first build
+ * counts). Bounds discovery traffic to one fetch per 30 s per process while MP
+ * is down, however many users retry sign-in.
+ */
+export const DISCOVERY_REBUILD_COOLDOWN_MS = 30 * 1000;
+
+/**
+ * How long a sign-in request waits for an in-flight rebuild before going ahead
+ * with the current (provider-less) instance. genericOAuth's discovery fetch has
+ * no timeout of its own, so without this a hung MP would hold every sign-in
+ * request open; the rebuild itself carries on in the background.
+ */
+export const DISCOVERY_REBUILD_WAIT_MS = 10 * 1000;
+
+interface RebuildableAuth {
+  handler: (request: Request) => Promise<Response>;
+  $context: Promise<{ socialProviders: ReadonlyArray<{ id: string }> }>;
+}
+
+/**
+ * Only these requests need the MP provider; everything else (`/get-session`,
+ * `/sign-out`, ...) never triggers a rebuild, so an MP outage cannot slow page
+ * loads down. Paths are under better-auth's default `/api/auth` basePath.
+ */
+function needsProvider(request: Request): boolean {
+  // `Request.url` is always absolute, so this cannot throw.
+  const path = new URL(request.url).pathname.replace(/\/+$/, "");
+  return path === "/api/auth/sign-in/social" || path.startsWith("/api/auth/callback/");
+}
+
+async function hasProvider(instance: RebuildableAuth): Promise<boolean> {
+  try {
+    const ctx = await instance.$context;
+    return ctx.socialProviders.some((provider) => provider.id === MP_PROVIDER_ID);
+  } catch {
+    return false;
+  }
+}
+
+/** Identifiers only: never the discovery URL or the error message. */
+function logDiscoveryRebuild(
+  outcome: "recovered" | "provider_still_missing" | "create_failed",
+  errName?: string,
+) {
+  const log = outcome === "recovered" ? console.warn : console.error;
+  log(
+    JSON.stringify({
+      event: "auth.discovery.rebuild",
+      message:
+        outcome === "recovered"
+          ? "Rebuilt the auth instance; the MP OIDC provider is available again"
+          : "Rebuilt the auth instance; the MP OIDC provider is still unavailable",
+      providerId: MP_PROVIDER_ID,
+      outcome,
+      ...(errName && { errName }),
+    }),
+  );
+}
+
+/**
+ * Wraps `create` so a boot-time OIDC discovery failure heals without a
+ * restart.
+ *
+ * genericOAuth fetches MP's discovery document ONCE, while the auth context
+ * initializes, with no retry. If that fetch fails (or the document lacks
+ * `issuer`/`jwks_uri` — see `requireIdTokenVerification`), the provider is
+ * skipped and `/sign-in/social` returns `404 PROVIDER_NOT_FOUND` for the life
+ * of the instance: one transient MP blip at cold start used to disable sign-in
+ * until the process restarted. Fail-closed, but an outage.
+ *
+ * Now a sign-in or callback request that finds the provider missing builds a
+ * fresh instance — which runs discovery again — and swaps it in if (and only
+ * if) the new one has the provider:
+ * - single-flight: concurrent requests share one rebuild;
+ * - at most one build per `DISCOVERY_REBUILD_COOLDOWN_MS`, counting the first;
+ *   inside the cooldown the request just gets the 404, as before;
+ * - a request waits at most `DISCOVERY_REBUILD_WAIT_MS` for the rebuild;
+ * - an instance that HAS the provider is never rebuilt, so a healthy
+ *   instance's in-memory sessions and account rows (the `id_token_hint` for
+ *   sign-out) are never thrown away. Swapping out a provider-less instance
+ *   loses nothing: without the provider no OAuth callback could have stored a
+ *   session in it (and `session_data` cookies are keyed from the secret, not
+ *   the instance).
+ *
+ * Transparent to callers: the returned object delegates every property to the
+ * CURRENT instance at access time (`auth.api.getSession(...)`,
+ * `auth.$context`, ...), and its `handler` — what `toNextJsHandler` in the
+ * `/api/auth` route calls per request — does the check first. So never cache
+ * `auth.api` in a module-level variable; it would pin the first instance.
+ * In-process `auth.api.signInSocial` calls do not trigger a rebuild (nothing
+ * in `src/` makes one). `src/auth.discovery-rebuild.test.ts` pins all of this.
+ */
+export function selfHealingAuth<T extends RebuildableAuth>(
+  create: () => T,
+  {
+    cooldownMs = DISCOVERY_REBUILD_COOLDOWN_MS,
+    waitMs = DISCOVERY_REBUILD_WAIT_MS,
+  }: { cooldownMs?: number; waitMs?: number } = {},
+): T {
+  let current = create();
+  let builtAt = Date.now();
+  let rebuilding: Promise<void> | null = null;
+
+  async function rebuild(): Promise<void> {
+    builtAt = Date.now();
+    let candidate: T;
+    try {
+      candidate = create();
+    } catch (err) {
+      logDiscoveryRebuild("create_failed", errorName(err));
+      return;
+    }
+    if (await hasProvider(candidate)) {
+      current = candidate;
+      logDiscoveryRebuild("recovered");
+    } else {
+      logDiscoveryRebuild("provider_still_missing");
+    }
+  }
+
+  async function ensureProvider(): Promise<void> {
+    if (await hasProvider(current)) return;
+    if (!rebuilding) {
+      if (Date.now() - builtAt < cooldownMs) return;
+      rebuilding = rebuild().finally(() => {
+        rebuilding = null;
+      });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      rebuilding,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, waitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
+  const handler = async (request: Request): Promise<Response> => {
+    if (needsProvider(request)) await ensureProvider();
+    return current.handler(request);
+  };
+
+  // `handler`/`fetch` are real own properties of the target (so `vi.spyOn`
+  // and friends can redefine them); every other property reads through to the
+  // current instance.
+  const own: Pick<RebuildableAuth, "handler"> & { fetch: RebuildableAuth["handler"] } = {
+    handler,
+    fetch: handler,
+  };
+  return new Proxy(own, {
+    get(target, prop, receiver) {
+      if (Object.hasOwn(target, prop)) return Reflect.get(target, prop, receiver);
+      return Reflect.get(current, prop, current);
+    },
+    // `toNextJsHandler` checks `"handler" in auth` before calling it.
+    has(target, prop) {
+      return prop in target || prop in current;
+    },
+  }) as unknown as T;
+}
+
+export const auth = sharedInstance(SHARED_AUTH_KEY, () => selfHealingAuth(createAuth));
 
 export type Session = typeof auth.$Infer.Session;

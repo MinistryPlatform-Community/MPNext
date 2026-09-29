@@ -1,3 +1,4 @@
+import { getMpBaseUrl } from "@/lib/env";
 import { errorName, readJsonResponse } from "../utils/http-client";
 
 /**
@@ -21,7 +22,9 @@ export const TOKEN_TIMEOUT_MS = 10_000;
 const ERROR_PREFIX = "Failed to get client credentials token";
 
 export async function getClientCredentialsToken(): Promise<ClientCredentialsToken> {
-  const mpBaseUrl = process.env.MINISTRY_PLATFORM_BASE_URL!;
+  // Validated (https, no credentials/query, no trailing slash): this request
+  // carries the client secret. Throws on a bad value.
+  const mpBaseUrl = getMpBaseUrl();
   const mpOauthUrl = `${mpBaseUrl}/oauth`;
 
   const params = new URLSearchParams({
