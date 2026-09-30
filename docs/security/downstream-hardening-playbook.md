@@ -1372,7 +1372,7 @@ call. An MP outage now fails only the sign-in whose callback hits it, and the
 next sign-in recovers. It also removes the F12 branch at the source, because
 the provider has no id_token config, and nonce binding goes the same way. Step
 by step, including what to delete if you ported the rebuild facade:
-`.claude/playbooks/port-security-review-2026-09-28.md` Phase 4.
+`.claude/playbooks/port-oidc-lazy-discovery.md`.
 
 ---
 

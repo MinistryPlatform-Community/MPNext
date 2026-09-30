@@ -215,7 +215,7 @@ export function sharedInstance<T>(key: symbol, create: () => T, env = process.en
 export const auth = sharedInstance(SHARED_AUTH_KEY, createAuth);
 ```
 
-**Port: no boot-time discovery.** Configure the endpoints explicitly and verify the id_token yourself in `getUserInfo`, against an issuer and JWKS loaded from discovery **lazily**. `jose` becomes a direct dependency (it is already in the tree via better-auth; add it with `npm run deps:relock`).
+**Port: no boot-time discovery.** Configure the endpoints explicitly and verify the id_token yourself in `getUserInfo`, against an issuer and JWKS loaded from discovery **lazily**. `jose` becomes a direct dependency (it is already in the tree via better-auth; add it with `npm run deps:relock`). The sketch below summarises the change. The complete procedure is **[`port-oidc-lazy-discovery.md`](port-oidc-lazy-discovery.md)**: triage by fork state, full code, the test changes, a repro against a fake MP, and the real-MP smoke test. Use that playbook for this half of Phase 4.
 
 ```ts
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
